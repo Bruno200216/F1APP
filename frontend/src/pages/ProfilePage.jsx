@@ -12,6 +12,7 @@ import IconButton from '@mui/material/IconButton';
 import CloseIcon from '@mui/icons-material/Close';
 import ArrowBackIosNewIcon from '@mui/icons-material/ArrowBackIosNew';
 import ArrowForwardIosIcon from '@mui/icons-material/ArrowForwardIos';
+import LockIcon from '@mui/icons-material/Lock';
 import { useLeague } from '../context/LeagueContext';
 
 const teamColors = {
@@ -76,6 +77,17 @@ export default function ProfilePage() {
   const { pilot, pilot_by_league, grand_prix, scoring_criteria } = profile;
   const teamColor = teamColors[pilot?.team] || { primary: '#666', secondary: '#444' };
 
+  // Calcular días restantes de la cláusula
+  let clausulaDias = null;
+  if (pilot_by_league?.clausula) {
+    const expira = new Date(pilot_by_league.clausula);
+    const ahora = new Date();
+    const diff = expira - ahora;
+    if (diff > 0) {
+      clausulaDias = Math.ceil(diff / (1000 * 60 * 60 * 24));
+    }
+  }
+
   // Diccionario para mostrar nombres legibles de los criterios
   const readableCriteria = {
     practice_point_finish: 'Puntos por posición',
@@ -111,6 +123,13 @@ export default function ProfilePage() {
             {/* Modo debajo del nombre */}
             <Typography variant="body2" sx={{ color: '#FFD600', fontWeight: 700, mb: 1 }}>Modo: {pilot_by_league?.mode?.toUpperCase()}</Typography>
             <Typography variant="body2" sx={{ color: '#4CAF50', fontWeight: 700 }}>{(pilot.value || 0).toLocaleString()} €</Typography>
+            {/* Candado de cláusula */}
+            {clausulaDias && (
+              <Box sx={{ display: 'flex', alignItems: 'center', mt: 1, background: '#23243a', borderRadius: 2, px: 1.2, py: 0.2, width: 'fit-content' }}>
+                <LockIcon sx={{ color: '#FF5252', fontSize: 18, mr: 0.5 }} />
+                <Typography sx={{ color: '#FF5252', fontWeight: 700, fontSize: 13 }}>{clausulaDias} días</Typography>
+              </Box>
+            )}
           </Box>
         </Box>
         {/* Barra de Grandes Premios con flechas debajo del nombre */}

@@ -13,6 +13,7 @@ import JoinLeaguePage from './pages/JoinLeaguePage';
 import AuctionPilotProfilePage from './pages/AuctionPilotProfilePage';
 import AuctionPilotBidPage from './pages/AuctionPilotBidPage';
 import ProfilePage from './pages/ProfilePage';
+import AdminScoresPage from './pages/AdminScoresPage';
 
 const theme = createTheme({
   palette: {
@@ -45,6 +46,7 @@ function App() {
               <Route path="/activity" element={<ActivityPage />} />
               <Route path="/join-league" element={<JoinLeaguePage />} />
               <Route path="/profile/:id" element={<ProfilePage />} />
+              <Route path="/admin-scores" element={<AdminScoresPage />} />
             </Routes>
             <BottomNavBar />
           </div>

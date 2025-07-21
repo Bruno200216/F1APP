@@ -20,36 +20,40 @@ type Player struct {
 // Modelo único de pilotos generales
 
 type Pilot struct {
-	ID                       uint      `json:"id" gorm:"primaryKey"`
-	OwnerID                  uint      `json:"owner_id" gorm:"default:0"`
-	DriverName               string    `json:"driver_name" gorm:"not null"`
-	Team                     string    `json:"team" gorm:"not null"`
-	ImageURL                 string    `json:"image_url" gorm:"not null"`
-	Mode                     string    `json:"mode" gorm:"not null"` // R, Q, P
-	TotalPoints              int       `json:"total_points" gorm:"default:0"`
-	PracticePointFinish      []int     `json:"practice_point_finish" gorm:"type:json;serializer:json"`
-	PracticeTeamBattle       []int     `json:"practice_team_battle" gorm:"type:json;serializer:json"`
-	PracticeRedFlag          []int     `json:"practice_red_flag" gorm:"type:json;serializer:json"`
-	QualifyingPassQ1         []int     `json:"qualifying_pass_q1" gorm:"type:json;serializer:json"`
-	QualifyingPassQ2         []int     `json:"qualifying_pass_q2" gorm:"type:json;serializer:json"`
-	QualifyingPositionFinish []int     `json:"qualifying_position_finish" gorm:"type:json;serializer:json"`
-	QualifyingTeamBattle     []int     `json:"qualifying_team_battle" gorm:"type:json;serializer:json"`
-	QualifyingRedFlag        []int     `json:"qualifying_red_flag" gorm:"type:json;serializer:json"`
-	RacePoints               []int     `json:"race_points" gorm:"type:json;serializer:json"`
-	RacePosition             []int     `json:"race_position" gorm:"type:json;serializer:json"`
-	StartPosition            []int     `json:"start_position" gorm:"type:json;serializer:json"`
-	FinishPosition           []int     `json:"finish_position" gorm:"type:json;serializer:json"`
-	FastestLap               []int     `json:"fastest_lap" gorm:"type:json;serializer:json"`
-	DriverOfTheDay           []int     `json:"driver_of_the_day" gorm:"type:json;serializer:json"`
-	SafetyCar                []int     `json:"safety_car" gorm:"type:json;serializer:json"`
-	RaceTeamBattle           []int     `json:"race_team_battle" gorm:"type:json;serializer:json"`
-	RaceRedFlag              []int     `json:"race_red_flag" gorm:"type:json;serializer:json"`
-	ValorGlobal              float64   `json:"valor_global" gorm:"-"`
-	Value                    float64   `json:"value" gorm:"not null;default:0"`
-	Ventas7Fichajes          int       `json:"ventas7fichajes" gorm:"column:ventas7fichajes"`
-	PointsByGP               []byte    `json:"points_by_gp" gorm:"type:json"`
-	CreatedAt                time.Time `json:"created_at"`
-	UpdatedAt                time.Time `json:"updated_at"`
+	ID                       uint           `json:"id" gorm:"primaryKey"`
+	OwnerID                  uint           `json:"owner_id" gorm:"default:0"`
+	DriverName               string         `json:"driver_name" gorm:"not null"`
+	Team                     string         `json:"team" gorm:"not null"`
+	ImageURL                 string         `json:"image_url" gorm:"not null"`
+	Mode                     string         `json:"mode" gorm:"not null"` // R, Q, P
+	TotalPoints              int            `json:"total_points" gorm:"default:0"`
+	PracticePointFinish      []int          `json:"practice_point_finish" gorm:"type:json;serializer:json"`
+	PracticeTeamBattle       []int          `json:"practice_team_battle" gorm:"type:json;serializer:json"`
+	PracticeRedFlag          []int          `json:"practice_red_flag" gorm:"type:json;serializer:json"`
+	QualifyingPassQ1         []int          `json:"qualifying_pass_q1" gorm:"type:json;serializer:json"`
+	QualifyingPassQ2         []int          `json:"qualifying_pass_q2" gorm:"type:json;serializer:json"`
+	QualifyingPositionFinish []int          `json:"qualifying_position_finish" gorm:"type:json;serializer:json"`
+	QualifyingTeamBattle     []int          `json:"qualifying_team_battle" gorm:"type:json;serializer:json"`
+	QualifyingRedFlag        []int          `json:"qualifying_red_flag" gorm:"type:json;serializer:json"`
+	RacePoints               []int          `json:"race_points" gorm:"type:json;serializer:json"`
+	RacePosition             []int          `json:"race_position" gorm:"type:json;serializer:json"`
+	StartPosition            []int          `json:"start_position" gorm:"type:json;serializer:json"`
+	FinishPosition           []int          `json:"finish_position" gorm:"type:json;serializer:json"`
+	FastestLap               []int          `json:"fastest_lap" gorm:"type:json;serializer:json"`
+	DriverOfTheDay           []int          `json:"driver_of_the_day" gorm:"type:json;serializer:json"`
+	SafetyCar                []int          `json:"safety_car" gorm:"type:json;serializer:json"`
+	RaceTeamBattle           []int          `json:"race_team_battle" gorm:"type:json;serializer:json"`
+	RaceRedFlag              []int          `json:"race_red_flag" gorm:"type:json;serializer:json"`
+	ValorGlobal              float64        `json:"valor_global" gorm:"-"`
+	Value                    float64        `json:"value" gorm:"not null;default:0"`
+	Ventas7Fichajes          int            `json:"ventas7fichajes" gorm:"column:ventas7fichajes"`
+	PointsByGP               []byte         `json:"points_by_gp" gorm:"type:json"`
+	TrackEngineerID          uint           `json:"track_engineer_id"`
+	ChiefEngineerID          uint           `json:"chief_engineer_id"`
+	TrackEngineer            *TrackEngineer `gorm:"foreignKey:TrackEngineerID"`
+	ChiefEngineer            *ChiefEngineer `gorm:"foreignKey:ChiefEngineerID"`
+	CreatedAt                time.Time      `json:"created_at"`
+	UpdatedAt                time.Time      `json:"updated_at"`
 }
 
 // Modelo básico de liga
@@ -71,7 +75,8 @@ type PilotByLeague struct {
 	PilotID              uint       `json:"pilot_id" gorm:"not null"`
 	LeagueID             uint       `json:"league_id" gorm:"not null"`
 	OwnerID              uint       `json:"owner_id" gorm:"default:0"`
-	Clausula             string     `json:"clausula" gorm:"type:text"`
+	Clausulatime         *time.Time `json:"clausulatime" gorm:"column:clausulatime"`
+	ClausulaValue        *float64   `json:"clausula_value" gorm:"column:clausula_value"`
 	Bids                 []byte     `json:"bids" gorm:"type:json"`
 	Venta                *int       `json:"venta" gorm:"column:venta"` // Nuevo campo para el precio de venta
 	VentaExpiresAt       *time.Time `json:"venta_expires_at" gorm:"column:venta_expires_at"`
@@ -106,7 +111,7 @@ func (PlayerByLeague) TableName() string {
 
 // Modelo para grandes premios (f1_grand_prixes)
 type GrandPrix struct {
-	ID      uint      `json:"id" gorm:"primaryKey"`
+	GPIndex uint      `json:"gp_index" gorm:"primaryKey;column:gp_index"`
 	Name    string    `json:"name"`
 	Date    time.Time `json:"date"`
 	Circuit string    `json:"circuit"`
@@ -116,4 +121,106 @@ type GrandPrix struct {
 
 func (GrandPrix) TableName() string {
 	return "f1_grand_prixes"
+}
+
+// Modelos para puntuaciones desacopladas por sesión
+
+type PilotRace struct {
+	ID                     uint `gorm:"primaryKey"`
+	PilotID                uint `gorm:"not null"`
+	GPIndex                uint `gorm:"not null;column:gp_index"`
+	StartPosition          int
+	FinishPosition         int
+	ExpectedPosition       float64
+	DeltaPosition          int
+	Points                 int
+	PositionsGainedAtStart int
+	CleanOvertakes         int
+	NetPositionsLost       int
+	FastestLap             bool
+	CausedVSC              bool
+	CausedSC               bool
+	CausedRedFlag          bool
+	DNFDriverError         bool
+	DNFNoFault             bool
+	Pilot                  Pilot     `gorm:"foreignKey:PilotID"`
+	GrandPrix              GrandPrix `gorm:"foreignKey:GPIndex;references:GPIndex"`
+}
+
+type PilotQualy struct {
+	ID               uint `gorm:"primaryKey"`
+	PilotID          uint `gorm:"not null"`
+	GPIndex          uint `gorm:"not null;column:gp_index"`
+	StartPosition    int
+	FinishPosition   int
+	ExpectedPosition float64
+	DeltaPosition    int
+	Points           int
+	CausedRedFlag    bool
+	Pilot            Pilot     `gorm:"foreignKey:PilotID"`
+	GrandPrix        GrandPrix `gorm:"foreignKey:GPIndex;references:GPIndex"`
+}
+
+type PilotPractice struct {
+	ID               uint `gorm:"primaryKey"`
+	PilotID          uint `gorm:"not null"`
+	GPIndex          uint `gorm:"not null;column:gp_index"`
+	StartPosition    int
+	FinishPosition   int
+	ExpectedPosition float64
+	DeltaPosition    int
+	Points           int
+	CausedRedFlag    bool
+	Pilot            Pilot     `gorm:"foreignKey:PilotID"`
+	GrandPrix        GrandPrix `gorm:"foreignKey:GPIndex;references:GPIndex"`
+}
+
+// Modelo de Ingeniero de Pista
+
+type TrackEngineer struct {
+	ID          uint      `gorm:"primaryKey"`
+	Value       float64   `gorm:"not null;default:0"`
+	ImageURL    string    `gorm:"not null"`
+	GPIndex     uint      `gorm:"not null"`
+	Performance bool      `gorm:"not null;default:false"`
+	GrandPrix   GrandPrix `gorm:"foreignKey:GPIndex;references:GPIndex"`
+	// name string // Si quieres puedes añadir el campo name aquí
+}
+
+// Modelo de Ingeniero Jefe
+
+type ChiefEngineer struct {
+	ID                   uint      `gorm:"primaryKey"`
+	Value                float64   `gorm:"not null;default:0"`
+	ImageURL             string    `gorm:"not null"`
+	GPIndex              uint      `gorm:"not null"`
+	Team                 string    `gorm:"not null"`
+	TeamExpectedPosition float64   `gorm:"not null;default:0"`
+	TeamFinishPosition   float64   `gorm:"not null;default:0"`
+	GrandPrix            GrandPrix `gorm:"foreignKey:GPIndex;references:GPIndex"`
+}
+
+// TrackEngineerByLeague: ingeniero de pista por liga
+
+type TrackEngineerByLeague struct {
+	ID                   uint       `gorm:"primaryKey"`
+	TrackEngineerID      uint       `gorm:"not null"`
+	LeagueID             uint       `gorm:"not null"`
+	OwnerID              uint       `gorm:"default:0"`
+	CreatedAt            time.Time  `gorm:"autoCreateTime"`
+	UpdatedAt            time.Time  `gorm:"autoUpdateTime"`
+	Bids                 []byte     `gorm:"type:json"`
+	Venta                *int       `gorm:"column:venta"`
+	VentaExpiresAt       *time.Time `gorm:"column:venta_expires_at"`
+	LeagueOfferValue     *float64   `gorm:"column:league_offer_value"`
+	LeagueOfferExpiresAt *time.Time `gorm:"column:league_offer_expires_at"`
+	ClausulaExpiresAt    *time.Time `gorm:"column:clausula_expires_at"`
+	ClausulaValue        *float64   `gorm:"column:clausula_value"`
+
+	TrackEngineer TrackEngineer `gorm:"foreignKey:TrackEngineerID"`
+	League        League        `gorm:"foreignKey:LeagueID"`
+}
+
+func (TrackEngineerByLeague) TableName() string {
+	return "track_engineer_by_league"
 }

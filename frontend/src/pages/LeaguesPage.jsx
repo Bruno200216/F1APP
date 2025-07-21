@@ -16,6 +16,7 @@ import IconButton from '@mui/material/IconButton';
 import Snackbar from '@mui/material/Snackbar';
 import Alert from '@mui/material/Alert';
 import { useLeague } from '../context/LeagueContext';
+import { useNavigate } from 'react-router-dom';
 
 export default function LeaguesPage() {
   // Context
@@ -250,6 +251,8 @@ export default function LeaguesPage() {
     setSelectedLeague(null);
   };
 
+  const navigate = useNavigate();
+
   // Render leagues list
   const renderLeagues = () => (
     <Box sx={{ mt: 2 }}>
@@ -312,6 +315,11 @@ export default function LeaguesPage() {
           onClick={() => setOpenLeagueModal(true)}
         >
           Create or Join League
+        </Button>
+      </Box>
+      <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 2 }}>
+        <Button variant="contained" color="secondary" onClick={() => navigate('/admin-scores')}>
+          Administrar Puntuaciones
         </Button>
       </Box>
 

@@ -23,6 +23,8 @@ import DialogActions from '@mui/material/DialogActions';
 import BidActionsMenu from '../components/BidActionsMenu';
 import EditBidDialog from '../components/EditBidDialog';
 import DeleteBidDialog from '../components/DeleteBidDialog';
+import Avatar from '@mui/material/Avatar'; // Importar Avatar
+import CircularProgress from '@mui/material/CircularProgress';
 
 export default function MarketPage() {
   const { selectedLeague } = useLeague();
@@ -32,6 +34,7 @@ export default function MarketPage() {
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
   const [openDrivers, setOpenDrivers] = useState(false);
   const [drivers, setDrivers] = useState([]);
+  const [trackEngineers, setTrackEngineers] = useState([]); // Nuevo estado
   const [loadingDrivers, setLoadingDrivers] = useState(false);
   const [driversError, setDriversError] = useState('');
   const [openFichar, setOpenFichar] = useState(false);
@@ -104,6 +107,7 @@ export default function MarketPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Error cargando pilotos');
       setDrivers(data.pilots || []);
+      setTrackEngineers(data.track_engineers || []); // Guardar ingenieros
     } catch (err) {
       setDriversError('Error cargando pilotos: ' + err.message);
     } finally {
@@ -572,6 +576,30 @@ export default function MarketPage() {
     fetchOps();
   }, [tab, opsTab, selectedLeague, user?.token]);
 
+  // Estado para el modal de ingenieros de pista por liga
+  const [openTrackEngineers, setOpenTrackEngineers] = useState(false);
+  const [trackEngineersByLeague, setTrackEngineersByLeague] = useState([]);
+  const [loadingTrackEngineers, setLoadingTrackEngineers] = useState(false);
+  const [errorTrackEngineers, setErrorTrackEngineers] = useState('');
+
+  const handleOpenTrackEngineers = async () => {
+    if (!selectedLeague) return;
+    setOpenTrackEngineers(true);
+    setLoadingTrackEngineers(true);
+    setErrorTrackEngineers('');
+    try {
+      const res = await fetch(`/api/trackengineersbyleague?league_id=${selectedLeague.id}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Error cargando ingenieros de pista');
+      setTrackEngineersByLeague(data.track_engineers || []);
+    } catch (err) {
+      setErrorTrackEngineers('Error cargando ingenieros de pista: ' + err.message);
+      setTrackEngineersByLeague([]);
+    } finally {
+      setLoadingTrackEngineers(false);
+    }
+  };
+
   return (
     <Box sx={{ p: 2, background: 'linear-gradient(135deg, #0a0a0a 0%, #1a1a1a 100%)', minHeight: '100vh' }}>
       {/* Tabs principales personalizados */}
@@ -644,6 +672,22 @@ export default function MarketPage() {
                 📋 Todos los Pilotos
               </Button>
               <Button
+                variant="outlined"
+                color="info"
+                onClick={handleOpenTrackEngineers}
+                sx={{
+                  fontWeight: 700,
+                  borderColor: '#1976d2',
+                  color: '#1976d2',
+                  '&:hover': {
+                    borderColor: '#42a5f5',
+                    backgroundColor: 'rgba(25, 118, 210, 0.08)'
+                  }
+                }}
+              >
+                👨‍🔧 Ver ingenieros de pista en esta liga
+              </Button>
+              <Button
                 variant="contained"
                 color="warning"
                 onClick={handleFinishAllAuctions}
@@ -696,16 +740,16 @@ export default function MarketPage() {
               ) : driversError ? (
                 <Alert severity="error">{driversError}</Alert>
               ) : (
-                <Grid container spacing={2}>
-                  {drivers.length === 0 ? (
-                    <Grid item xs={12}>
-                      <Typography sx={{ color: '#fff', textAlign: 'center', py: 4 }}>
-                        No hay pilotos en esta liga.
-                      </Typography>
-                    </Grid>
-                  ) : (
-                    drivers.map(driver => {
-                      return (
+                <>
+                  <Grid container spacing={2} sx={{ mb: 4 }}>
+                    {drivers.length === 0 ? (
+                      <Grid item xs={12}>
+                        <Typography sx={{ color: '#fff', textAlign: 'center', py: 4 }}>
+                          No hay pilotos en esta liga.
+                        </Typography>
+                      </Grid>
+                    ) : (
+                      drivers.map(driver => (
                         <Grid item xs={12} sm={6} md={4} lg={3} key={driver.id}>
                           <DriverRaceCard
                             driver={driver}
@@ -715,10 +759,124 @@ export default function MarketPage() {
                             clausula={driver.clausula || ''}
                           />
                         </Grid>
-                      );
-                    })
-                  )}
-                </Grid>
+                      ))
+                    )}
+                  </Grid>
+                  {/* Ingenieros de pista */}
+                  <Typography variant="h6" sx={{ color: '#FFD600', fontWeight: 700, mb: 2, mt: 2 }}>
+                    👨‍🔧 Ingenieros de Pista
+                  </Typography>
+                  <Grid container spacing={2}>
+                    {trackEngineers.length === 0 ? (
+                      <Grid item xs={12}>
+                        <Typography sx={{ color: '#fff', textAlign: 'center', py: 2 }}>
+                          No hay ingenieros de pista registrados.
+                        </Typography>
+                      </Grid>
+                    ) : (
+                      trackEngineers.map(engineer => {
+                        // Copiar el estilo de DriverRaceCard pero adaptado
+                        // Buscar color de equipo
+                        const teamColors = {
+                          'Red Bull Racing': { primary: '#3671C6', secondary: '#1E41C3' },
+                          'Mercedes': { primary: '#6CD3BF', secondary: '#00D2BE' },
+                          'McLaren': { primary: '#FF8700', secondary: '#FF5800' },
+                          'Ferrari': { primary: '#DC0000', secondary: '#B80000' },
+                          'Aston Martin': { primary: '#358C75', secondary: '#006F62' },
+                          'Alpine': { primary: '#0090FF', secondary: '#0051FF' },
+                          'Stake F1 Team Kick Sauber': { primary: '#52E252', secondary: '#37BEDD' },
+                          'Haas': { primary: '#FFFFFF', secondary: '#E8E8E8' },
+                          'Williams': { primary: '#37BEDD', secondary: '#005AFF' },
+                          'Visa Cash App RB': { primary: '#5E8FAA', secondary: '#1E41C3' }
+                        };
+                        const teamColor = teamColors[engineer.team] || { primary: '#666666', secondary: '#444444' };
+                        return (
+                          <Grid item xs={12} sm={6} md={4} lg={3} key={engineer.id}>
+                            <Box
+                              sx={{
+                                background: 'linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%)',
+                                border: `2px solid ${teamColor.primary}`,
+                                borderRadius: 3,
+                                p: 2,
+                                position: 'relative',
+                                overflow: 'hidden',
+                                minHeight: 140,
+                                '&:hover': {
+                                  transform: 'translateY(-4px)',
+                                  boxShadow: `0 8px 25px rgba(54,113,198,0.3)`,
+                                  borderColor: teamColor.secondary,
+                                },
+                                '&::before': {
+                                  content: '""',
+                                  position: 'absolute',
+                                  top: 0,
+                                  left: 0,
+                                  right: 0,
+                                  height: '3px',
+                                  background: `linear-gradient(90deg, ${teamColor.primary}, ${teamColor.secondary})`,
+                                }
+                              }}
+                            >
+                              <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                                <Avatar
+                                 src={engineer.image_url ? `/images/ingenierosdepista/${engineer.image_url}` : ''}
+                                  alt={engineer.name}
+                                  sx={{
+                                    width: 60,
+                                    height: 60,
+                                    mr: 2,
+                                    border: `3px solid ${teamColor.primary}`,
+                                    boxShadow: `0 4px 12px rgba(54,113,198,0.4)`
+                                  }}
+                                />
+                                <Box sx={{ flexGrow: 1 }}>
+                                  <Typography variant="h6" sx={{ fontWeight: 700, color: '#fff', fontSize: '1.1rem', textShadow: '0 2px 4px rgba(0,0,0,0.5)', mb: 0.5 }}>
+                                    {engineer.name}
+                                  </Typography>
+                                  <Typography variant="body2" sx={{ color: teamColor.primary, fontWeight: 600, fontSize: '0.9rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                                    {engineer.team}
+                                  </Typography>
+                                  <Typography variant="body2" sx={{ color: '#b0b0b0', fontSize: '0.8rem' }}>
+                                    Piloto: {engineer.pilot_name}
+                                  </Typography>
+                                </Box>
+                              </Box>
+                              <Box sx={{ mt: 2 }}>
+                                <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                                  <Typography variant="body2" sx={{ color: '#b0b0b0', fontSize: '0.8rem' }}>
+                                    Valor:
+                                  </Typography>
+                                  <Typography variant="body2" sx={{ fontWeight: 700, color: '#4CAF50', fontSize: '0.9rem' }}>
+                                    {(engineer.value ?? 0).toLocaleString()} €
+                                  </Typography>
+                                </Box>
+                                <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                                  <Typography variant="body2" sx={{ color: '#b0b0b0', fontSize: '0.8rem' }}>
+                                    Piloto ID:
+                                  </Typography>
+                                  <Typography variant="body2" sx={{ fontWeight: 700, color: '#FFD600', fontSize: '0.9rem' }}>
+                                    {engineer.pilot_id}
+                                  </Typography>
+                                </Box>
+                              </Box>
+                              <Box
+                                sx={{
+                                  position: 'absolute',
+                                  bottom: 0,
+                                  left: 0,
+                                  right: 0,
+                                  height: '2px',
+                                  background: `linear-gradient(90deg, ${teamColor.primary}, ${teamColor.secondary})`,
+                                  opacity: 0.7
+                                }}
+                              />
+                            </Box>
+                          </Grid>
+                        );
+                      })
+                    )}
+                  </Grid>
+                </>
               )}
             </DialogContent>
           </Dialog>
@@ -1024,6 +1182,52 @@ export default function MarketPage() {
                 </Box>
               </Box>
             </>
+          )}
+        </DialogContent>
+      </Dialog>
+      {/* Modal de ingenieros de pista por liga */}
+      <Dialog open={openTrackEngineers} onClose={() => setOpenTrackEngineers(false)} maxWidth="md" fullWidth>
+        <DialogTitle sx={{ background: '#1a1a1a', color: '#fff' }}>
+          <Typography variant="h6" sx={{ fontWeight: 700 }}>
+            👨‍🔧 Ingenieros de pista en esta liga
+          </Typography>
+          <IconButton
+            aria-label="close"
+            onClick={() => setOpenTrackEngineers(false)}
+            sx={{ position: 'absolute', right: 8, top: 8, color: '#fff' }}
+          >
+            <CloseIcon />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent dividers sx={{ background: '#0a0a0a', p: 3 }}>
+          {loadingTrackEngineers ? (
+            <Box sx={{ textAlign: 'center', py: 4 }}>
+              <CircularProgress color="info" />
+            </Box>
+          ) : errorTrackEngineers ? (
+            <Alert severity="error">{errorTrackEngineers}</Alert>
+          ) : (
+            <Grid container spacing={2}>
+              {trackEngineersByLeague.length === 0 ? (
+                <Grid item xs={12}>
+                  <Typography sx={{ color: '#fff', textAlign: 'center', py: 4 }}>
+                    No hay ingenieros de pista en esta liga.
+                  </Typography>
+                </Grid>
+              ) : (
+                trackEngineersByLeague.map(te => (
+                  <Grid item xs={12} sm={6} md={4} key={te.id}>
+                    <Box sx={{ background: '#181c24', borderRadius: 2, p: 2, minHeight: 80 }}>
+                      <Typography sx={{ color: '#fff', fontWeight: 700 }}>ID: {te.id}</Typography>
+                      <Typography sx={{ color: '#b0b0b0' }}>TrackEngineerID: {te.trackEngineerID ?? te.track_engineer_id}</Typography>
+                      <Typography sx={{ color: '#b0b0b0' }}>OwnerID: {te.ownerID ?? te.owner_id}</Typography>
+                      <Typography sx={{ color: '#b0b0b0' }}>Venta: {te.venta ?? '-'}</Typography>
+                      <Typography sx={{ color: '#b0b0b0' }}>LeagueID: {te.leagueID ?? te.league_id}</Typography>
+                    </Box>
+                  </Grid>
+                ))
+              )}
+            </Grid>
           )}
         </DialogContent>
       </Dialog>

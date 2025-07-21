@@ -4,6 +4,7 @@ import Typography from '@mui/material/Typography';
 import Avatar from '@mui/material/Avatar';
 import Paper from '@mui/material/Paper';
 import { useNavigate } from 'react-router-dom';
+import LockIcon from '@mui/icons-material/Lock';
 
 // Colores de equipos de F1
 const teamColors = {
@@ -47,6 +48,17 @@ export default function DriverRaceCard({ driver, showStats = false, isOwned = fa
 
   // Obtener el id del usuario actual
   const playerId = Number(localStorage.getItem('player_id'));
+
+  // Calcular días restantes de la cláusula
+  let clausulaDias = null;
+  if (driver.clausula) {
+    const expira = new Date(driver.clausula);
+    const ahora = new Date();
+    const diff = expira - ahora;
+    if (diff > 0) {
+      clausulaDias = Math.ceil(diff / (1000 * 60 * 60 * 24));
+    }
+  }
 
   return (
     <Paper
@@ -139,6 +151,13 @@ export default function DriverRaceCard({ driver, showStats = false, isOwned = fa
             >
               {(driver.mode || 'R').toUpperCase()}
             </Box>
+            {/* Candado de cláusula */}
+            {clausulaDias && (
+              <Box sx={{ display: 'flex', alignItems: 'center', ml: 1, background: '#23243a', borderRadius: 2, px: 1.2, py: 0.2 }}>
+                <LockIcon sx={{ color: '#FF5252', fontSize: 18, mr: 0.5 }} />
+                <Typography sx={{ color: '#FF5252', fontWeight: 700, fontSize: 13 }}>{clausulaDias} días</Typography>
+              </Box>
+            )}
           </Box>
           {/* Mostrar número de pujas si existe */}
           {typeof driver.num_bids !== 'undefined' && (

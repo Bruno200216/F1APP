@@ -300,7 +300,20 @@ func main() {
 	router.GET("/api/pilots", func(c *gin.Context) {
 		var pilots []models.Pilot
 		database.DB.Find(&pilots)
-		c.JSON(200, gin.H{"pilots": pilots})
+		// Traer también los track engineers con perfil extendido
+		var trackEngineers []models.TrackEngineer
+		database.DB.Find(&trackEngineers)
+		var trackEngineerProfiles []map[string]interface{}
+		for _, te := range trackEngineers {
+			profile := map[string]interface{}{
+				"id":        te.ID,
+				"name":      engineerNameFromImageURL(te.ImageURL),
+				"image_url": te.ImageURL,
+				"value":     te.Value,
+			}
+			trackEngineerProfiles = append(trackEngineerProfiles, profile)
+		}
+		c.JSON(200, gin.H{"pilots": pilots, "track_engineers": trackEngineerProfiles})
 	})
 
 	router.POST("/api/pilots", authMiddleware(), func(c *gin.Context) {
@@ -410,6 +423,40 @@ func main() {
 		// Eliminar subastas antiguas por si acaso
 		database.DB.Where("league_id = ?", league.ID).Delete(&Auction{})
 		refreshMarketForLeague(league.ID)
+		// Poblar ingenieros de pista para el primer GP
+		var gps []models.GrandPrix
+		database.DB.Order("gp_index asc").Find(&gps)
+		if len(gps) > 0 {
+			// Obtener todos los ingenieros globales
+			var globalEngineers []models.TrackEngineer
+			database.DB.Find(&globalEngineers)
+			for _, globalTE := range globalEngineers {
+				// Derivar el nombre del ingeniero desde image_url
+				engineerName := strings.ReplaceAll(strings.TrimSuffix(globalTE.ImageURL, ".png"), "_", " ")
+				var pilot models.Pilot
+				if err := database.DB.Where("driver_name = ?", engineerName).First(&pilot).Error; err == nil {
+					teb := models.TrackEngineerByLeague{
+						TrackEngineerID:      globalTE.ID,
+						LeagueID:             league.ID,
+						OwnerID:              0,
+						Bids:                 []byte("[]"),
+						Venta:                nil,
+						VentaExpiresAt:       nil,
+						LeagueOfferValue:     nil,
+						LeagueOfferExpiresAt: nil,
+						ClausulaExpiresAt:    nil,
+						ClausulaValue:        nil,
+					}
+					if err := database.DB.Create(&teb).Error; err != nil {
+						log.Printf("[CREAR LIGA] Error al crear TrackEngineerByLeague para %s: %v", engineerName, err)
+					} else {
+						log.Printf("[CREAR LIGA] TrackEngineerByLeague creado para %s (ID: %d)", engineerName, teb.ID)
+					}
+				} else {
+					log.Printf("[CREAR LIGA] Piloto NO encontrado para ingeniero: %s", engineerName)
+				}
+			}
+		}
 		c.JSON(201, gin.H{"league": league})
 	})
 
@@ -479,15 +526,16 @@ func main() {
 			var pilot models.Pilot
 			database.DB.First(&pilot, pbl.PilotID)
 			item := map[string]interface{}{
-				"id":           pilot.ID,
-				"driver_name":  pilot.DriverName,
-				"team":         pilot.Team,
-				"image_url":    pilot.ImageURL,
-				"mode":         pilot.Mode,
-				"total_points": pilot.TotalPoints,
-				"value":        pilot.Value,
-				"clausula":     pbl.Clausula,
-				"owner_id":     pbl.OwnerID,
+				"id":             pilot.ID,
+				"driver_name":    pilot.DriverName,
+				"team":           pilot.Team,
+				"image_url":      pilot.ImageURL,
+				"mode":           pilot.Mode,
+				"total_points":   pilot.TotalPoints,
+				"value":          pilot.Value,
+				"clausulatime":   pbl.Clausulatime,
+				"clausula_value": pbl.ClausulaValue,
+				"owner_id":       pbl.OwnerID,
 			}
 			result = append(result, item)
 		}
@@ -666,6 +714,13 @@ func main() {
 			log.Printf("[HISTORICO] Error guardando en pilot_value_history: %v", errHist)
 		}
 		c.JSON(200, gin.H{"message": "Subasta finalizada y piloto asignado", "winner": maxBid.PlayerID, "pilot_id": pbl.PilotID})
+		// En /api/auctions/finish, después de asignar el piloto al ganador:
+		if pbl.ClausulaValue == nil || maxBid.Valor > *pbl.ClausulaValue {
+			pbl.ClausulaValue = &maxBid.Valor
+		}
+		clausulaExpira := auction.EndTime.Add(14 * 24 * time.Hour)
+		pbl.Clausulatime = &clausulaExpira
+		database.DB.Save(&pbl)
 	})
 
 	// Endpoint para obtener los pilotos de una liga para un usuario concreto
@@ -686,15 +741,16 @@ func main() {
 			var pilot models.Pilot
 			database.DB.First(&pilot, pbl.PilotID)
 			item := map[string]interface{}{
-				"id":           pilot.ID,
-				"driver_name":  pilot.DriverName,
-				"team":         pilot.Team,
-				"image_url":    pilot.ImageURL,
-				"mode":         pilot.Mode,
-				"total_points": pilot.TotalPoints,
-				"value":        pilot.Value,
-				"clausula":     pbl.Clausula,
-				"owner_id":     pbl.OwnerID,
+				"id":             pilot.ID,
+				"driver_name":    pilot.DriverName,
+				"team":           pilot.Team,
+				"image_url":      pilot.ImageURL,
+				"mode":           pilot.Mode,
+				"total_points":   pilot.TotalPoints,
+				"value":          pilot.Value,
+				"clausulatime":   pbl.Clausulatime,
+				"clausula_value": pbl.ClausulaValue,
+				"owner_id":       pbl.OwnerID,
 			}
 			result = append(result, item)
 		}
@@ -808,7 +864,8 @@ func main() {
 			}
 			item := map[string]interface{}{
 				"id":             pbl.ID,
-				"clausula":       pbl.Clausula,
+				"clausulatime":   pbl.Clausulatime,
+				"clausula_value": pbl.ClausulaValue,
 				"pilot_id":       pilot.ID,
 				"driver_name":    pilot.DriverName,
 				"team":           pilot.Team,
@@ -840,7 +897,8 @@ func main() {
 			}
 			item := map[string]interface{}{
 				"id":               pbl.ID,
-				"clausula":         pbl.Clausula,
+				"clausulatime":     pbl.Clausulatime,
+				"clausula_value":   pbl.ClausulaValue,
 				"pilot_id":         pilot.ID,
 				"driver_name":      pilot.DriverName,
 				"team":             pilot.Team,
@@ -946,6 +1004,13 @@ func main() {
 			if errHist != nil {
 				log.Printf("[HISTORICO] Error guardando en pilot_value_history (refresh-and-finish): %v", errHist)
 			}
+			// En /api/market/refresh-and-finish, después de asignar el piloto al ganador:
+			if pbl.ClausulaValue == nil || maxBid.Valor > *pbl.ClausulaValue {
+				pbl.ClausulaValue = &maxBid.Valor
+			}
+			clausulaExpira := auction.EndTime.Add(14 * 24 * time.Hour)
+			pbl.Clausulatime = &clausulaExpira
+			database.DB.Save(&pbl)
 		}
 		// Eliminar subastas antiguas/finalizadas
 		id, _ := strconv.ParseUint(leagueID, 10, 64)
@@ -1170,7 +1235,8 @@ func main() {
 				"mode":               pilot.Mode,
 				"total_points":       pilot.TotalPoints,
 				"value":              pilot.Value,
-				"clausula":           pbl.Clausula,
+				"clausulatime":       pbl.Clausulatime,
+				"clausula_value":     pbl.ClausulaValue,
 				"owner_id":           pbl.OwnerID,
 				"venta":              pbl.Venta,
 				"venta_expires_at":   pbl.VentaExpiresAt,
@@ -1376,7 +1442,8 @@ func main() {
 				"value":                   pilot.Value,
 				"venta":                   pbl.Venta,
 				"venta_expires_at":        pbl.VentaExpiresAt,
-				"clausula":                pbl.Clausula,
+				"clausulatime":            pbl.Clausulatime,
+				"clausula_value":          pbl.ClausulaValue,
 				"owner_id":                pbl.OwnerID,
 				"league_offer_value":      pbl.LeagueOfferValue,
 				"league_offer_expires_at": pbl.LeagueOfferExpiresAt,
@@ -1440,7 +1507,8 @@ func main() {
 					"value":            pilot.Value,
 					"venta":            pbl.Venta,
 					"venta_expires_at": pbl.VentaExpiresAt,
-					"clausula":         pbl.Clausula,
+					"clausulatime":     pbl.Clausulatime,
+					"clausula_value":   pbl.ClausulaValue,
 					"owner_id":         pbl.OwnerID,
 					"my_bid":           myBidValue,
 				}
@@ -1553,6 +1621,16 @@ func main() {
 			var updatedPilot models.Pilot
 			database.DB.First(&updatedPilot, pilot.ID)
 			log.Printf("[UPDATE-VALUES] Valor actualizado ventas7fichajes: %d, value: %.2f", updatedPilot.Ventas7Fichajes, updatedPilot.Value)
+			// En /api/drivers/update-values, después de actualizar el valor de cada piloto:
+			// Buscar todos los pilot_by_leagues de este piloto
+			var pbls []models.PilotByLeague
+			database.DB.Where("pilot_id = ?", pilot.ID).Find(&pbls)
+			for _, pbl := range pbls {
+				if pbl.ClausulaValue == nil || nuevoValor > *pbl.ClausulaValue {
+					pbl.ClausulaValue = &nuevoValor
+					database.DB.Save(&pbl)
+				}
+			}
 		}
 		// Guardar la nueva fecha de actualización
 		database.DB.Exec("INSERT INTO driver_value_update_log (last_update) VALUES (?)", time.Now())
@@ -1584,6 +1662,246 @@ func main() {
 			LIMIT 50
 		`).Scan(&results)
 		c.JSON(200, gin.H{"history": results})
+	})
+
+	// Endpoint para crear o actualizar puntuaciones manuales de carrera
+	router.POST("/api/admin/pilot-race", func(c *gin.Context) {
+		var req models.PilotRace
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(400, gin.H{"error": "Datos inválidos"})
+			return
+		}
+		// Buscar si ya existe para ese piloto y GP
+		var existing models.PilotRace
+		if err := database.DB.Where("pilot_id = ? AND gp_index = ?", req.PilotID, req.GPIndex).First(&existing).Error; err == nil {
+			req.ID = existing.ID
+			database.DB.Save(&req)
+			c.JSON(200, gin.H{"message": "Puntuación actualizada"})
+			return
+		}
+		if err := database.DB.Create(&req).Error; err != nil {
+			c.JSON(500, gin.H{"error": "Error guardando puntuación"})
+			return
+		}
+		c.JSON(201, gin.H{"message": "Puntuación creada"})
+	})
+
+	// Endpoint para crear o actualizar puntuaciones manuales de qualy
+	router.POST("/api/admin/pilot-qualy", func(c *gin.Context) {
+		var req models.PilotQualy
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(400, gin.H{"error": "Datos inválidos"})
+			return
+		}
+		var existing models.PilotQualy
+		if err := database.DB.Where("pilot_id = ? AND gp_index = ?", req.PilotID, req.GPIndex).First(&existing).Error; err == nil {
+			req.ID = existing.ID
+			database.DB.Save(&req)
+			c.JSON(200, gin.H{"message": "Puntuación actualizada"})
+			return
+		}
+		if err := database.DB.Create(&req).Error; err != nil {
+			c.JSON(500, gin.H{"error": "Error guardando puntuación"})
+			return
+		}
+		c.JSON(201, gin.H{"message": "Puntuación creada"})
+	})
+
+	// Endpoint para crear o actualizar puntuaciones manuales de práctica
+	router.POST("/api/admin/pilot-practice", func(c *gin.Context) {
+		var req models.PilotPractice
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(400, gin.H{"error": "Datos inválidos"})
+			return
+		}
+		var existing models.PilotPractice
+		if err := database.DB.Where("pilot_id = ? AND gp_index = ?", req.PilotID, req.GPIndex).First(&existing).Error; err == nil {
+			req.ID = existing.ID
+			database.DB.Save(&req)
+			c.JSON(200, gin.H{"message": "Puntuación actualizada"})
+			return
+		}
+		if err := database.DB.Create(&req).Error; err != nil {
+			c.JSON(500, gin.H{"error": "Error guardando puntuación"})
+			return
+		}
+		c.JSON(201, gin.H{"message": "Puntuación creada"})
+	})
+
+	// Endpoint para obtener la lista de GPs para el formulario
+	router.GET("/api/grand-prix", func(c *gin.Context) {
+		var gps []models.GrandPrix
+		database.DB.Find(&gps)
+		c.JSON(200, gin.H{"gps": gps})
+	})
+
+	// Endpoint para guardar posiciones esperadas manualmente
+	router.POST("/api/admin/expected-positions", func(c *gin.Context) {
+		var req struct {
+			GPIndex   uint   `json:"gp_index"`
+			Mode      string `json:"mode"`
+			Positions []struct {
+				PilotID          uint `json:"pilot_id"`
+				ExpectedPosition int  `json:"expected_position"`
+			} `json:"positions"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(400, gin.H{"error": "Datos inválidos"})
+			return
+		}
+		var table string
+		switch req.Mode {
+		case "race":
+			table = "pilot_races"
+		case "qualy":
+			table = "pilot_qualies"
+		case "practice":
+			table = "pilot_practices"
+		default:
+			c.JSON(400, gin.H{"error": "Modo inválido"})
+			return
+		}
+		for _, pos := range req.Positions {
+			// Buscar si ya existe
+			var count int64
+			database.DB.Table(table).Where("pilot_id = ? AND gp_index = ?", pos.PilotID, req.GPIndex).Count(&count)
+			if count > 0 {
+				// Actualizar
+				database.DB.Table(table).Where("pilot_id = ? AND gp_index = ?", pos.PilotID, req.GPIndex).Update("expected_position", pos.ExpectedPosition)
+			} else {
+				// Crear
+				database.DB.Exec("INSERT INTO "+table+" (pilot_id, gp_index, expected_position) VALUES (?, ?, ?)", pos.PilotID, req.GPIndex, pos.ExpectedPosition)
+			}
+		}
+		c.JSON(200, gin.H{"message": "Posiciones esperadas guardadas"})
+	})
+
+	// Endpoint para obtener posiciones esperadas ya guardadas para un GP y modo
+	router.GET("/api/admin/expected-positions", func(c *gin.Context) {
+		gpIndex := c.Query("gp_index")
+		mode := c.Query("mode")
+		var table string
+		switch mode {
+		case "race":
+			table = "pilot_races"
+		case "qualy":
+			table = "pilot_qualies"
+		case "practice":
+			table = "pilot_practices"
+		default:
+			c.JSON(400, gin.H{"error": "Modo inválido"})
+			return
+		}
+		var results []struct {
+			PilotID          uint `json:"pilot_id"`
+			ExpectedPosition int  `json:"expected_position"`
+		}
+		database.DB.Table(table).Select("pilot_id, expected_position").Where("gp_index = ?", gpIndex).Order("expected_position ASC").Scan(&results)
+		c.JSON(200, gin.H{"positions": results})
+	})
+
+	// Endpoint para obtener los resultados de sesión de un piloto en un GP y modo
+	router.GET("/api/admin/session-result", func(c *gin.Context) {
+		gpIndex := c.Query("gp_index")
+		mode := c.Query("mode")
+		pilotID := c.Query("pilot_id")
+		var table string
+		switch mode {
+		case "race":
+			table = "pilot_races"
+		case "qualy":
+			table = "pilot_qualies"
+		case "practice":
+			table = "pilot_practices"
+		default:
+			c.JSON(400, gin.H{"error": "Modo inválido"})
+			return
+		}
+		var result map[string]interface{}
+		database.DB.Table(table).Where("pilot_id = ? AND gp_index = ?", pilotID, gpIndex).Take(&result)
+		c.JSON(200, gin.H{"result": result})
+	})
+
+	// Endpoint para guardar los resultados de sesión de un piloto en un GP y modo
+	router.POST("/api/admin/session-result", func(c *gin.Context) {
+		var body map[string]interface{}
+		if err := c.ShouldBindJSON(&body); err != nil {
+			log.Printf("[SESSION-RESULT] Error ShouldBindJSON body: %v", err)
+			c.JSON(400, gin.H{"error": "Datos inválidos"})
+			return
+		}
+		log.Printf("[SESSION-RESULT] Body recibido: %+v", body)
+		// Extraer campos fijos
+		gpIndex, ok1 := body["gp_index"].(float64)
+		mode, ok2 := body["mode"].(string)
+		pilotID, ok3 := body["pilot_id"].(float64)
+		if !ok1 || !ok2 || !ok3 {
+			log.Printf("[SESSION-RESULT] Faltan campos fijos en el body: gp_index=%v, mode=%v, pilot_id=%v", body["gp_index"], body["mode"], body["pilot_id"])
+			c.JSON(400, gin.H{"error": "Datos inválidos"})
+			return
+		}
+		var table string
+		switch mode {
+		case "race":
+			table = "pilot_races"
+		case "qualy":
+			table = "pilot_qualies"
+		case "practice":
+			table = "pilot_practices"
+		default:
+			log.Printf("[SESSION-RESULT] Modo inválido: %v", mode)
+			c.JSON(400, gin.H{"error": "Modo inválido"})
+			return
+		}
+		// Quitar gp_index, mode, pilot_id
+		delete(body, "gp_index")
+		delete(body, "mode")
+		delete(body, "pilot_id")
+		// Poner 0 por defecto en campos numéricos vacíos
+		for k, v := range body {
+			if v == nil || v == "" {
+				body[k] = 0
+			}
+		}
+		log.Printf("[SESSION-RESULT] Body para guardar: %+v", body)
+		// Buscar si ya existe
+		var count int64
+		database.DB.Table(table).Where("pilot_id = ? AND gp_index = ?", uint(pilotID), uint(gpIndex)).Count(&count)
+		if count > 0 {
+			log.Printf("[SESSION-RESULT] Actualizando fila existente para pilot_id=%v, gp_index=%v", uint(pilotID), uint(gpIndex))
+			database.DB.Table(table).Where("pilot_id = ? AND gp_index = ?", uint(pilotID), uint(gpIndex)).Updates(body)
+		} else {
+			log.Printf("[SESSION-RESULT] Creando nueva fila para pilot_id=%v, gp_index=%v", uint(pilotID), uint(gpIndex))
+			body["pilot_id"] = uint(pilotID)
+			body["gp_index"] = uint(gpIndex)
+			database.DB.Table(table).Create(body)
+		}
+		c.JSON(200, gin.H{"message": "Resultado guardado"})
+	})
+
+	// Endpoint para obtener los ingenieros de pista por liga
+	router.GET("/api/trackengineersbyleague", func(c *gin.Context) {
+		leagueID := c.Query("league_id")
+		log.Printf("[TRACKENG] league_id recibido: %v", leagueID)
+		if leagueID == "" {
+			c.JSON(400, gin.H{"error": "Falta league_id"})
+			return
+		}
+		var trackEngineersByLeague []models.TrackEngineerByLeague
+		if err := database.DB.Where("league_id = ?", leagueID).Find(&trackEngineersByLeague).Error; err != nil {
+			log.Printf("[TRACKENG] Error obteniendo ingenieros: %v", err)
+			c.JSON(500, gin.H{"error": "Error obteniendo ingenieros de pista"})
+			return
+		}
+		log.Printf("[TRACKENG] Encontrados %d ingenieros para league_id=%v", len(trackEngineersByLeague), leagueID)
+		if len(trackEngineersByLeague) > 0 {
+			ids := make([]uint, len(trackEngineersByLeague))
+			for i, te := range trackEngineersByLeague {
+				ids[i] = te.ID
+			}
+			log.Printf("[TRACKENG] IDs devueltos: %v", ids)
+		}
+		c.JSON(200, gin.H{"track_engineers": trackEngineersByLeague})
 	})
 
 	port := os.Getenv("PORT")
@@ -1634,4 +1952,25 @@ func safeIntArray(val []int, length int) []int {
 		return make([]int, length)
 	}
 	return val
+}
+
+// Al final del archivo, agrega la función removeAccents:
+func removeAccents(s string) string {
+	replacer := strings.NewReplacer(
+		"á", "a", "é", "e", "í", "i", "ó", "o", "ú", "u",
+		"Á", "A", "É", "E", "Í", "I", "Ó", "O", "Ú", "U",
+		"ñ", "n", "Ñ", "N",
+		"'", "", "'", "",
+	)
+	return replacer.Replace(s)
+}
+
+// Al final del archivo, agrega la función engineerNameFromImageURL:
+func engineerNameFromImageURL(imageURL string) string {
+	if imageURL == "" {
+		return ""
+	}
+	name := strings.TrimSuffix(imageURL, ".png")
+	name = strings.ReplaceAll(name, "_", " ")
+	return name
 }
