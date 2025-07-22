@@ -62,6 +62,7 @@ type League struct {
 	ID                uint       `json:"id" gorm:"primaryKey"`
 	Name              string     `json:"name" gorm:"not null"`
 	Code              string     `json:"code" gorm:"unique;not null"`
+	PlayerID          uint       `json:"player_id"`
 	MarketPilots      []byte     `json:"market_pilots" gorm:"type:json"`
 	MarketNextRefresh *time.Time `json:"market_next_refresh"`
 	CreatedAt         time.Time  `json:"created_at"`
@@ -179,6 +180,7 @@ type PilotPractice struct {
 
 type TrackEngineer struct {
 	ID          uint      `gorm:"primaryKey"`
+	Name        string    `gorm:"not null"`
 	Value       float64   `gorm:"not null;default:0"`
 	ImageURL    string    `gorm:"not null"`
 	GPIndex     uint      `gorm:"not null"`
@@ -191,6 +193,7 @@ type TrackEngineer struct {
 
 type ChiefEngineer struct {
 	ID                   uint      `gorm:"primaryKey"`
+	Name                 string    `gorm:"not null"`
 	Value                float64   `gorm:"not null;default:0"`
 	ImageURL             string    `gorm:"not null"`
 	GPIndex              uint      `gorm:"not null"`
@@ -223,4 +226,72 @@ type TrackEngineerByLeague struct {
 
 func (TrackEngineerByLeague) TableName() string {
 	return "track_engineer_by_league"
+}
+
+// ChiefEngineerByLeague: ingeniero jefe por liga
+
+type ChiefEngineerByLeague struct {
+	ID                   uint       `gorm:"primaryKey"`
+	ChiefEngineerID      uint       `gorm:"not null"`
+	LeagueID             uint       `gorm:"not null"`
+	OwnerID              uint       `gorm:"default:0"`
+	CreatedAt            time.Time  `gorm:"autoCreateTime"`
+	UpdatedAt            time.Time  `gorm:"autoUpdateTime"`
+	Bids                 []byte     `gorm:"type:json"`
+	Venta                *int       `gorm:"column:venta"`
+	VentaExpiresAt       *time.Time `gorm:"column:venta_expires_at"`
+	LeagueOfferValue     *float64   `gorm:"column:league_offer_value"`
+	LeagueOfferExpiresAt *time.Time `gorm:"column:league_offer_expires_at"`
+	ClausulaExpiresAt    *time.Time `gorm:"column:clausula_expires_at"`
+	ClausulaValue        *float64   `gorm:"column:clausula_value"`
+
+	ChiefEngineer ChiefEngineer `gorm:"foreignKey:ChiefEngineerID"`
+	League        League        `gorm:"foreignKey:LeagueID"`
+}
+
+func (ChiefEngineerByLeague) TableName() string {
+	return "chief_engineers_by_league"
+}
+
+// Modelo de Team Constructor
+
+type TeamConstructor struct {
+	ID           uint      `gorm:"primaryKey"`
+	Name         string    `gorm:"not null"`
+	Value        float64   `gorm:"not null;default:0"`
+	GPIndex      uint      `gorm:"not null"`
+	FinishPilots []byte    `gorm:"type:json"`
+	ImageURL     string    `gorm:"not null"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
+	GrandPrix    GrandPrix `gorm:"foreignKey:GPIndex;references:GPIndex"`
+}
+
+func (TeamConstructor) TableName() string {
+	return "teamconstructor"
+}
+
+// TeamConstructorByLeague: constructor por liga
+
+type TeamConstructorByLeague struct {
+	ID                   uint       `gorm:"primaryKey"`
+	TeamConstructorID    uint       `gorm:"not null;column:teamconstructor_id"`
+	LeagueID             uint       `gorm:"not null"`
+	OwnerID              uint       `gorm:"default:0"`
+	CreatedAt            time.Time  `gorm:"autoCreateTime"`
+	UpdatedAt            time.Time  `gorm:"autoUpdateTime"`
+	Bids                 []byte     `gorm:"type:json"`
+	Venta                *int       `gorm:"column:venta"`
+	VentaExpiresAt       *time.Time `gorm:"column:venta_expires_at"`
+	LeagueOfferValue     *float64   `gorm:"column:league_offer_value"`
+	LeagueOfferExpiresAt *time.Time `gorm:"column:league_offer_expires_at"`
+	ClausulaExpiresAt    *time.Time `gorm:"column:clausula_expires_at"`
+	ClausulaValue        *float64   `gorm:"column:clausula_value"`
+
+	TeamConstructor TeamConstructor `gorm:"foreignKey:TeamConstructorID"`
+	League          League          `gorm:"foreignKey:LeagueID"`
+}
+
+func (TeamConstructorByLeague) TableName() string {
+	return "teamconstructor_by_league"
 }

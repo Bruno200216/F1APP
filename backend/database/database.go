@@ -78,6 +78,9 @@ func Migrate() {
 		&models.TrackEngineer{},
 		&models.ChiefEngineer{},
 		&models.TrackEngineerByLeague{},
+		&models.ChiefEngineerByLeague{},
+		&models.TeamConstructor{},
+		&models.TeamConstructorByLeague{},
 	)
 	if err != nil {
 		log.Fatal("Error ejecutando migraciones: ", err)

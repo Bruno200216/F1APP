@@ -369,9 +369,16 @@ func main() {
 		if req.Code == "" {
 			req.Code = generateLeagueCode()
 		}
+		// Obtener el user_id del creador desde el contexto (JWT)
+		userID, ok := c.Get("user_id")
+		if !ok {
+			c.JSON(401, gin.H{"error": "No autenticado"})
+			return
+		}
 		league := models.League{
-			Name: req.Name,
-			Code: req.Code,
+			Name:     req.Name,
+			Code:     req.Code,
+			PlayerID: userID.(uint),
 		}
 		if err := database.DB.Create(&league).Error; err != nil {
 			c.JSON(500, gin.H{"error": "Error creando liga"})
@@ -393,12 +400,6 @@ func main() {
 		if len(pilotsByLeague) > 0 {
 			database.DB.Create(&pilotsByLeague)
 			log.Printf("[CREAR LIGA] PilotosByLeague creados: %d", len(pilotsByLeague))
-		}
-		// Obtener el user_id del creador desde el contexto (JWT)
-		userID, ok := c.Get("user_id")
-		if !ok {
-			c.JSON(401, gin.H{"error": "No autenticado"})
-			return
 		}
 		// Comprobar si ya existe el registro en player_by_league para este usuario y liga
 		var existing models.PlayerByLeague
@@ -431,29 +432,68 @@ func main() {
 			var globalEngineers []models.TrackEngineer
 			database.DB.Find(&globalEngineers)
 			for _, globalTE := range globalEngineers {
-				// Derivar el nombre del ingeniero desde image_url
-				engineerName := strings.ReplaceAll(strings.TrimSuffix(globalTE.ImageURL, ".png"), "_", " ")
-				var pilot models.Pilot
-				if err := database.DB.Where("driver_name = ?", engineerName).First(&pilot).Error; err == nil {
-					teb := models.TrackEngineerByLeague{
-						TrackEngineerID:      globalTE.ID,
-						LeagueID:             league.ID,
-						OwnerID:              0,
-						Bids:                 []byte("[]"),
-						Venta:                nil,
-						VentaExpiresAt:       nil,
-						LeagueOfferValue:     nil,
-						LeagueOfferExpiresAt: nil,
-						ClausulaExpiresAt:    nil,
-						ClausulaValue:        nil,
-					}
-					if err := database.DB.Create(&teb).Error; err != nil {
-						log.Printf("[CREAR LIGA] Error al crear TrackEngineerByLeague para %s: %v", engineerName, err)
-					} else {
-						log.Printf("[CREAR LIGA] TrackEngineerByLeague creado para %s (ID: %d)", engineerName, teb.ID)
-					}
+				teb := models.TrackEngineerByLeague{
+					TrackEngineerID:      globalTE.ID,
+					LeagueID:             league.ID,
+					OwnerID:              0,
+					Bids:                 []byte("[]"),
+					Venta:                nil,
+					VentaExpiresAt:       nil,
+					LeagueOfferValue:     nil,
+					LeagueOfferExpiresAt: nil,
+					ClausulaExpiresAt:    nil,
+					ClausulaValue:        nil,
+				}
+				if err := database.DB.Create(&teb).Error; err != nil {
+					log.Printf("[CREAR LIGA] Error al crear TrackEngineerByLeague para ingeniero ID %d: %v", globalTE.ID, err)
 				} else {
-					log.Printf("[CREAR LIGA] Piloto NO encontrado para ingeniero: %s", engineerName)
+					log.Printf("[CREAR LIGA] TrackEngineerByLeague creado para ingeniero ID %d (name: %s, image_url: %s)", globalTE.ID, globalTE.Name, globalTE.ImageURL)
+				}
+			}
+
+			// Obtener todos los ingenieros jefe globales
+			var globalChiefEngineers []models.ChiefEngineer
+			database.DB.Find(&globalChiefEngineers)
+			for _, globalCE := range globalChiefEngineers {
+				ceb := models.ChiefEngineerByLeague{
+					ChiefEngineerID:      globalCE.ID,
+					LeagueID:             league.ID,
+					OwnerID:              0,
+					Bids:                 []byte("[]"),
+					Venta:                nil,
+					VentaExpiresAt:       nil,
+					LeagueOfferValue:     nil,
+					LeagueOfferExpiresAt: nil,
+					ClausulaExpiresAt:    nil,
+					ClausulaValue:        nil,
+				}
+				if err := database.DB.Create(&ceb).Error; err != nil {
+					log.Printf("[CREAR LIGA] Error al crear ChiefEngineerByLeague para ingeniero jefe ID %d: %v", globalCE.ID, err)
+				} else {
+					log.Printf("[CREAR LIGA] ChiefEngineerByLeague creado para ingeniero jefe ID %d (name: %s, team: %s)", globalCE.ID, globalCE.Name, globalCE.Team)
+				}
+			}
+
+			// Obtener todos los constructores globales
+			var globalConstructors []models.TeamConstructor
+			database.DB.Find(&globalConstructors)
+			for _, globalTC := range globalConstructors {
+				tcb := models.TeamConstructorByLeague{
+					TeamConstructorID:    globalTC.ID,
+					LeagueID:             league.ID,
+					OwnerID:              0,
+					Bids:                 []byte("[]"),
+					Venta:                nil,
+					VentaExpiresAt:       nil,
+					LeagueOfferValue:     nil,
+					LeagueOfferExpiresAt: nil,
+					ClausulaExpiresAt:    nil,
+					ClausulaValue:        nil,
+				}
+				if err := database.DB.Create(&tcb).Error; err != nil {
+					log.Printf("[CREAR LIGA] Error al crear TeamConstructorByLeague para constructor ID %d: %v", globalTC.ID, err)
+				} else {
+					log.Printf("[CREAR LIGA] TeamConstructorByLeague creado para constructor ID %d (name: %s)", globalTC.ID, globalTC.Name)
 				}
 			}
 		}
@@ -1894,14 +1934,66 @@ func main() {
 			return
 		}
 		log.Printf("[TRACKENG] Encontrados %d ingenieros para league_id=%v", len(trackEngineersByLeague), leagueID)
-		if len(trackEngineersByLeague) > 0 {
-			ids := make([]uint, len(trackEngineersByLeague))
-			for i, te := range trackEngineersByLeague {
-				ids[i] = te.ID
+		var result []map[string]interface{}
+		for _, teb := range trackEngineersByLeague {
+			var te models.TrackEngineer
+			database.DB.First(&te, teb.TrackEngineerID)
+			// Buscar piloto relacionado por track_engineer_id
+			var pilot models.Pilot
+			dbPilot := database.DB.Where("track_engineer_id = ?", te.ID).First(&pilot)
+			item := map[string]interface{}{
+				"id":                teb.ID,
+				"track_engineer_id": teb.TrackEngineerID,
+				"name":              te.Name,
+				"image_url":         te.ImageURL,
+				"value":             te.Value,
+				"owner_id":          teb.OwnerID,
+				"venta":             teb.Venta,
+				"league_id":         teb.LeagueID,
 			}
-			log.Printf("[TRACKENG] IDs devueltos: %v", ids)
+			if dbPilot.Error == nil {
+				item["pilot_id"] = pilot.ID
+				item["driver_name"] = pilot.DriverName
+				item["team"] = pilot.Team
+			}
+			result = append(result, item)
 		}
-		c.JSON(200, gin.H{"track_engineers": trackEngineersByLeague})
+		c.JSON(200, gin.H{"track_engineers": result})
+	})
+
+	// Endpoint para obtener los ingenieros jefe por liga
+	router.GET("/api/chiefengineersbyleague", func(c *gin.Context) {
+		leagueID := c.Query("league_id")
+		log.Printf("[CHIEFENG] league_id recibido: %v", leagueID)
+		if leagueID == "" {
+			c.JSON(400, gin.H{"error": "Falta league_id"})
+			return
+		}
+		var chiefEngineersByLeague []models.ChiefEngineerByLeague
+		if err := database.DB.Where("league_id = ?", leagueID).Find(&chiefEngineersByLeague).Error; err != nil {
+			log.Printf("[CHIEFENG] Error obteniendo ingenieros jefe: %v", err)
+			c.JSON(500, gin.H{"error": "Error obteniendo ingenieros jefe"})
+			return
+		}
+		log.Printf("[CHIEFENG] Encontrados %d ingenieros jefe para league_id=%v", len(chiefEngineersByLeague), leagueID)
+		var result []map[string]interface{}
+		for _, ceb := range chiefEngineersByLeague {
+			var ce models.ChiefEngineer
+			database.DB.First(&ce, ceb.ChiefEngineerID)
+			item := map[string]interface{}{
+				"id":                ceb.ID,
+				"chief_engineer_id": ceb.ChiefEngineerID,
+				"name":              ce.Name,
+				"image_url":         ce.ImageURL,
+				"value":             ce.Value,
+				"team":              ce.Team,
+				"owner_id":          ceb.OwnerID,
+				"venta":             ceb.Venta,
+				"league_id":         ceb.LeagueID,
+			}
+			result = append(result, item)
+		}
+		c.JSON(200, gin.H{"chief_engineers": result})
 	})
 
 	port := os.Getenv("PORT")

@@ -582,6 +582,12 @@ export default function MarketPage() {
   const [loadingTrackEngineers, setLoadingTrackEngineers] = useState(false);
   const [errorTrackEngineers, setErrorTrackEngineers] = useState('');
 
+  // Estado para el modal de ingenieros jefe por liga
+  const [openChiefEngineers, setOpenChiefEngineers] = useState(false);
+  const [chiefEngineersByLeague, setChiefEngineersByLeague] = useState([]);
+  const [loadingChiefEngineers, setLoadingChiefEngineers] = useState(false);
+  const [errorChiefEngineers, setErrorChiefEngineers] = useState('');
+
   const handleOpenTrackEngineers = async () => {
     if (!selectedLeague) return;
     setOpenTrackEngineers(true);
@@ -597,6 +603,24 @@ export default function MarketPage() {
       setTrackEngineersByLeague([]);
     } finally {
       setLoadingTrackEngineers(false);
+    }
+  };
+
+  const handleOpenChiefEngineers = async () => {
+    if (!selectedLeague) return;
+    setOpenChiefEngineers(true);
+    setLoadingChiefEngineers(true);
+    setErrorChiefEngineers('');
+    try {
+      const res = await fetch(`/api/chiefengineersbyleague?league_id=${selectedLeague.id}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Error cargando ingenieros jefe');
+      setChiefEngineersByLeague(data.chief_engineers || []);
+    } catch (err) {
+      setErrorChiefEngineers('Error cargando ingenieros jefe: ' + err.message);
+      setChiefEngineersByLeague([]);
+    } finally {
+      setLoadingChiefEngineers(false);
     }
   };
 
@@ -686,6 +710,22 @@ export default function MarketPage() {
                 }}
               >
                 👨‍🔧 Ver ingenieros de pista en esta liga
+              </Button>
+              <Button
+                variant="outlined"
+                color="warning"
+                onClick={handleOpenChiefEngineers}
+                sx={{
+                  fontWeight: 700,
+                  borderColor: '#FF9800',
+                  color: '#FF9800',
+                  '&:hover': {
+                    borderColor: '#FF5722',
+                    backgroundColor: 'rgba(255, 152, 0, 0.1)'
+                  }
+                }}
+              >
+                👨‍💼 Ver ingenieros jefe en esta liga
               </Button>
               <Button
                 variant="contained"
@@ -1215,17 +1255,237 @@ export default function MarketPage() {
                   </Typography>
                 </Grid>
               ) : (
-                trackEngineersByLeague.map(te => (
-                  <Grid item xs={12} sm={6} md={4} key={te.id}>
-                    <Box sx={{ background: '#181c24', borderRadius: 2, p: 2, minHeight: 80 }}>
-                      <Typography sx={{ color: '#fff', fontWeight: 700 }}>ID: {te.id}</Typography>
-                      <Typography sx={{ color: '#b0b0b0' }}>TrackEngineerID: {te.trackEngineerID ?? te.track_engineer_id}</Typography>
-                      <Typography sx={{ color: '#b0b0b0' }}>OwnerID: {te.ownerID ?? te.owner_id}</Typography>
-                      <Typography sx={{ color: '#b0b0b0' }}>Venta: {te.venta ?? '-'}</Typography>
-                      <Typography sx={{ color: '#b0b0b0' }}>LeagueID: {te.leagueID ?? te.league_id}</Typography>
-                    </Box>
-                  </Grid>
-                ))
+                trackEngineersByLeague.map(engineer => {
+                  const teamColors = {
+                    'Red Bull Racing': { primary: '#3671C6', secondary: '#1E41C3' },
+                    'Mercedes': { primary: '#6CD3BF', secondary: '#00D2BE' },
+                    'McLaren': { primary: '#FF8700', secondary: '#FF5800' },
+                    'Ferrari': { primary: '#DC0000', secondary: '#B80000' },
+                    'Aston Martin': { primary: '#358C75', secondary: '#006F62' },
+                    'Alpine': { primary: '#0090FF', secondary: '#0051FF' },
+                    'Stake F1 Team Kick Sauber': { primary: '#52E252', secondary: '#37BEDD' },
+                    'Haas': { primary: '#FFFFFF', secondary: '#E8E8E8' },
+                    'Williams': { primary: '#37BEDD', secondary: '#005AFF' },
+                    'Visa Cash App RB': { primary: '#5E8FAA', secondary: '#1E41C3' }
+                  };
+                  const teamColor = teamColors[engineer.team] || { primary: '#666666', secondary: '#444444' };
+                  return (
+                    <Grid item xs={12} sm={6} md={4} lg={3} key={engineer.id}>
+                      <Box
+                        sx={{
+                          background: 'linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%)',
+                          border: `2px solid ${teamColor.primary}`,
+                          borderRadius: 3,
+                          p: 2,
+                          position: 'relative',
+                          overflow: 'hidden',
+                          minHeight: 140,
+                          '&:hover': {
+                            transform: 'translateY(-4px)',
+                            boxShadow: `0 8px 25px rgba(54,113,198,0.3)`,
+                            borderColor: teamColor.secondary,
+                          },
+                          '&::before': {
+                            content: '""',
+                            position: 'absolute',
+                            top: 0,
+                            left: 0,
+                            right: 0,
+                            height: '3px',
+                            background: `linear-gradient(90deg, ${teamColor.primary}, ${teamColor.secondary})`,
+                          }
+                        }}
+                      >
+                        <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                          <Avatar
+                            src={engineer.image_url ? `/images/ingenierosdepista/${engineer.image_url}` : ''}
+                            alt={engineer.name}
+                            sx={{
+                              width: 60,
+                              height: 60,
+                              mr: 2,
+                              border: `3px solid ${teamColor.primary}`,
+                              boxShadow: `0 4px 12px rgba(54,113,198,0.4)`
+                            }}
+                          />
+                          <Box sx={{ flexGrow: 1 }}>
+                            <Typography variant="h6" sx={{ fontWeight: 700, color: '#fff', fontSize: '1.1rem', textShadow: '0 2px 4px rgba(0,0,0,0.5)', mb: 0.5 }}>
+                              {engineer.name}
+                            </Typography>
+                            <Typography variant="body2" sx={{ color: teamColor.primary, fontWeight: 600, fontSize: '0.9rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                              {engineer.team || 'Sin equipo'}
+                            </Typography>
+                            <Typography variant="body2" sx={{ color: '#b0b0b0', fontSize: '0.8rem' }}>
+                              Piloto: {engineer.driver_name || 'Sin piloto asignado'}
+                            </Typography>
+                          </Box>
+                        </Box>
+                        <Box sx={{ mt: 2 }}>
+                          <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                            <Typography variant="body2" sx={{ color: '#b0b0b0', fontSize: '0.8rem' }}>
+                              Valor:
+                            </Typography>
+                            <Typography variant="body2" sx={{ fontWeight: 700, color: '#4CAF50', fontSize: '0.9rem' }}>
+                              {(engineer.value ?? 0).toLocaleString()} €
+                            </Typography>
+                          </Box>
+                          <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                            <Typography variant="body2" sx={{ color: '#b0b0b0', fontSize: '0.8rem' }}>
+                              Piloto ID:
+                            </Typography>
+                            <Typography variant="body2" sx={{ fontWeight: 700, color: '#FFD600', fontSize: '0.9rem' }}>
+                              {engineer.pilot_id || '-'}
+                            </Typography>
+                          </Box>
+                        </Box>
+                        <Box
+                          sx={{
+                            position: 'absolute',
+                            bottom: 0,
+                            left: 0,
+                            right: 0,
+                            height: '2px',
+                            background: `linear-gradient(90deg, ${teamColor.primary}, ${teamColor.secondary})`,
+                            opacity: 0.7
+                          }}
+                        />
+                      </Box>
+                    </Grid>
+                  );
+                })
+              )}
+            </Grid>
+          )}
+        </DialogContent>
+      </Dialog>
+      {/* Modal de ingenieros jefe por liga */}
+      <Dialog open={openChiefEngineers} onClose={() => setOpenChiefEngineers(false)} maxWidth="md" fullWidth>
+        <DialogTitle sx={{ background: '#1a1a1a', color: '#fff' }}>
+          <Typography variant="h6" sx={{ fontWeight: 700 }}>
+            ��‍💼 Ingenieros Jefe en esta liga
+          </Typography>
+          <IconButton
+            aria-label="close"
+            onClick={() => setOpenChiefEngineers(false)}
+            sx={{ position: 'absolute', right: 8, top: 8, color: '#fff' }}
+          >
+            <CloseIcon />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent dividers sx={{ background: '#0a0a0a', p: 3 }}>
+          {loadingChiefEngineers ? (
+            <Box sx={{ textAlign: 'center', py: 4 }}>
+              <CircularProgress color="info" />
+            </Box>
+          ) : errorChiefEngineers ? (
+            <Alert severity="error">{errorChiefEngineers}</Alert>
+          ) : (
+            <Grid container spacing={2}>
+              {chiefEngineersByLeague.length === 0 ? (
+                <Grid item xs={12}>
+                  <Typography sx={{ color: '#fff', textAlign: 'center', py: 4 }}>
+                    No hay ingenieros jefe en esta liga.
+                  </Typography>
+                </Grid>
+              ) : (
+                chiefEngineersByLeague.map(engineer => {
+                  const teamColors = {
+                    'Red Bull Racing': { primary: '#3671C6', secondary: '#1E41C3' },
+                    'Mercedes': { primary: '#6CD3BF', secondary: '#00D2BE' },
+                    'McLaren': { primary: '#FF8700', secondary: '#FF5800' },
+                    'Ferrari': { primary: '#DC0000', secondary: '#B80000' },
+                    'Aston Martin': { primary: '#358C75', secondary: '#006F62' },
+                    'Alpine': { primary: '#0090FF', secondary: '#0051FF' },
+                    'Stake F1 Team Kick Sauber': { primary: '#52E252', secondary: '#37BEDD' },
+                    'Haas': { primary: '#FFFFFF', secondary: '#E8E8E8' },
+                    'Williams': { primary: '#37BEDD', secondary: '#005AFF' },
+                    'Visa Cash App RB': { primary: '#5E8FAA', secondary: '#1E41C3' }
+                  };
+                  const teamColor = teamColors[engineer.team] || { primary: '#666666', secondary: '#444444' };
+                  return (
+                    <Grid item xs={12} sm={6} md={4} lg={3} key={engineer.id}>
+                      <Box
+                        sx={{
+                          background: 'linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%)',
+                          border: `2px solid ${teamColor.primary}`,
+                          borderRadius: 3,
+                          p: 2,
+                          position: 'relative',
+                          overflow: 'hidden',
+                          minHeight: 140,
+                          '&:hover': {
+                            transform: 'translateY(-4px)',
+                            boxShadow: `0 8px 25px rgba(54,113,198,0.3)`,
+                            borderColor: teamColor.secondary,
+                          },
+                          '&::before': {
+                            content: '""',
+                            position: 'absolute',
+                            top: 0,
+                            left: 0,
+                            right: 0,
+                            height: '3px',
+                            background: `linear-gradient(90deg, ${teamColor.primary}, ${teamColor.secondary})`,
+                          }
+                        }}
+                      >
+                        <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                          <Avatar
+                            src={engineer.image_url ? `/images/ingenierosdepista/${engineer.image_url}` : ''}
+                            alt={engineer.name}
+                            sx={{
+                              width: 60,
+                              height: 60,
+                              mr: 2,
+                              border: `3px solid ${teamColor.primary}`,
+                              boxShadow: `0 4px 12px rgba(54,113,198,0.4)`
+                            }}
+                          />
+                          <Box sx={{ flexGrow: 1 }}>
+                            <Typography variant="h6" sx={{ fontWeight: 700, color: '#fff', fontSize: '1.1rem', textShadow: '0 2px 4px rgba(0,0,0,0.5)', mb: 0.5 }}>
+                              {engineer.name}
+                            </Typography>
+                            <Typography variant="body2" sx={{ color: teamColor.primary, fontWeight: 600, fontSize: '0.9rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                              {engineer.team || 'Sin equipo'}
+                            </Typography>
+                            <Typography variant="body2" sx={{ color: '#b0b0b0', fontSize: '0.8rem' }}>
+                              Piloto: {engineer.driver_name || 'Sin piloto asignado'}
+                            </Typography>
+                          </Box>
+                        </Box>
+                        <Box sx={{ mt: 2 }}>
+                          <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                            <Typography variant="body2" sx={{ color: '#b0b0b0', fontSize: '0.8rem' }}>
+                              Valor:
+                            </Typography>
+                            <Typography variant="body2" sx={{ fontWeight: 700, color: '#4CAF50', fontSize: '0.9rem' }}>
+                              {(engineer.value ?? 0).toLocaleString()} €
+                            </Typography>
+                          </Box>
+                          <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                            <Typography variant="body2" sx={{ color: '#b0b0b0', fontSize: '0.8rem' }}>
+                              Piloto ID:
+                            </Typography>
+                            <Typography variant="body2" sx={{ fontWeight: 700, color: '#FFD600', fontSize: '0.9rem' }}>
+                              {engineer.pilot_id || '-'}
+                            </Typography>
+                          </Box>
+                        </Box>
+                        <Box
+                          sx={{
+                            position: 'absolute',
+                            bottom: 0,
+                            left: 0,
+                            right: 0,
+                            height: '2px',
+                            background: `linear-gradient(90deg, ${teamColor.primary}, ${teamColor.secondary})`,
+                            opacity: 0.7
+                          }}
+                        />
+                      </Box>
+                    </Grid>
+                  );
+                })
               )}
             </Grid>
           )}
