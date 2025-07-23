@@ -1,32 +1,14 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import Box from '@mui/material/Box';
-import Typography from '@mui/material/Typography';
-import Avatar from '@mui/material/Avatar';
-import Table from '@mui/material/Table';
-import TableBody from '@mui/material/TableBody';
-import TableCell from '@mui/material/TableCell';
-import TableRow from '@mui/material/TableRow';
-import TableHead from '@mui/material/TableHead';
-import IconButton from '@mui/material/IconButton';
-import CloseIcon from '@mui/icons-material/Close';
-import ArrowBackIosNewIcon from '@mui/icons-material/ArrowBackIosNew';
-import ArrowForwardIosIcon from '@mui/icons-material/ArrowForwardIos';
-import LockIcon from '@mui/icons-material/Lock';
+import { Card, CardHeader, CardContent, CardTitle } from '../components/ui/card';
+import { Avatar, AvatarImage, AvatarFallback } from '../components/ui/avatar';
+import { Button } from '../components/ui/button';
+import { Badge } from '../components/ui/badge';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '../components/ui/tabs';
+import { X, ChevronLeft, ChevronRight, Lock } from 'lucide-react';
 import { useLeague } from '../context/LeagueContext';
+import { getTeamColor, cn } from '../lib/utils';
 
-const teamColors = {
-  'Red Bull Racing': { primary: '#3671C6', secondary: '#1E41C3' },
-  'Mercedes': { primary: '#6CD3BF', secondary: '#00D2BE' },
-  'McLaren': { primary: '#FF8700', secondary: '#FF5800' },
-  'Ferrari': { primary: '#DC0000', secondary: '#B80000' },
-  'Aston Martin': { primary: '#358C75', secondary: '#006F62' },
-  'Alpine': { primary: '#0090FF', secondary: '#0051FF' },
-  'Stake F1 Team Kick Sauber': { primary: '#52E252', secondary: '#37BEDD' },
-  'Haas': { primary: '#FFFFFF', secondary: '#E8E8E8' },
-  'Williams': { primary: '#37BEDD', secondary: '#005AFF' },
-  'Visa Cash App RB': { primary: '#5E8FAA', secondary: '#1E41C3' }
-};
 
 export default function ProfilePage() {
   const { id } = useParams(); // id de pilots
@@ -35,15 +17,6 @@ export default function ProfilePage() {
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [selectedGP, setSelectedGP] = useState(0);
-  const paisesRef = React.useRef();
-
-  const scrollByCountries = (dir) => {
-    if (paisesRef.current) {
-      const box = paisesRef.current;
-      const countryWidth = 70 + 8; // minWidth + gap
-      box.scrollBy({ left: dir * countryWidth * 3, behavior: 'smooth' });
-    }
-  };
 
   useEffect(() => {
     if (!id || !selectedLeague?.id) return;
@@ -64,18 +37,18 @@ export default function ProfilePage() {
   }, [id, selectedLeague]);
 
   if (loading) return (
-    <Box sx={{ minHeight: '100vh', background: '#111', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <Typography>Cargando perfil...</Typography>
-    </Box>
+    <div className="min-h-screen bg-background flex items-center justify-center">
+      <p className="text-body text-text-primary">Cargando perfil...</p>
+    </div>
   );
 
   if (!profile || !profile.pilot) return (
-    <Box sx={{ minHeight: '100vh', background: '#111', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <Typography variant="h5" color="error">Piloto no encontrado</Typography>
-    </Box>
+    <div className="min-h-screen bg-background flex items-center justify-center">
+      <h2 className="text-h2 font-semibold text-state-error">Piloto no encontrado</h2>
+    </div>
   );
   const { pilot, pilot_by_league, grand_prix, scoring_criteria } = profile;
-  const teamColor = teamColors[pilot?.team] || { primary: '#666', secondary: '#444' };
+  const teamColor = getTeamColor(pilot?.team);
 
   // Calcular días restantes de la cláusula
   let clausulaDias = null;
@@ -110,119 +83,153 @@ export default function ProfilePage() {
   };
 
   return (
-    <Box sx={{ minHeight: '100vh', background: 'linear-gradient(135deg, #0a0a0a 0%, #1a1a1a 100%)', color: '#fff', p: 0 }}>
-      <Box sx={{ maxWidth: 500, mx: 'auto', mt: 4, p: 3, borderRadius: 4, background: 'linear-gradient(135deg, #1a1a1a 0%, #232323 100%)', boxShadow: 6, border: `2px solid ${teamColor.primary}`, position: 'relative' }}>
-        <IconButton onClick={() => navigate(-1)} sx={{ position: 'absolute', top: 12, right: 12, color: '#fff', background: 'rgba(0,0,0,0.3)' }}>
-          <CloseIcon />
-        </IconButton>
-        <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-          <Avatar src={pilot?.image_url ? `/images/${pilot.image_url}` : ''} sx={{ width: 64, height: 64, border: `3px solid ${teamColor.primary}`, mr: 2 }} />
-          <Box>
-            <Typography variant="h5" sx={{ fontWeight: 700, color: teamColor.primary }}>{pilot.driver_name}</Typography>
-            <Typography variant="body2" sx={{ color: '#b0b0b0', fontWeight: 500 }}>{pilot.team}</Typography>
-            {/* Modo debajo del nombre */}
-            <Typography variant="body2" sx={{ color: '#FFD600', fontWeight: 700, mb: 1 }}>Modo: {pilot_by_league?.mode?.toUpperCase()}</Typography>
-            <Typography variant="body2" sx={{ color: '#4CAF50', fontWeight: 700 }}>{(pilot.value || 0).toLocaleString()} €</Typography>
-            {/* Candado de cláusula */}
-            {clausulaDias && (
-              <Box sx={{ display: 'flex', alignItems: 'center', mt: 1, background: '#23243a', borderRadius: 2, px: 1.2, py: 0.2, width: 'fit-content' }}>
-                <LockIcon sx={{ color: '#FF5252', fontSize: 18, mr: 0.5 }} />
-                <Typography sx={{ color: '#FF5252', fontWeight: 700, fontSize: 13 }}>{clausulaDias} días</Typography>
-              </Box>
-            )}
-          </Box>
-        </Box>
-        {/* Barra de Grandes Premios con flechas debajo del nombre */}
-        <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-          <IconButton onClick={() => scrollByCountries(-1)} size="small" sx={{ color: '#fff', background: '#232323', mr: 1 }}>
-            <ArrowBackIosNewIcon fontSize="small" />
-          </IconButton>
-          <Box ref={paisesRef} sx={{
-            display: 'flex',
-            overflowX: 'auto',
-            gap: 1,
-            scrollbarWidth: 'none',
-            msOverflowStyle: 'none',
-            '&::-webkit-scrollbar': { display: 'none' },
-            flex: 1,
-          }}>
-            {(grand_prix || []).map((gp, idx) => (
-              <Box
-                key={gp.id}
-                onClick={() => setSelectedGP(idx)}
-                sx={{
-                  minWidth: 70,
-                  px: 1,
-                  py: 0.5,
-                  borderRadius: 2,
-                  background: selectedGP === idx ? teamColor.primary : '#232323',
-                  color: selectedGP === idx ? '#fff' : '#b0b0b0',
-                  textAlign: 'center',
-                  cursor: 'pointer',
-                  fontWeight: 700,
-                  border: selectedGP === idx ? `2px solid ${teamColor.secondary}` : '2px solid transparent',
-                  fontSize: '0.95rem',
-                  boxShadow: selectedGP === idx ? '0 2px 8px rgba(0,0,0,0.3)' : 'none',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  justifyContent: 'center'
-                }}
-              >
-                {/* Bandera encima del país */}
-                {gp.flag && (
-                  <img src={`/images/flags/${gp.flag}`} alt={gp.country} style={{ width: 32, height: 20, marginBottom: 4, borderRadius: 3, border: '1px solid #888' }} />
+    <div className="min-h-screen bg-background p-0">
+      <div className="max-w-lg mx-auto pt-16">
+        <Card className="relative border-2 shadow-card" style={{ borderColor: teamColor.primary }}>
+          <Button 
+            onClick={() => navigate(-1)} 
+            variant="ghost" 
+            size="icon"
+            className="absolute top-3 right-3 text-text-primary hover:bg-surface-elevated"
+          >
+            <X className="h-4 w-4" />
+          </Button>
+          <CardHeader>
+            <div className="flex items-center space-x-4">
+              <Avatar className="w-16 h-16 border-2" style={{ borderColor: teamColor.primary }}>
+                <AvatarImage src={pilot?.image_url ? `/images/${pilot.image_url}` : ''} alt={pilot.driver_name} />
+                <AvatarFallback className="text-text-primary bg-surface">
+                  {pilot.driver_name?.split(' ').map(n => n[0]).join('')}
+                </AvatarFallback>
+              </Avatar>
+              <div className="flex-1">
+                <CardTitle className="text-h2 font-bold mb-1" style={{ color: teamColor.primary }}>
+                  {pilot.driver_name}
+                </CardTitle>
+                <p className="text-small text-text-secondary font-medium mb-2">{pilot.team}</p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge variant="accent" className="font-bold">
+                    Modo: {pilot_by_league?.mode?.toUpperCase()}
+                  </Badge>
+                  <Badge variant="success" className="font-bold">
+                    {(pilot.value || 0).toLocaleString()} €
+                  </Badge>
+                  {clausulaDias && (
+                    <Badge variant="error" className="flex items-center gap-1">
+                      <Lock className="h-3 w-3" />
+                      <span>{clausulaDias} días</span>
+                    </Badge>
+                  )}
+                </div>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent>
+            {/* Grand Prix Selector using Tabs */}
+            <Tabs value={selectedGP.toString()} onValueChange={(value) => setSelectedGP(parseInt(value))}>
+              <div className="mb-4">
+                <h3 className="text-subtitle font-semibold text-text-primary mb-3 text-center">Gran Premio</h3>
+                <TabsList className="grid w-full grid-cols-4 gap-1 bg-surface h-auto p-1">
+                  {(grand_prix || []).slice(0, 8).map((gp, idx) => (
+                    <TabsTrigger 
+                      key={gp.id} 
+                      value={idx.toString()}
+                      className="flex flex-col items-center p-2 h-auto data-[state=active]:bg-surface-elevated data-[state=active]:shadow-sm"
+                      style={{ 
+                        '--active-color': teamColor.primary 
+                      }}
+                    >
+                      <div className="flex flex-col items-center">
+                        {gp.flag && (
+                          <img 
+                            src={`/images/flags/${gp.flag}`} 
+                            alt={gp.country} 
+                            className="w-6 h-4 mb-1 rounded-sm border border-border"
+                          />
+                        )}
+                        <span className="text-xs font-medium truncate max-w-full">
+                          {gp.country?.length > 8 ? gp.country.substring(0, 6) + '...' : gp.country}
+                        </span>
+                      </div>
+                    </TabsTrigger>
+                  ))}
+                </TabsList>
+                {/* Show more GPs if there are more than 8 */}
+                {(grand_prix || []).length > 8 && (
+                  <div className="flex flex-wrap gap-1 mt-2 justify-center">
+                    {(grand_prix || []).slice(8).map((gp, idx) => (
+                      <Button
+                        key={gp.id}
+                        variant={selectedGP === idx + 8 ? "primary" : "ghost"}
+                        size="sm"
+                        onClick={() => setSelectedGP(idx + 8)}
+                        className="text-xs px-2 py-1 h-auto flex flex-col items-center gap-1"
+                      >
+                        <div className="flex flex-col items-center">
+                          {gp.flag && (
+                            <img 
+                              src={`/images/flags/${gp.flag}`} 
+                              alt={gp.country} 
+                              className="w-4 h-3 mb-1 rounded-sm border border-border"
+                            />
+                          )}
+                          <span className="text-xs">
+                            {gp.country?.length > 6 ? gp.country.substring(0, 4) + '...' : gp.country}
+                          </span>
+                        </div>
+                      </Button>
+                    ))}
+                  </div>
                 )}
-                <span>{gp.country}</span>
-              </Box>
-            ))}
-          </Box>
-          <IconButton onClick={() => scrollByCountries(1)} size="small" sx={{ color: '#fff', background: '#232323', ml: 1 }}>
-            <ArrowForwardIosIcon fontSize="small" />
-          </IconButton>
-        </Box>
-        {/* País destacado debajo */}
-        <Box sx={{ textAlign: 'center', mb: 2 }}>
-          <Typography variant="h6" sx={{ color: '#FFD600', fontWeight: 700 }}>
-            {(grand_prix && grand_prix[selectedGP]) ? grand_prix[selectedGP].country : ''}
-          </Typography>
-        </Box>
-        {/* Puntos del piloto para el GP seleccionado */}
-        <Box sx={{ mt: 2, textAlign: 'center' }}>
-          <Typography variant="h6" sx={{ color: teamColor.primary, fontWeight: 700, mb: 1 }}>
-            Puntos en este GP
-          </Typography>
-          <Typography variant="h4" sx={{ color: '#FFD600', fontWeight: 900 }}>
-            {pilot_by_league?.points && pilot_by_league.points[selectedGP] !== undefined ? pilot_by_league.points[selectedGP] : 0}
-          </Typography>
-        </Box>
-        {/* Tabla de criterios de puntuación por modo */}
-        <Box sx={{ mt: 3 }}>
-          <Typography variant="h6" sx={{ color: teamColor.primary, fontWeight: 700, mb: 1 }}>
-            Criterios de Puntuación ({pilot.mode?.toUpperCase()})
-          </Typography>
-          <table style={{ width: '100%', background: '#181818', borderRadius: 8, color: '#fff', marginTop: 8 }}>
-            <thead>
-              <tr>
-                <th style={{ textAlign: 'left', padding: 8 }}>Criterio</th>
-                <th style={{ textAlign: 'right', padding: 8 }}>Valor</th>
-              </tr>
-            </thead>
-            <tbody>
-              {scoring_criteria && Object.entries(scoring_criteria).map(([key, value]) => (
-                <tr key={key}>
-                  <td style={{ padding: 8 }}>{readableCriteria[key] || key}</td>
-                  <td style={{ padding: 8, textAlign: 'right' }}>
-                    {Array.isArray(value) && value !== null
-                      ? (value[selectedGP] !== undefined && value[selectedGP] !== null ? value[selectedGP] : 0)
-                      : 0}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </Box>
-      </Box>
-    </Box>
+              </div>
+            </Tabs>
+            
+            {/* Selected GP Display */}
+            <div className="text-center mb-6">
+              <h2 className="text-h3 font-bold mb-2" style={{ color: teamColor.primary }}>
+                {(grand_prix && grand_prix[selectedGP]) ? grand_prix[selectedGP].country : ''}
+              </h2>
+            </div>
+            {/* Points Display */}
+            <div className="text-center mb-6">
+              <h3 className="text-subtitle font-bold mb-2" style={{ color: teamColor.primary }}>
+                Puntos en este GP
+              </h3>
+              <div className="text-4xl font-black text-accent-main">
+                {pilot_by_league?.points && pilot_by_league.points[selectedGP] !== undefined ? pilot_by_league.points[selectedGP] : 0}
+              </div>
+            </div>
+            {/* Scoring Criteria Table */}
+            <div className="mt-6">
+              <h3 className="text-subtitle font-bold mb-4" style={{ color: teamColor.primary }}>
+                Criterios de Puntuación ({pilot_by_league?.mode?.toUpperCase()})
+              </h3>
+              <div className="bg-surface-elevated rounded-md border border-border overflow-hidden">
+                <table className="w-full text-text-primary">
+                  <thead>
+                    <tr className="border-b border-border bg-surface">
+                      <th className="text-left py-3 px-4 text-small font-semibold text-text-secondary">Criterio</th>
+                      <th className="text-right py-3 px-4 text-small font-semibold text-text-secondary">Valor</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {scoring_criteria && Object.entries(scoring_criteria).map(([key, value]) => (
+                      <tr key={key} className="border-b border-border last:border-b-0 hover:bg-surface transition-colors">
+                        <td className="py-3 px-4 text-small">{readableCriteria[key] || key}</td>
+                        <td className="py-3 px-4 text-small text-right font-medium">
+                          {Array.isArray(value) && value !== null
+                            ? (value[selectedGP] !== undefined && value[selectedGP] !== null ? value[selectedGP] : 0)
+                            : 0}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    </div>
   );
 } 

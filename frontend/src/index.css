@@ -1,0 +1,93 @@
+@import 'tailwindcss/base';
+@import 'tailwindcss/components'; 
+@import 'tailwindcss/utilities';
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'Inter', 'Segoe UI', sans-serif;
+  background-color: #080705;
+  color: #FFFFFF;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #121012;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(100, 1, 96, 0.5);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(100, 1, 96, 0.8);
+}
+
+/* Component layer for custom utilities */
+@layer components {
+  .card {
+    @apply bg-surface-elevated border border-border rounded-md shadow-card;
+  }
+
+  .btn-primary {
+    @apply bg-accent-main text-white font-medium px-6 py-3 rounded-md
+           hover:bg-accent-hover hover:shadow-glow-accent
+           transition-all duration-normal ease-standard
+           focus:outline-none focus:ring-2 focus:ring-accent-main focus:ring-opacity-50;
+  }
+
+  .btn-ghost {
+    @apply bg-transparent text-accent-main font-medium px-6 py-3 rounded-md
+           hover:bg-accent-main hover:bg-opacity-12
+           transition-all duration-normal ease-standard
+           focus:outline-none focus:ring-2 focus:ring-accent-main focus:ring-opacity-50;
+  }
+
+  .input-field {
+    @apply bg-surface border border-border rounded-md px-4 py-3
+           text-text-primary placeholder-text-secondary
+           focus:outline-none focus:ring-2 focus:ring-accent-main focus:border-transparent
+           transition-all duration-normal ease-standard;
+  }
+
+  .tab-button {
+    @apply px-6 py-3 font-medium text-text-secondary
+           hover:text-text-primary
+           transition-all duration-normal ease-standard
+           border-b-2 border-transparent;
+  }
+
+  .tab-button.active {
+    @apply text-accent-main border-accent-main;
+  }
+
+  .tag {
+    @apply px-3 py-1 rounded-pill text-small font-medium;
+  }
+
+  .tag-accent {
+    @apply bg-accent-main bg-opacity-12 text-accent-main;
+  }
+
+  .tag-neutral {
+    @apply bg-surface-elevated text-text-secondary;
+  }
+}

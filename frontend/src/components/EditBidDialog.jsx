@@ -1,50 +1,86 @@
 import React from 'react';
-import Dialog from '@mui/material/Dialog';
-import DialogTitle from '@mui/material/DialogTitle';
-import DialogContent from '@mui/material/DialogContent';
-import Box from '@mui/material/Box';
-import Typography from '@mui/material/Typography';
-import TextField from '@mui/material/TextField';
-import Button from '@mui/material/Button';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
+import { Button } from './ui/button';
+import { Input } from './ui/input';
+import { Avatar, AvatarImage, AvatarFallback } from './ui/avatar';
+import { formatCurrency } from '../lib/utils';
 
-export default function EditBidDialog({ open, onClose, onSubmit, pilot, editBidValue, setEditBidValue, playerMoney }) {
+export default function EditBidDialog({ 
+  open, 
+  onClose, 
+  onSubmit, 
+  pilot, 
+  editBidValue, 
+  setEditBidValue, 
+  playerMoney 
+}) {
   if (!pilot) return null;
+
+  const handleSubmit = () => {
+    if (onSubmit) {
+      onSubmit();
+    }
+  };
+
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth>
-      <DialogTitle sx={{ background: '#1a1a1a', color: '#fff', textAlign: 'center' }}>
-        Editar Puja por {pilot.driver_name}
-      </DialogTitle>
-      <DialogContent sx={{ background: '#0a0a0a', p: 3 }}>
-        <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', mb: 2 }}>
-          <img
-            src={pilot.image_url ? `/images/${pilot.image_url}` : ''}
-            alt={pilot.driver_name || pilot.name}
-            style={{ width: 90, height: 90, borderRadius: '50%', marginBottom: 16 }}
-          />
-          <Typography sx={{ color: '#FFD600', fontWeight: 700, fontSize: 15 }}>VALOR DE MERCADO</Typography>
-          <Typography sx={{ color: '#fff', fontWeight: 700, fontSize: 15, mb: 1 }}>{Number(pilot.value).toLocaleString('es-ES')}</Typography>
-          <Typography sx={{ color: '#b0b0b0', fontWeight: 700, fontSize: 15, mb: 2 }}>Precio actual: {pilot.venta?.toLocaleString('es-ES') ?? '-'}</Typography>
-          <TextField
-            label="Importe"
-            type="number"
-            fullWidth
-            value={editBidValue}
-            onChange={e => setEditBidValue(e.target.value)}
-            sx={{ mb: 2, input: { color: '#fff' } }}
-            InputProps={{ style: { color: '#fff', background: '#222' } }}
-          />
+    <Dialog open={open} onOpenChange={onClose}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="text-center">
+            Editar Puja por {pilot.driver_name}
+          </DialogTitle>
+        </DialogHeader>
+        
+        <div className="flex flex-col items-center space-y-4">
+          <Avatar className="w-20 h-20">
+            <AvatarImage 
+              src={pilot.image_url ? `/images/${pilot.image_url}` : ''}
+              alt={pilot.driver_name || pilot.name}
+            />
+            <AvatarFallback className="text-lg font-bold">
+              {(pilot.driver_name || pilot.name)?.substring(0, 2)}
+            </AvatarFallback>
+          </Avatar>
+          
+          <div className="text-center space-y-1">
+            <p className="text-state-warning font-bold text-small uppercase tracking-wide">
+              Valor de Mercado
+            </p>
+            <p className="text-text-primary font-bold text-body">
+              {formatCurrency(Number(pilot.value))}
+            </p>
+            <p className="text-text-secondary text-small">
+              Precio actual: {pilot.venta ? formatCurrency(pilot.venta) : '-'}
+            </p>
+          </div>
+          
+          <div className="w-full space-y-2">
+            <label className="text-small font-medium text-text-secondary">
+              Importe
+            </label>
+            <Input
+              type="number"
+              value={editBidValue}
+              onChange={e => setEditBidValue(e.target.value)}
+              placeholder="Introduce tu puja..."
+            />
+          </div>
+          
           <Button
-            variant="contained"
-            color="success"
-            fullWidth
-            sx={{ fontWeight: 700, fontSize: 18 }}
-            onClick={onSubmit}
+            onClick={handleSubmit}
             disabled={Number(editBidValue) > playerMoney || Number(editBidValue) <= 0}
+            className="w-full bg-state-success hover:bg-state-success/90"
           >
             Editar Puja
           </Button>
-        </Box>
+          
+          {Number(editBidValue) > playerMoney && (
+            <p className="text-state-error text-small text-center">
+              No tienes suficiente saldo
+            </p>
+          )}
+        </div>
       </DialogContent>
     </Dialog>
   );
-} 
+}

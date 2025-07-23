@@ -1,0 +1,15 @@
+# Ignorar la caché de herramientas dentro de node_modules
+/frontend/node_modules/.cache/
+/node_modules
+# Ignorar node_modules en todas partes
+**/node_modules/
+# Ignorar node_modules en todas partes
+/frontend/node_modules/
+**/frontend/node_modules/
+**/frontend/node_modules/*
+**/frontend/node_modules/*
+frontend/node_modules/typescript/lib/
+frontend/build/
+frontend/node_modules/typescript/lib/** 
+**/node_modules/typescript/lib/** 
+**/node_modules/typescript/lib/

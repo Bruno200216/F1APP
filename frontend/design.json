@@ -1,0 +1,125 @@
+{
+  "name": "DarkPurpleProfile",
+  "description": "Diseño UI oscuro con acentos morados personalizado.",
+  "colors": {
+    "background": "#080705",
+    "surface": "#121012",
+    "surfaceElevated": "#1E1A1E",
+    "textPrimary": "#FFFFFF",
+    "textSecondary": "#C9A9DD",
+    "border": "rgba(255,255,255,0.08)",
+
+    "accent": {
+      "main": "#9D4EDD",
+      "hover": "#E0AAFF",
+      "light": "#F3E8FF"
+    },
+
+    "state": {
+      "success": "#28C76F",
+      "warning": "#FF9F43",
+      "error": "#EA5455"
+    }
+  },
+
+  "typography": {
+    "fontFamily": "'Inter', 'Segoe UI', sans-serif",
+    "weights": { "regular": 400, "medium": 500, "semibold": 600, "bold": 700 },
+    "sizes": {
+      "h1": 32,
+      "h2": 24,
+      "h3": 20,
+      "subtitle": 18,
+      "body": 16,
+      "small": 14,
+      "caption": 12
+    },
+    "lineHeights": {
+      "tight": 1.1,
+      "normal": 1.35,
+      "relaxed": 1.6
+    }
+  },
+
+  "spacing": [4, 8, 12, 16, 24, 32, 40, 64],
+
+  "radii": {
+    "xs": 4,
+    "sm": 8,
+    "md": 12,
+    "lg": 20,
+    "pill": 9999
+  },
+
+  "shadows": {
+    "card": "0 4px 16px rgba(0,0,0,0.35)",
+    "glowAccent": "0 0 8px #640160, 0 0 16px #640160"
+  },
+
+  "components": {
+    "button": {
+      "padding": [12, 20],
+      "radius": 12,
+      "fontSize": 16,
+      "fontWeight": 500,
+      "variants": {
+        "primary": {
+          "bg": "#640160",
+          "color": "#FFFFFF",
+          "hoverBg": "#D4B2D8",
+          "shadow": "0 0 8px #640160, 0 0 16px #640160"
+        },
+        "ghost": {
+          "bg": "transparent",
+          "color": "#640160",
+          "hoverBg": "rgba(212, 178, 216, 0.12)"
+        }
+      }
+    },
+
+    "card": {
+      "bg": "#1E1A1E",
+      "radius": 12,
+      "padding": 24,
+      "border": "1px solid rgba(255,255,255,0.08)",
+      "shadow": "0 4px 16px rgba(0,0,0,0.35)"
+    },
+
+    "navbar": {
+      "orientation": "vertical",
+      "width": 280,
+      "bg": "#080705",
+      "activeIndicator": {
+        "width": 4,
+        "color": "#640160"
+      }
+    },
+
+    "tag": {
+      "padding": [4, 12],
+      "radius": 9999,
+      "fontSize": 14,
+      "variants": {
+        "accent": {
+          "bg": "rgba(100, 1, 96, 0.12)",
+          "color": "#640160"
+        },
+        "neutral": {
+          "bg": "#1E1A1E",
+          "color": "#EFCEFA"
+        }
+      }
+    }
+  },
+
+  "motion": {
+    "duration": {
+      "fast": 150,
+      "normal": 250,
+      "slow": 400
+    },
+    "easing": {
+      "standard": "cubic-bezier(0.4, 0, 0.2, 1)"
+    }
+  }
+}

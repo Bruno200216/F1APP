@@ -1,30 +1,56 @@
 import React from 'react';
-import Dialog from '@mui/material/Dialog';
-import DialogTitle from '@mui/material/DialogTitle';
-import DialogContent from '@mui/material/DialogContent';
-import DialogActions from '@mui/material/DialogActions';
-import Typography from '@mui/material/Typography';
-import Button from '@mui/material/Button';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from './ui/dialog';
+import { Button } from './ui/button';
+import { formatCurrency } from '../lib/utils';
+import { AlertTriangle } from 'lucide-react';
 
 export default function DeleteBidDialog({ open, onClose, onConfirm, pilot }) {
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth>
-      <DialogTitle sx={{ background: '#1a1a1a', color: '#fff', textAlign: 'center' }}>
-        Eliminar Oferta
-      </DialogTitle>
-      <DialogContent sx={{ background: '#0a0a0a', p: 3, textAlign: 'center' }}>
+    <Dialog open={open} onOpenChange={onClose}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="text-center flex items-center justify-center gap-2">
+            <AlertTriangle className="w-5 h-5 text-state-error" />
+            Eliminar Oferta
+          </DialogTitle>
+        </DialogHeader>
+        
         {pilot && (
-          <>
-            <Typography sx={{ color: '#fff', fontWeight: 700, mb: 2 }}>
-              Vas a eliminar la puja por <span style={{ color: '#FFD600' }}>{pilot.driver_name || pilot.name}</span> por <span style={{ color: '#FFD600' }}>{pilot.value?.toLocaleString('es-ES')}€</span>.<br />¿Estás seguro?
-            </Typography>
-          </>
+          <div className="text-center space-y-4">
+            <p className="text-text-primary">
+              Vas a eliminar la puja por{' '}
+              <span className="text-state-warning font-bold">
+                {pilot.driver_name || pilot.name}
+              </span>
+              {' '}por{' '}
+              <span className="text-state-warning font-bold">
+                {formatCurrency(pilot.value)}
+              </span>
+            </p>
+            
+            <p className="text-text-secondary text-small">
+              ¿Estás seguro? Esta acción no se puede deshacer.
+            </p>
+          </div>
         )}
+        
+        <DialogFooter className="flex-col sm:flex-row gap-2">
+          <Button 
+            variant="outline" 
+            onClick={onClose}
+            className="w-full sm:w-auto"
+          >
+            Cancelar
+          </Button>
+          <Button 
+            variant="danger" 
+            onClick={onConfirm}
+            className="w-full sm:w-auto"
+          >
+            Eliminar
+          </Button>
+        </DialogFooter>
       </DialogContent>
-      <DialogActions sx={{ justifyContent: 'center', pb: 2 }}>
-        <Button onClick={onClose} variant="outlined" color="inherit" sx={{ fontWeight: 700, minWidth: 120 }}>Cancelar</Button>
-        <Button onClick={onConfirm} variant="contained" color="error" sx={{ fontWeight: 700, minWidth: 120 }}>Eliminar</Button>
-      </DialogActions>
     </Dialog>
   );
-} 
+}

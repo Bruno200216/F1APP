@@ -3,30 +3,21 @@ import { useNavigate } from 'react-router-dom';
 import { cn, getTeamColor, formatCurrency } from '../lib/utils';
 import { Card, CardContent } from './ui/card';
 import { Avatar, AvatarImage, AvatarFallback } from './ui/avatar';
-import { Badge } from './ui/badge';
 import { Button } from './ui/button';
-import { Lock, TrendingUp, Users } from 'lucide-react';
+import { TrendingUp } from 'lucide-react';
 
-export function goToDriverProfile(navigate, driver, leagueId) {
-  if (!driver || !driver.driver_code || !leagueId) return;
-  navigate(`/profile/${driver.driver_code}?league_id=${leagueId}`);
-}
-
-export default function DriverRaceCard({ 
-  driver, 
+export default function TeamCard({ 
+  team, 
   showStats = false, 
   isOwned = false, 
   onClick, 
   leagueId, 
-  onFichar, 
+  onPujar, 
   players = [], 
-  showBidActions = false, 
-  onEditBid, 
-  onDeleteBid, 
   bidActionsButton 
 }) {
   const navigate = useNavigate();
-  const teamColor = getTeamColor(driver.team);
+  const teamColor = getTeamColor(team.name);
 
   // Get owner name
   const getOwnerName = (owner_id) => {
@@ -37,26 +28,11 @@ export default function DriverRaceCard({
 
   const handleClick = () => {
     if (onClick) {
-      onClick(driver);
+      onClick(team);
     } else {
-      const pilotId = driver.pilot_id || driver.id;
-      navigate(`/profile/${pilotId}`);
+      navigate(`/profile/team/${team.id}`);
     }
   };
-
-  // Get current player ID
-  const playerId = Number(localStorage.getItem('player_id'));
-
-  // Calculate remaining clause days
-  let clausulaDias = null;
-  if (driver.clausula) {
-    const expira = new Date(driver.clausula);
-    const ahora = new Date();
-    const diff = expira - ahora;
-    if (diff > 0) {
-      clausulaDias = Math.ceil(diff / (1000 * 60 * 60 * 24));
-    }
-  }
 
   return (
     <Card 
@@ -84,58 +60,50 @@ export default function DriverRaceCard({
           <div className="absolute top-3 right-3 w-3 h-3 rounded-full bg-state-success border-2 border-white z-10" />
         )}
 
-        {/* Driver info */}
+        {/* Team info */}
         <div className="flex items-start space-x-4 mb-4">
           <Avatar className="w-16 h-16 border-2 shadow-lg" style={{ borderColor: teamColor.primary }}>
             <AvatarImage 
-              src={driver.image_url ? `/images/${driver.image_url}` : ''}
-              alt={driver.driver_name}
+              src={team.image_url ? `/images/equipos/${team.image_url}` : ''}
+              alt={team.name}
             />
             <AvatarFallback className="text-text-primary font-bold text-lg">
-              {driver.driver_name?.substring(0, 2) || '??'}
+              {team.name?.substring(0, 2) || '??'}
             </AvatarFallback>
           </Avatar>
 
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 mb-1">
               <h3 className="font-bold text-text-primary text-lg leading-tight">
-                {driver.driver_name}
+                {team.name}
               </h3>
               
-              {/* Driver type indicator */}
-              <div 
-                className="w-5 h-5 rounded-full border-2 bg-background flex items-center justify-center text-xs font-bold"
-                style={{ 
-                  borderColor: teamColor.primary,
-                  color: teamColor.primary
-                }}
-              >
-                {(driver.pilot_type === 'estrella') ? '★' : 
-                 (driver.pilot_type === 'rookie') ? 'R' : 
-                 (driver.mode || 'R').toUpperCase().charAt(0)}
-              </div>
-
-              {/* Clause indicator */}
-              {clausulaDias && (
-                <Badge variant="warning" className="text-xs flex items-center gap-1">
-                  <Lock className="w-3 h-3" />
-                  {clausulaDias}d
-                </Badge>
-              )}
             </div>
 
-            {/* Team name */}
+            {/* Team name (constructor) */}
             <p 
               className="font-semibold text-sm uppercase tracking-wide mb-2"
               style={{ color: teamColor.primary }}
             >
-              {driver.team}
+              {team.team || team.name}
             </p>
 
+            {/* Team type label */}
+            <p className="text-text-secondary text-xs font-medium mb-1">
+              EQUIPO CONSTRUCTOR
+            </p>
+
+            {/* Associated pilots */}
+            {team.pilots && team.pilots.length > 0 && (
+              <p className="text-text-secondary text-small">
+                Pilotos: {team.pilots.join(', ')}
+              </p>
+            )}
+
             {/* Number of bids */}
-            {typeof driver.num_bids !== 'undefined' && (
+            {typeof team.num_bids !== 'undefined' && (
               <p className="text-state-warning font-bold text-small mb-1">
-                {driver.num_bids} puja{driver.num_bids !== 1 ? 's' : ''}
+                {team.num_bids} puja{team.num_bids !== 1 ? 's' : ''}
               </p>
             )}
           </div>
@@ -147,52 +115,50 @@ export default function DriverRaceCard({
             <div className="flex justify-between items-center">
               <span className="text-text-secondary text-small">Valor:</span>
               <span className="font-bold text-state-success text-small">
-                {formatCurrency(driver.value ?? driver.valor_global ?? driver.valorGlobal ?? 0)}
+                {formatCurrency(team.value || 0)}
               </span>
             </div>
             
             <div className="flex justify-between items-center">
-              <span className="text-text-secondary text-small">Puntos:</span>
-              <span className="font-bold text-state-warning text-small">
-                {driver.total_points || 0}
+              <span className="text-text-secondary text-small">Tipo:</span>
+              <span className="font-bold text-accent-main text-small">
+                CONSTRUCTOR
               </span>
             </div>
             
             <div className="flex justify-between items-center">
               <span className="text-text-secondary text-small">Propietario:</span>
               <span className="text-text-primary text-small font-medium">
-                {getOwnerName(driver.owner_id)}
+                {getOwnerName(team.owner_id)}
               </span>
             </div>
 
-            {/* My bid */}
-            {driver.my_bid && (
+            {/* Pilots count */}
+            {team.pilots && (
               <div className="flex justify-between items-center">
-                <span className="text-text-secondary text-small">Mi puja:</span>
-                <span className="text-accent-main font-bold text-small">
-                  {formatCurrency(driver.my_bid)}
+                <span className="text-text-secondary text-small">Pilotos:</span>
+                <span className="text-text-primary text-small font-medium">
+                  {team.pilots.length}
                 </span>
               </div>
             )}
 
-            {/* Performance averages */}
+            {/* My bid */}
+            {team.my_bid && (
+              <div className="flex justify-between items-center">
+                <span className="text-text-secondary text-small">Mi puja:</span>
+                <span className="text-accent-main font-bold text-small">
+                  {formatCurrency(team.my_bid)}
+                </span>
+              </div>
+            )}
+
+            {/* Performance indicator */}
             <div className="flex gap-4 pt-2 border-t border-border">
               <div className="flex items-center gap-1">
-                <div className="w-2 h-2 rounded-full bg-state-success"></div>
-                <span className="text-small font-medium text-state-success">
-                  P: {driver.practice_avg || 0}
-                </span>
-              </div>
-              <div className="flex items-center gap-1">
-                <div className="w-2 h-2 rounded-full bg-blue-500"></div>
-                <span className="text-small font-medium text-blue-500">
-                  Q: {driver.qualifying_avg || 0}
-                </span>
-              </div>
-              <div className="flex items-center gap-1">
-                <div className="w-2 h-2 rounded-full bg-orange-500"></div>
-                <span className="text-small font-medium text-orange-500">
-                  R: {driver.race_avg || 0}
+                <div className="w-2 h-2 rounded-full" style={{ backgroundColor: teamColor.primary }}></div>
+                <span className="text-small font-medium" style={{ color: teamColor.primary }}>
+                  Constructor
                 </span>
               </div>
             </div>
@@ -213,11 +179,11 @@ export default function DriverRaceCard({
           </div>
 
           <div className="flex items-center gap-2">
-            {onFichar && (
+            {onPujar && (
               <Button
                 onClick={(e) => {
                   e.stopPropagation();
-                  onFichar(driver);
+                  onPujar(team);
                 }}
                 size="sm"
                 className="bg-gradient-to-r from-accent-main to-accent-hover hover:shadow-glow-accent"
