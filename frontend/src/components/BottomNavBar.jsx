@@ -1,41 +1,98 @@
 import * as React from 'react';
-import BottomNavigation from '@mui/material/BottomNavigation';
-import BottomNavigationAction from '@mui/material/BottomNavigationAction';
-import SportsEsportsIcon from '@mui/icons-material/SportsEsports';
-import LeaderboardIcon from '@mui/icons-material/Leaderboard';
-import GroupIcon from '@mui/icons-material/Group';
-import StoreIcon from '@mui/icons-material/Store';
-import NotificationsIcon from '@mui/icons-material/Notifications';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
+import { cn } from '../lib/utils';
+import { Button } from './ui/button';
+
+// Lucide React icons
+import { 
+  Trophy, 
+  BarChart3, 
+  Users, 
+  ShoppingCart, 
+  Bell 
+} from 'lucide-react';
+
+const navItems = [
+  {
+    id: 'leagues',
+    label: 'Leagues',
+    icon: Trophy,
+    path: '/leagues'
+  },
+  {
+    id: 'classification',
+    label: 'Classification', 
+    icon: BarChart3,
+    path: '/clasification'
+  },
+  {
+    id: 'team',
+    label: 'Team',
+    icon: Users,
+    path: '/team-pilots'
+  },
+  {
+    id: 'market',
+    label: 'Market',
+    icon: ShoppingCart,
+    path: '/market'
+  },
+  {
+    id: 'activity',
+    label: 'Activity',
+    icon: Bell,
+    path: '/activity'
+  }
+];
 
 export default function BottomNavBar() {
-  const [value, setValue] = React.useState(0);
   const navigate = useNavigate();
+  const location = useLocation();
 
-  const handleChange = (event, newValue) => {
-    setValue(newValue);
-    switch (newValue) {
-      case 0: navigate('/leagues'); break;
-      case 1: navigate('/clasification'); break;
-      case 2: navigate('/team-pilots'); break;
-      case 3: navigate('/market'); break;
-      case 4: navigate('/activity'); break;
-      default: break;
-    }
+  const handleNavigation = (path) => {
+    navigate(path);
+  };
+
+  const isActive = (path) => {
+    return location.pathname === path;
   };
 
   return (
-    <BottomNavigation
-      value={value}
-      onChange={handleChange}
-      showLabels
-      sx={{ position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 100 }}
-    >
-      <BottomNavigationAction label="Leagues" icon={<SportsEsportsIcon />} />
-      <BottomNavigationAction label="Clasification" icon={<LeaderboardIcon />} />
-      <BottomNavigationAction label="Drivers/Team" icon={<GroupIcon />} />
-      <BottomNavigationAction label="Market" icon={<StoreIcon />} />
-      <BottomNavigationAction label="Activity" icon={<NotificationsIcon />} />
-    </BottomNavigation>
+    <nav className="fixed bottom-0 left-0 right-0 z-50 bg-background border-t border-border">
+      <div className="flex items-center justify-around px-2 py-3 max-w-screen-xl mx-auto">
+        {navItems.map((item) => {
+          const Icon = item.icon;
+          const active = isActive(item.path);
+          
+          return (
+            <Button
+              key={item.id}
+              variant="ghost"
+              size="sm"
+              onClick={() => handleNavigation(item.path)}
+              className={cn(
+                "flex flex-col items-center justify-center gap-1 h-auto py-2 px-3 min-w-0 flex-1 max-w-20 transition-all duration-normal",
+                active 
+                  ? "text-accent-main bg-accent-main bg-opacity-12" 
+                  : "text-text-secondary hover:text-text-primary hover:bg-surface-elevated hover:bg-opacity-50"
+              )}
+            >
+              <Icon 
+                className={cn(
+                  "w-5 h-5 transition-colors duration-normal",
+                  active ? "text-accent-main" : "text-current"
+                )} 
+              />
+              <span className={cn(
+                "text-xs font-medium leading-tight truncate transition-colors duration-normal",
+                active ? "text-accent-main" : "text-current"
+              )}>
+                {item.label}
+              </span>
+            </Button>
+          );
+        })}
+      </div>
+    </nav>
   );
 } 

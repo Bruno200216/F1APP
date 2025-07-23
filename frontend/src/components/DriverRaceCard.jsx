@@ -6,6 +6,7 @@ import { Avatar, AvatarImage, AvatarFallback } from './ui/avatar';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { Lock, TrendingUp, Users } from 'lucide-react';
+import ClausulaBadge from './ClausulaBadge';
 
 export function goToDriverProfile(navigate, driver, leagueId) {
   if (!driver || !driver.driver_code || !leagueId) return;
@@ -116,12 +117,7 @@ export default function DriverRaceCard({
               </div>
 
               {/* Clause indicator */}
-              {clausulaDias && (
-                <Badge variant="warning" className="text-xs flex items-center gap-1">
-                  <Lock className="w-3 h-3" />
-                  {clausulaDias}d
-                </Badge>
-              )}
+              <ClausulaBadge daysLeft={clausulaDias} clausulaValue={driver.clausula_value} />
             </div>
 
             {/* Team name */}

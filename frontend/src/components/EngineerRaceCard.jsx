@@ -5,6 +5,7 @@ import Avatar from '@mui/material/Avatar';
 import Paper from '@mui/material/Paper';
 import { useNavigate } from 'react-router-dom';
 import LockIcon from '@mui/icons-material/Lock';
+import ClausulaBadge from './ClausulaBadge';
 
 // Colores de equipos de F1
 const teamColors = {
@@ -169,12 +170,7 @@ export default function EngineerRaceCard({
               {engineerIcon}
             </Box>
             {/* Candado de cláusula */}
-            {clausulaDias && (
-              <Box sx={{ display: 'flex', alignItems: 'center', ml: 1, background: '#23243a', borderRadius: 2, px: 1.2, py: 0.2 }}>
-                <LockIcon sx={{ color: '#FF5252', fontSize: 18, mr: 0.5 }} />
-                <Typography sx={{ color: '#FF5252', fontWeight: 700, fontSize: 13 }}>{clausulaDias} días</Typography>
-              </Box>
-            )}
+            <ClausulaBadge daysLeft={clausulaDias} clausulaValue={engineer.clausula_value} />
           </Box>
           {/* Mostrar número de pujas si existe */}
           {typeof engineer.num_bids !== 'undefined' && (

@@ -135,7 +135,7 @@ func refreshMarketForLeague(leagueID uint) error {
 	database.DB.Where("league_id = ? AND is_active = ?", leagueID, true).Find(&availableItems)
 	log.Printf("[refreshMarketForLeague] Total market_items encontrados: %d", len(availableItems))
 
-	// 2. Filtrar elementos que no tengan propietario
+	// 2. Filtrar elementos que no tengan propietario (owner_id = 0)
 	var freeItems []models.MarketItem
 	for _, item := range availableItems {
 		switch item.ItemType {
@@ -1615,6 +1615,25 @@ func main() {
 				pbl.Clausulatime = &clausulaExpira
 				database.DB.Save(&pbl)
 
+				// Generar oferta de la FIA automáticamente después de la compra
+				if err := database.DB.First(&pilot, pbl.PilotID).Error; err == nil {
+					// Generar oferta entre 90% y 110% del valor de la puja ganadora
+					fiaOfferValue := generateFIAOffer(maxBid.Valor)
+
+					// Crear la oferta de la FIA (el PlayerID debe ser el del propietario actual)
+					fiaBid := Bid{
+						PlayerID: pbl.OwnerID, // El propietario actual
+						Valor:    fiaOfferValue,
+					}
+
+					// Guardar en el campo bids
+					bidsJSON, _ := json.Marshal([]Bid{fiaBid})
+					pbl.Bids = bidsJSON
+					database.DB.Save(&pbl)
+
+					log.Printf("[REFRESH-AND-FINISH] Oferta de la FIA generada para piloto %s: %.2f€ (valor puja: %.2f€) - Propietario: %d", pilot.DriverName, fiaOfferValue, maxBid.Valor, pbl.OwnerID)
+				}
+
 			case "track_engineer":
 				var teb models.TrackEngineerByLeague
 				if err := database.DB.First(&teb, auction.ItemID).Error; err != nil {
@@ -1637,6 +1656,25 @@ func main() {
 					playerLeague.TeamValue += te.Value
 				} else {
 					log.Printf("[REFRESH-AND-FINISH] Error obteniendo TrackEngineer ID %d: %v", teb.TrackEngineerID, err)
+				}
+
+				// Generar oferta de la FIA automáticamente después de la compra
+				if err := database.DB.First(&te, teb.TrackEngineerID).Error; err == nil {
+					// Generar oferta entre 90% y 110% del valor de la puja ganadora
+					fiaOfferValue := generateFIAOffer(maxBid.Valor)
+
+					// Crear la oferta de la FIA (el PlayerID debe ser el del propietario actual)
+					fiaBid := Bid{
+						PlayerID: teb.OwnerID, // El propietario actual
+						Valor:    fiaOfferValue,
+					}
+
+					// Guardar en el campo bids
+					bidsJSON, _ := json.Marshal([]Bid{fiaBid})
+					teb.Bids = bidsJSON
+					database.DB.Save(&teb)
+
+					log.Printf("[REFRESH-AND-FINISH] Oferta de la FIA generada para track engineer %s: %.2f€ (valor puja: %.2f€) - Propietario: %d", te.Name, fiaOfferValue, maxBid.Valor, teb.OwnerID)
 				}
 
 			case "chief_engineer":
@@ -1663,6 +1701,25 @@ func main() {
 					log.Printf("[REFRESH-AND-FINISH] Error obteniendo ChiefEngineer ID %d: %v", ceb.ChiefEngineerID, err)
 				}
 
+				// Generar oferta de la FIA automáticamente después de la compra
+				if err := database.DB.First(&ce, ceb.ChiefEngineerID).Error; err == nil {
+					// Generar oferta entre 90% y 110% del valor de la puja ganadora
+					fiaOfferValue := generateFIAOffer(maxBid.Valor)
+
+					// Crear la oferta de la FIA (el PlayerID debe ser el del propietario actual)
+					fiaBid := Bid{
+						PlayerID: ceb.OwnerID, // El propietario actual
+						Valor:    fiaOfferValue,
+					}
+
+					// Guardar en el campo bids
+					bidsJSON, _ := json.Marshal([]Bid{fiaBid})
+					ceb.Bids = bidsJSON
+					database.DB.Save(&ceb)
+
+					log.Printf("[REFRESH-AND-FINISH] Oferta de la FIA generada para chief engineer %s: %.2f€ (valor puja: %.2f€) - Propietario: %d", ce.Name, fiaOfferValue, maxBid.Valor, ceb.OwnerID)
+				}
+
 			case "team_constructor":
 				var tcb models.TeamConstructorByLeague
 				if err := database.DB.First(&tcb, auction.ItemID).Error; err != nil {
@@ -1685,6 +1742,25 @@ func main() {
 					playerLeague.TeamValue += tc.Value
 				} else {
 					log.Printf("[REFRESH-AND-FINISH] Error obteniendo TeamConstructor ID %d: %v", tcb.TeamConstructorID, err)
+				}
+
+				// Generar oferta de la FIA automáticamente después de la compra
+				if err := database.DB.First(&tc, tcb.TeamConstructorID).Error; err == nil {
+					// Generar oferta entre 90% y 110% del valor de la puja ganadora
+					fiaOfferValue := generateFIAOffer(maxBid.Valor)
+
+					// Crear la oferta de la FIA (el PlayerID debe ser el del propietario actual)
+					fiaBid := Bid{
+						PlayerID: tcb.OwnerID, // El propietario actual
+						Valor:    fiaOfferValue,
+					}
+
+					// Guardar en el campo bids
+					bidsJSON, _ := json.Marshal([]Bid{fiaBid})
+					tcb.Bids = bidsJSON
+					database.DB.Save(&tcb)
+
+					log.Printf("[REFRESH-AND-FINISH] Oferta de la FIA generada para team constructor %s: %.2f€ (valor puja: %.2f€) - Propietario: %d", tc.Name, fiaOfferValue, maxBid.Valor, tcb.OwnerID)
 				}
 			}
 
@@ -1737,6 +1813,32 @@ func main() {
 		c.JSON(200, gin.H{"message": "Ofertas de la FIA generadas correctamente"})
 	})
 
+	// Endpoint para generar ofertas de la FIA para elementos con propietario
+	router.POST("/api/generate-fia-offers-owned", func(c *gin.Context) {
+		leagueID := c.Query("league_id")
+		if leagueID == "" {
+			c.JSON(400, gin.H{"error": "Falta league_id"})
+			return
+		}
+
+		id, err := strconv.ParseUint(leagueID, 10, 32)
+		if err != nil {
+			c.JSON(400, gin.H{"error": "league_id inválido"})
+			return
+		}
+
+		log.Printf("[FIA-OWNED-OFFERS] Generando ofertas de la FIA para elementos con propietario en liga %d", id)
+
+		if err := generateFIAOffersForOwnedItems(uint(id)); err != nil {
+			log.Printf("[FIA-OWNED-OFFERS] Error generando ofertas FIA: %v", err)
+			c.JSON(500, gin.H{"error": "Error generando ofertas de la FIA"})
+			return
+		}
+
+		log.Printf("[FIA-OWNED-OFFERS] Ofertas de la FIA generadas correctamente para elementos con propietario en liga %d", id)
+		c.JSON(200, gin.H{"message": "Ofertas de la FIA generadas correctamente para elementos con propietario"})
+	})
+
 	// Reinicio automático del mercado cada 24 horas
 	go func() {
 		for {
@@ -1770,6 +1872,143 @@ func main() {
 
 	router.GET("/api/market/next-refresh", func(c *gin.Context) {
 		c.JSON(200, gin.H{"next_refresh": marketNextRefresh.Unix()})
+	})
+
+	// Endpoint para obtener información de cláusulas de un jugador en una liga
+	router.GET("/api/player/clausulas", authMiddleware(), func(c *gin.Context) {
+		userID := c.GetUint("user_id")
+		leagueID := c.Query("league_id")
+
+		if leagueID == "" {
+			c.JSON(400, gin.H{"error": "Falta league_id"})
+			return
+		}
+
+		leagueIDUint, err := strconv.ParseUint(leagueID, 10, 64)
+		if err != nil {
+			c.JSON(400, gin.H{"error": "league_id inválido"})
+			return
+		}
+
+		var result []map[string]interface{}
+
+		// Obtener pilotos con cláusulas activas
+		var pilotsWithClausulas []models.PilotByLeague
+		database.DB.Where("league_id = ? AND owner_id = ? AND clausulatime IS NOT NULL AND clausulatime > ?", leagueIDUint, userID, time.Now()).Find(&pilotsWithClausulas)
+
+		for _, pbl := range pilotsWithClausulas {
+			var pilot models.Pilot
+			if err := database.DB.First(&pilot, pbl.PilotID).Error; err != nil {
+				continue
+			}
+
+			// Calcular días restantes
+			daysLeft := int(pbl.Clausulatime.Sub(time.Now()).Hours() / 24)
+			if daysLeft < 0 {
+				daysLeft = 0
+			}
+
+			item := map[string]interface{}{
+				"id":                  pbl.ID,
+				"type":                "pilot",
+				"name":                pilot.DriverName,
+				"team":                pilot.Team,
+				"image_url":           pilot.ImageURL,
+				"clausula_value":      pbl.ClausulaValue,
+				"clausula_expires_at": pbl.Clausulatime,
+				"days_left":           daysLeft,
+			}
+			result = append(result, item)
+		}
+
+		// Obtener track engineers con cláusulas activas
+		var trackEngineersWithClausulas []models.TrackEngineerByLeague
+		database.DB.Where("league_id = ? AND owner_id = ? AND clausula_expires_at IS NOT NULL AND clausula_expires_at > ?", leagueIDUint, userID, time.Now()).Find(&trackEngineersWithClausulas)
+
+		for _, teb := range trackEngineersWithClausulas {
+			var te models.TrackEngineer
+			if err := database.DB.First(&te, teb.TrackEngineerID).Error; err != nil {
+				continue
+			}
+
+			// Calcular días restantes
+			daysLeft := int(teb.ClausulaExpiresAt.Sub(time.Now()).Hours() / 24)
+			if daysLeft < 0 {
+				daysLeft = 0
+			}
+
+			item := map[string]interface{}{
+				"id":                  teb.ID,
+				"type":                "track_engineer",
+				"name":                te.Name,
+				"team":                te.Name, // Track engineers no tienen equipo específico
+				"image_url":           te.ImageURL,
+				"clausula_value":      teb.ClausulaValue,
+				"clausula_expires_at": teb.ClausulaExpiresAt,
+				"days_left":           daysLeft,
+			}
+			result = append(result, item)
+		}
+
+		// Obtener chief engineers con cláusulas activas
+		var chiefEngineersWithClausulas []models.ChiefEngineerByLeague
+		database.DB.Where("league_id = ? AND owner_id = ? AND clausula_expires_at IS NOT NULL AND clausula_expires_at > ?", leagueIDUint, userID, time.Now()).Find(&chiefEngineersWithClausulas)
+
+		for _, ceb := range chiefEngineersWithClausulas {
+			var ce models.ChiefEngineer
+			if err := database.DB.First(&ce, ceb.ChiefEngineerID).Error; err != nil {
+				continue
+			}
+
+			// Calcular días restantes
+			daysLeft := int(ceb.ClausulaExpiresAt.Sub(time.Now()).Hours() / 24)
+			if daysLeft < 0 {
+				daysLeft = 0
+			}
+
+			item := map[string]interface{}{
+				"id":                  ceb.ID,
+				"type":                "chief_engineer",
+				"name":                ce.Name,
+				"team":                ce.Team,
+				"image_url":           ce.ImageURL,
+				"clausula_value":      ceb.ClausulaValue,
+				"clausula_expires_at": ceb.ClausulaExpiresAt,
+				"days_left":           daysLeft,
+			}
+			result = append(result, item)
+		}
+
+		// Obtener team constructors con cláusulas activas
+		var teamConstructorsWithClausulas []models.TeamConstructorByLeague
+		database.DB.Where("league_id = ? AND owner_id = ? AND clausula_expires_at IS NOT NULL AND clausula_expires_at > ?", leagueIDUint, userID, time.Now()).Find(&teamConstructorsWithClausulas)
+
+		for _, tcb := range teamConstructorsWithClausulas {
+			var tc models.TeamConstructor
+			if err := database.DB.First(&tc, tcb.TeamConstructorID).Error; err != nil {
+				continue
+			}
+
+			// Calcular días restantes
+			daysLeft := int(tcb.ClausulaExpiresAt.Sub(time.Now()).Hours() / 24)
+			if daysLeft < 0 {
+				daysLeft = 0
+			}
+
+			item := map[string]interface{}{
+				"id":                  tcb.ID,
+				"type":                "team_constructor",
+				"name":                tc.Name,
+				"team":                tc.Name,
+				"image_url":           tc.ImageURL,
+				"clausula_value":      tcb.ClausulaValue,
+				"clausula_expires_at": tcb.ClausulaExpiresAt,
+				"days_left":           daysLeft,
+			}
+			result = append(result, item)
+		}
+
+		c.JSON(200, gin.H{"clausulas": result})
 	})
 
 	// Endpoint temporal para debug - verificar estado de player_by_league
@@ -3528,11 +3767,11 @@ func main() {
 	}
 }
 
-// Función para generar oferta de la FIA (entre 90% y 110% del valor actual)
-func generateFIAOffer(currentValue float64) float64 {
+// Función para generar oferta de la FIA (entre 90% y 110% del valor de venta)
+func generateFIAOffer(saleValue float64) float64 {
 	// Generar un valor aleatorio entre 0.9 y 1.1 (90% a 110%)
 	multiplier := 0.9 + rand.Float64()*0.2
-	return currentValue * multiplier
+	return saleValue * multiplier
 }
 
 // Función para generar ofertas de la FIA para todos los elementos en venta
@@ -3550,7 +3789,9 @@ func generateFIAOffersForLeague(leagueID uint) error {
 			continue
 		}
 
-		fiaOffer := generateFIAOffer(float64(pilot.Value))
+		// Usar el valor de venta en lugar del valor base del piloto
+		saleValue := float64(*pbl.Venta)
+		fiaOffer := generateFIAOffer(saleValue)
 		expires := time.Now().Add(24 * time.Hour)
 
 		pbl.LeagueOfferValue = &fiaOffer
@@ -3559,7 +3800,7 @@ func generateFIAOffersForLeague(leagueID uint) error {
 		if err := database.DB.Save(&pbl).Error; err != nil {
 			log.Printf("[FIA] Error guardando oferta FIA para piloto %d: %v", pbl.ID, err)
 		} else {
-			log.Printf("[FIA] Oferta FIA generada para piloto %s: %.2f€", pilot.DriverName, fiaOffer)
+			log.Printf("[FIA] Oferta FIA generada para piloto %s: %.2f€ (valor venta: %.2f€)", pilot.DriverName, fiaOffer, saleValue)
 		}
 	}
 
@@ -3574,7 +3815,9 @@ func generateFIAOffersForLeague(leagueID uint) error {
 			continue
 		}
 
-		fiaOffer := generateFIAOffer(float64(te.Value))
+		// Usar el valor de venta en lugar del valor base del track engineer
+		saleValue := float64(*teb.Venta)
+		fiaOffer := generateFIAOffer(saleValue)
 		expires := time.Now().Add(24 * time.Hour)
 
 		teb.LeagueOfferValue = &fiaOffer
@@ -3583,7 +3826,7 @@ func generateFIAOffersForLeague(leagueID uint) error {
 		if err := database.DB.Save(&teb).Error; err != nil {
 			log.Printf("[FIA] Error guardando oferta FIA para track engineer %d: %v", teb.ID, err)
 		} else {
-			log.Printf("[FIA] Oferta FIA generada para track engineer %s: %.2f€", te.Name, fiaOffer)
+			log.Printf("[FIA] Oferta FIA generada para track engineer %s: %.2f€ (valor venta: %.2f€)", te.Name, fiaOffer, saleValue)
 		}
 	}
 
@@ -3598,7 +3841,9 @@ func generateFIAOffersForLeague(leagueID uint) error {
 			continue
 		}
 
-		fiaOffer := generateFIAOffer(float64(ce.Value))
+		// Usar el valor de venta en lugar del valor base del chief engineer
+		saleValue := float64(*ceb.Venta)
+		fiaOffer := generateFIAOffer(saleValue)
 		expires := time.Now().Add(24 * time.Hour)
 
 		ceb.LeagueOfferValue = &fiaOffer
@@ -3607,7 +3852,7 @@ func generateFIAOffersForLeague(leagueID uint) error {
 		if err := database.DB.Save(&ceb).Error; err != nil {
 			log.Printf("[FIA] Error guardando oferta FIA para chief engineer %d: %v", ceb.ID, err)
 		} else {
-			log.Printf("[FIA] Oferta FIA generada para chief engineer %s: %.2f€", ce.Name, fiaOffer)
+			log.Printf("[FIA] Oferta FIA generada para chief engineer %s: %.2f€ (valor venta: %.2f€)", ce.Name, fiaOffer, saleValue)
 		}
 	}
 
@@ -3622,7 +3867,9 @@ func generateFIAOffersForLeague(leagueID uint) error {
 			continue
 		}
 
-		fiaOffer := generateFIAOffer(float64(tc.Value))
+		// Usar el valor de venta en lugar del valor base del team constructor
+		saleValue := float64(*tcb.Venta)
+		fiaOffer := generateFIAOffer(saleValue)
 		expires := time.Now().Add(24 * time.Hour)
 
 		tcb.LeagueOfferValue = &fiaOffer
@@ -3631,11 +3878,131 @@ func generateFIAOffersForLeague(leagueID uint) error {
 		if err := database.DB.Save(&tcb).Error; err != nil {
 			log.Printf("[FIA] Error guardando oferta FIA para team constructor %d: %v", tcb.ID, err)
 		} else {
-			log.Printf("[FIA] Oferta FIA generada para team constructor %s: %.2f€", tc.Name, fiaOffer)
+			log.Printf("[FIA] Oferta FIA generada para team constructor %s: %.2f€ (valor venta: %.2f€)", tc.Name, fiaOffer, saleValue)
 		}
 	}
 
 	log.Printf("[FIA] Generación de ofertas FIA completada para liga %d", leagueID)
+	return nil
+}
+
+// Función para generar ofertas de la FIA para elementos con propietario que no tienen ofertas
+func generateFIAOffersForOwnedItems(leagueID uint) error {
+	log.Printf("[FIA-OWNED] Generando ofertas de la FIA para elementos con propietario en liga %d", leagueID)
+
+	// 1. Generar ofertas para pilotos con propietario que no tienen ofertas de la FIA
+	var pilotsWithOwner []models.PilotByLeague
+	database.DB.Where("league_id = ? AND owner_id > 0 AND (bids IS NULL OR bids = '[]' OR bids = 'null')", leagueID).Find(&pilotsWithOwner)
+
+	for _, pbl := range pilotsWithOwner {
+		var pilot models.Pilot
+		if err := database.DB.First(&pilot, pbl.PilotID).Error; err != nil {
+			log.Printf("[FIA-OWNED] Error obteniendo piloto %d: %v", pbl.PilotID, err)
+			continue
+		}
+
+		// Generar oferta entre 90% y 110% del valor del piloto
+		fiaOfferValue := generateFIAOffer(pilot.Value)
+
+		// Crear la oferta de la FIA (el PlayerID debe ser el del propietario actual)
+		fiaBid := Bid{
+			PlayerID: pbl.OwnerID, // El propietario actual
+			Valor:    fiaOfferValue,
+		}
+
+		// Guardar en el campo bids
+		bidsJSON, _ := json.Marshal([]Bid{fiaBid})
+		pbl.Bids = bidsJSON
+		database.DB.Save(&pbl)
+
+		log.Printf("[FIA-OWNED] Oferta de la FIA generada para piloto %s: %.2f€ (valor base: %.2f€)", pilot.DriverName, fiaOfferValue, pilot.Value)
+	}
+
+	// 2. Generar ofertas para track engineers con propietario que no tienen ofertas de la FIA
+	var trackEngineersWithOwner []models.TrackEngineerByLeague
+	database.DB.Where("league_id = ? AND owner_id > 0 AND (bids IS NULL OR bids = '[]' OR bids = 'null')", leagueID).Find(&trackEngineersWithOwner)
+
+	for _, teb := range trackEngineersWithOwner {
+		var te models.TrackEngineer
+		if err := database.DB.First(&te, teb.TrackEngineerID).Error; err != nil {
+			log.Printf("[FIA-OWNED] Error obteniendo track engineer %d: %v", teb.TrackEngineerID, err)
+			continue
+		}
+
+		// Generar oferta entre 90% y 110% del valor del track engineer
+		fiaOfferValue := generateFIAOffer(te.Value)
+
+		// Crear la oferta de la FIA (el PlayerID debe ser el del propietario actual)
+		fiaBid := Bid{
+			PlayerID: teb.OwnerID, // El propietario actual
+			Valor:    fiaOfferValue,
+		}
+
+		// Guardar en el campo bids
+		bidsJSON, _ := json.Marshal([]Bid{fiaBid})
+		teb.Bids = bidsJSON
+		database.DB.Save(&teb)
+
+		log.Printf("[FIA-OWNED] Oferta de la FIA generada para track engineer %s: %.2f€ (valor base: %.2f€)", te.Name, fiaOfferValue, te.Value)
+	}
+
+	// 3. Generar ofertas para chief engineers con propietario que no tienen ofertas de la FIA
+	var chiefEngineersWithOwner []models.ChiefEngineerByLeague
+	database.DB.Where("league_id = ? AND owner_id > 0 AND (bids IS NULL OR bids = '[]' OR bids = 'null')", leagueID).Find(&chiefEngineersWithOwner)
+
+	for _, ceb := range chiefEngineersWithOwner {
+		var ce models.ChiefEngineer
+		if err := database.DB.First(&ce, ceb.ChiefEngineerID).Error; err != nil {
+			log.Printf("[FIA-OWNED] Error obteniendo chief engineer %d: %v", ceb.ChiefEngineerID, err)
+			continue
+		}
+
+		// Generar oferta entre 90% y 110% del valor del chief engineer
+		fiaOfferValue := generateFIAOffer(ce.Value)
+
+		// Crear la oferta de la FIA (el PlayerID debe ser el del propietario actual)
+		fiaBid := Bid{
+			PlayerID: ceb.OwnerID, // El propietario actual
+			Valor:    fiaOfferValue,
+		}
+
+		// Guardar en el campo bids
+		bidsJSON, _ := json.Marshal([]Bid{fiaBid})
+		ceb.Bids = bidsJSON
+		database.DB.Save(&ceb)
+
+		log.Printf("[FIA-OWNED] Oferta de la FIA generada para chief engineer %s: %.2f€ (valor base: %.2f€)", ce.Name, fiaOfferValue, ce.Value)
+	}
+
+	// 4. Generar ofertas para team constructors con propietario que no tienen ofertas de la FIA
+	var teamConstructorsWithOwner []models.TeamConstructorByLeague
+	database.DB.Where("league_id = ? AND owner_id > 0 AND (bids IS NULL OR bids = '[]' OR bids = 'null')", leagueID).Find(&teamConstructorsWithOwner)
+
+	for _, tcb := range teamConstructorsWithOwner {
+		var tc models.TeamConstructor
+		if err := database.DB.First(&tc, tcb.TeamConstructorID).Error; err != nil {
+			log.Printf("[FIA-OWNED] Error obteniendo team constructor %d: %v", tcb.TeamConstructorID, err)
+			continue
+		}
+
+		// Generar oferta entre 90% y 110% del valor del team constructor
+		fiaOfferValue := generateFIAOffer(tc.Value)
+
+		// Crear la oferta de la FIA (el PlayerID debe ser el del propietario actual)
+		fiaBid := Bid{
+			PlayerID: tcb.OwnerID, // El propietario actual
+			Valor:    fiaOfferValue,
+		}
+
+		// Guardar en el campo bids
+		bidsJSON, _ := json.Marshal([]Bid{fiaBid})
+		tcb.Bids = bidsJSON
+		database.DB.Save(&tcb)
+
+		log.Printf("[FIA-OWNED] Oferta de la FIA generada para team constructor %s: %.2f€ (valor base: %.2f€)", tc.Name, fiaOfferValue, tc.Value)
+	}
+
+	log.Printf("[FIA-OWNED] Generación de ofertas FIA para elementos con propietario completada para liga %d", leagueID)
 	return nil
 }
 
