@@ -13,6 +13,8 @@ import IconButton from '@mui/material/IconButton';
 import CloseIcon from '@mui/icons-material/Close';
 import Grid from '@mui/material/Grid';
 import DriverRaceCard from '../components/DriverRaceCard';
+import EngineerRaceCard from '../components/EngineerRaceCard';
+import TeamRaceCard from '../components/TeamRaceCard';
 import TextField from '@mui/material/TextField';
 import Tabs from '@mui/material/Tabs';
 import Tab from '@mui/material/Tab';
@@ -153,6 +155,23 @@ export default function MarketPage() {
     }
   };
 
+  const handleGenerateFIAOffers = async () => {
+    if (!selectedLeague) return;
+    try {
+      const res = await fetch(`/api/generate-fia-offers?league_id=${selectedLeague.id}`, { method: 'POST' });
+      const data = await res.json();
+      if (res.ok) {
+        setSnackbar({ open: true, message: 'Ofertas de la FIA generadas correctamente', severity: 'success' });
+        // Actualizar datos sin cambiar de página
+        fetchOps(); // Recargar elementos en venta
+      } else {
+        setSnackbar({ open: true, message: data.error || 'Error al generar ofertas de la FIA', severity: 'error' });
+      }
+    } catch (err) {
+      setSnackbar({ open: true, message: 'Error de conexión', severity: 'error' });
+    }
+  };
+
   const handleDriverClick = (driver) => {
     // Buscar si el piloto está en subasta
     const auction = auctions.find(a => a.driver?.id === driver.id);
@@ -223,8 +242,8 @@ export default function MarketPage() {
     }
   };
 
-  const handleShowOffers = (pilot) => {
-    setSelectedSalePilot(pilot);
+  const handleShowOffers = (item) => {
+    setSelectedSalePilot(item);
     setOpenOffersModal(true);
   };
 
@@ -233,20 +252,51 @@ export default function MarketPage() {
     if (!selectedSalePilot) return;
     try {
       const user = JSON.parse(localStorage.getItem('user'));
-      const res = await fetch('/api/pilotbyleague/accept-league-offer', {
+      
+      // Determinar el endpoint según el tipo de elemento
+      let endpoint = '';
+      let payload = {};
+      
+      switch(selectedSalePilot.type) {
+        case 'pilot':
+          endpoint = '/api/pilotbyleague/accept-league-offer';
+          payload = { pilot_by_league_id: selectedSalePilot.id };
+          break;
+        case 'track_engineer':
+          endpoint = '/api/trackengineerbyleague/accept-league-offer';
+          payload = { track_engineer_by_league_id: selectedSalePilot.id };
+          break;
+        case 'chief_engineer':
+          endpoint = '/api/chiefengineerbyleague/accept-league-offer';
+          payload = { chief_engineer_by_league_id: selectedSalePilot.id };
+          break;
+        case 'team_constructor':
+          endpoint = '/api/teamconstructorbyleague/accept-league-offer';
+          payload = { team_constructor_by_league_id: selectedSalePilot.id };
+          break;
+        default:
+          setSnackbar({ open: true, message: 'Tipo de elemento no soportado', severity: 'error' });
+          return;
+      }
+      
+      const res = await fetch(endpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${user.token}`
         },
-        body: JSON.stringify({ pilot_by_league_id: selectedSalePilot.id })
+        body: JSON.stringify(payload)
       });
       const data = await res.json();
       if (res.ok) {
-        setSnackbar({ open: true, message: 'Oferta aceptada. Piloto vendido a la liga.', severity: 'success' });
+        const elementType = selectedSalePilot.type === 'pilot' ? 'Piloto' : 
+                           selectedSalePilot.type === 'track_engineer' ? 'Ingeniero de Pista' :
+                           selectedSalePilot.type === 'chief_engineer' ? 'Ingeniero Jefe' : 'Equipo Constructor';
+        setSnackbar({ open: true, message: `Oferta aceptada. ${elementType} vendido a la FIA.`, severity: 'success' });
         setOpenOffersModal(false);
-        // Refrescar ventas
-        setTimeout(() => window.location.reload(), 800);
+        // Actualizar datos sin cambiar de página
+        fetchOps(); // Recargar elementos en venta
+        fetchMoney(); // Actualizar saldo del jugador
       } else {
         setSnackbar({ open: true, message: data.error || 'Error al aceptar la oferta', severity: 'error' });
       }
@@ -259,20 +309,47 @@ export default function MarketPage() {
     if (!selectedSalePilot) return;
     try {
       const user = JSON.parse(localStorage.getItem('user'));
-      const res = await fetch('/api/pilotbyleague/reject-league-offer', {
+      
+      // Determinar el endpoint según el tipo de elemento
+      let endpoint = '';
+      let payload = {};
+      
+      switch(selectedSalePilot.type) {
+        case 'pilot':
+          endpoint = '/api/pilotbyleague/reject-league-offer';
+          payload = { pilot_by_league_id: selectedSalePilot.id };
+          break;
+        case 'track_engineer':
+          endpoint = '/api/trackengineerbyleague/reject-league-offer';
+          payload = { track_engineer_by_league_id: selectedSalePilot.id };
+          break;
+        case 'chief_engineer':
+          endpoint = '/api/chiefengineerbyleague/reject-league-offer';
+          payload = { chief_engineer_by_league_id: selectedSalePilot.id };
+          break;
+        case 'team_constructor':
+          endpoint = '/api/teamconstructorbyleague/reject-league-offer';
+          payload = { team_constructor_by_league_id: selectedSalePilot.id };
+          break;
+        default:
+          setSnackbar({ open: true, message: 'Tipo de elemento no soportado', severity: 'error' });
+          return;
+      }
+      
+      const res = await fetch(endpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${user.token}`
         },
-        body: JSON.stringify({ pilot_by_league_id: selectedSalePilot.id })
+        body: JSON.stringify(payload)
       });
       const data = await res.json();
       if (res.ok) {
         setSnackbar({ open: true, message: 'Oferta rechazada.', severity: 'success' });
         setOpenOffersModal(false);
-        // Refrescar ventas
-        setTimeout(() => window.location.reload(), 800);
+        // Actualizar datos sin cambiar de página
+        fetchOps(); // Recargar elementos en venta
       } else {
         setSnackbar({ open: true, message: data.error || 'Error al rechazar la oferta', severity: 'error' });
       }
@@ -303,7 +380,8 @@ export default function MarketPage() {
       const data = await res.json();
       if (res.ok) {
         setSnackbar({ open: true, message: 'Puja eliminada correctamente.', severity: 'success' });
-        setTimeout(() => window.location.reload(), 800);
+        // Actualizar datos sin cambiar de página
+        fetchMyBids(); // Recargar pujas activas
       } else {
         setSnackbar({ open: true, message: data.error || 'Error al eliminar la puja', severity: 'error' });
       }
@@ -352,7 +430,8 @@ export default function MarketPage() {
       if (res.ok) {
         setSnackbar({ open: true, message: 'Puja eliminada correctamente.', severity: 'success' });
         setOpenDeleteDialog(false);
-        setTimeout(() => window.location.reload(), 800);
+        // Actualizar datos sin cambiar de página
+        fetchMyBids(); // Recargar pujas activas
       } else {
         setSnackbar({ open: true, message: data.error || 'Error al eliminar la puja', severity: 'error' });
       }
@@ -403,7 +482,9 @@ export default function MarketPage() {
       if (res.ok) {
         setSnackbar({ open: true, message: data.message || 'Puja actualizada', severity: 'success' });
         setOpenEditBid(false);
-        setTimeout(() => window.location.reload(), 800);
+        // Actualizar datos sin cambiar de página
+        fetchMyBids(); // Recargar pujas activas
+        fetchMoney(); // Actualizar saldo del jugador
       } else {
         setSnackbar({ open: true, message: data.error || 'Error al actualizar la puja', severity: 'error' });
       }
@@ -471,7 +552,9 @@ export default function MarketPage() {
       if (res.ok) {
         setSnackbar({ open: true, message: data.message || 'Puja actualizada', severity: 'success' });
         setOpenEditBid(false);
-        setTimeout(() => window.location.reload(), 800);
+        // Actualizar datos sin cambiar de página
+        fetchMyBids(); // Recargar pujas activas
+        fetchMoney(); // Actualizar saldo del jugador
       } else {
         setSnackbar({ open: true, message: data.error || 'Error al actualizar la puja', severity: 'error' });
       }
@@ -502,7 +585,8 @@ export default function MarketPage() {
       if (res.ok) {
         setSnackbar({ open: true, message: 'Puja eliminada correctamente.', severity: 'success' });
         setOpenDeleteDialog(false);
-        setTimeout(() => window.location.reload(), 800);
+        // Actualizar datos sin cambiar de página
+        fetchMyBids(); // Recargar pujas activas
       } else {
         setSnackbar({ open: true, message: data.error || 'Error al eliminar la puja', severity: 'error' });
       }
@@ -837,6 +921,20 @@ export default function MarketPage() {
                 }}
               >
                 💹 Actualizar valores
+              </Button>
+              <Button
+                variant="contained"
+                color="info"
+                onClick={handleGenerateFIAOffers}
+                sx={{
+                  fontWeight: 700,
+                  background: 'linear-gradient(45deg, #2196F3, #1976D2)',
+                  '&:hover': {
+                    background: 'linear-gradient(45deg, #1976D2, #2196F3)'
+                  }
+                }}
+              >
+                🏁 Generar Ofertas FIA
               </Button>
             </Box>
           </Box>
@@ -1422,27 +1520,51 @@ export default function MarketPage() {
             <Box>
               {loadingOps ? (
                 <Typography sx={{ color: '#fff', textAlign: 'center', py: 4 }}>
-                  Cargando pilotos en venta...
+                  Cargando elementos en venta...
                 </Typography>
               ) : mySales.length === 0 ? (
                 <Typography sx={{ color: '#fff', textAlign: 'center', py: 4 }}>
-                  No tienes pilotos en venta actualmente.
+                  No tienes elementos en venta actualmente.
                 </Typography>
               ) : (
-                mySales.map(pilot => {
-                  const tieneOfertaLiga = pilot.league_offer_value && pilot.league_offer_expires_at && new Date(pilot.league_offer_expires_at) > new Date();
+                mySales.map(item => {
+                  const tieneOfertaLiga = item.league_offer_value && item.league_offer_expires_at && new Date(item.league_offer_expires_at) > new Date();
+                  
+                  // Determinar la ruta de imagen según el tipo
+                  let imagePath = '';
+                  if (item.type === 'track_engineer' || item.type === 'chief_engineer') {
+                    imagePath = item.image_url ? `/images/ingenierosdepista/${item.image_url}` : '';
+                  } else {
+                    imagePath = item.image_url ? `/images/${item.image_url}` : '';
+                  }
+                  
+                  // Determinar el nombre a mostrar
+                  const displayName = item.driver_name || item.name || 'Sin nombre';
+                  
+                  // Determinar el tipo de elemento
+                  const getTypeLabel = (type) => {
+                    switch(type) {
+                      case 'pilot': return 'Piloto';
+                      case 'track_engineer': return 'Ingeniero de Pista';
+                      case 'chief_engineer': return 'Ingeniero Jefe';
+                      case 'team_constructor': return 'Equipo Constructor';
+                      default: return 'Elemento';
+                    }
+                  };
+                  
                   return (
-                    <Box key={pilot.id} sx={{ mb: 2, background: '#181c24', borderRadius: 2, p: 2, display: 'flex', alignItems: 'center', gap: 2 }}>
-                      <img src={pilot.image_url ? `/images/${pilot.image_url}` : ''} alt={pilot.driver_name} style={{ width: 56, height: 56, borderRadius: 8, border: '2px solid #444' }} />
+                    <Box key={item.id} sx={{ mb: 2, background: '#181c24', borderRadius: 2, p: 2, display: 'flex', alignItems: 'center', gap: 2 }}>
+                      <img src={imagePath} alt={displayName} style={{ width: 56, height: 56, borderRadius: 8, border: '2px solid #444' }} />
                       <Box sx={{ flex: 1 }}>
-                        <Typography sx={{ color: '#fff', fontWeight: 700 }}>{pilot.driver_name}</Typography>
-                        <Typography sx={{ color: '#b0b0b0', fontSize: 13 }}>{pilot.team}</Typography>
-                        <Typography sx={{ color: '#FFD600', fontWeight: 700, fontSize: 15 }}>Valor: {pilot.value?.toLocaleString()} €</Typography>
-                        <Typography sx={{ color: '#b0b0b0', fontSize: 13 }}>Precio de venta: {pilot.venta?.toLocaleString() ?? '-'}</Typography>
-                        <Typography sx={{ color: '#b0b0b0', fontSize: 13 }}>Expira: {pilot.venta_expires_at ? new Date(pilot.venta_expires_at).toLocaleString() : '-'}</Typography>
+                        <Typography sx={{ color: '#fff', fontWeight: 700 }}>{displayName}</Typography>
+                        <Typography sx={{ color: '#b0b0b0', fontSize: 13 }}>{item.team || 'Sin equipo'}</Typography>
+                        <Typography sx={{ color: '#4caf50', fontSize: 12 }}>{getTypeLabel(item.type)}</Typography>
+                        <Typography sx={{ color: '#FFD600', fontWeight: 700, fontSize: 15 }}>Valor: {item.value?.toLocaleString()} €</Typography>
+                        <Typography sx={{ color: '#b0b0b0', fontSize: 13 }}>Precio de venta: {item.venta?.toLocaleString() ?? '-'}</Typography>
+                        <Typography sx={{ color: '#b0b0b0', fontSize: 13 }}>Expira: {item.venta_expires_at ? new Date(item.venta_expires_at).toLocaleString() : '-'}</Typography>
                       </Box>
                       {tieneOfertaLiga ? (
-                        <Button variant="contained" color="error" sx={{ fontWeight: 700 }} onClick={() => handleShowOffers(pilot)}>
+                        <Button variant="contained" color="error" sx={{ fontWeight: 700 }} onClick={() => handleShowOffers(item)}>
                           Oferta (1)
                         </Button>
                       ) : (
@@ -1471,20 +1593,39 @@ export default function MarketPage() {
         <DialogContent sx={{ background: '#0a0a0a', p: 3 }}>
           {selectedSalePilot && (
             <>
-              {/* Perfil del piloto */}
+              {/* Perfil del elemento */}
               <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                <img src={selectedSalePilot.image_url ? `/images/${selectedSalePilot.image_url}` : ''} alt={selectedSalePilot.driver_name} style={{ width: 56, height: 56, borderRadius: 8, marginRight: 16 }} />
+                {/* Determinar la ruta de imagen según el tipo */}
+                {(() => {
+                  let imagePath = '';
+                  if (selectedSalePilot.type === 'track_engineer' || selectedSalePilot.type === 'chief_engineer') {
+                    imagePath = selectedSalePilot.image_url ? `/images/ingenierosdepista/${selectedSalePilot.image_url}` : '';
+                  } else {
+                    imagePath = selectedSalePilot.image_url ? `/images/${selectedSalePilot.image_url}` : '';
+                  }
+                  return <img src={imagePath} alt={selectedSalePilot.driver_name || selectedSalePilot.name} style={{ width: 56, height: 56, borderRadius: 8, marginRight: 16 }} />;
+                })()}
                 <Box>
-                  <Typography sx={{ color: '#fff', fontWeight: 700 }}>{selectedSalePilot.driver_name}</Typography>
-                  <Typography sx={{ color: '#b0b0b0', fontSize: 13 }}>{selectedSalePilot.team}</Typography>
+                  <Typography sx={{ color: '#fff', fontWeight: 700 }}>
+                    {selectedSalePilot.driver_name || selectedSalePilot.name || 'Sin nombre'}
+                  </Typography>
+                  <Typography sx={{ color: '#b0b0b0', fontSize: 13 }}>
+                    {selectedSalePilot.team || 'Sin equipo'}
+                  </Typography>
+                  <Typography sx={{ color: '#4caf50', fontSize: 12 }}>
+                    {selectedSalePilot.type === 'pilot' ? 'Piloto' : 
+                     selectedSalePilot.type === 'track_engineer' ? 'Ingeniero de Pista' :
+                     selectedSalePilot.type === 'chief_engineer' ? 'Ingeniero Jefe' : 
+                     selectedSalePilot.type === 'team_constructor' ? 'Equipo Constructor' : 'Elemento'}
+                  </Typography>
                   <Typography sx={{ color: '#FFD600', fontWeight: 700, fontSize: 15 }}>Valor: {selectedSalePilot.value?.toLocaleString()} €</Typography>
                   <Typography sx={{ color: '#b0b0b0', fontSize: 13 }}>Precio: {selectedSalePilot.venta?.toLocaleString() ?? '-'}</Typography>
                   <Typography sx={{ color: '#b0b0b0', fontSize: 13 }}>Expira: {selectedSalePilot.venta_expires_at ? new Date(selectedSalePilot.venta_expires_at).toLocaleString() : '-'}</Typography>
                 </Box>
               </Box>
-              {/* Oferta de la liga */}
+              {/* Oferta de la FIA */}
               <Box sx={{ background: '#181c24', borderRadius: 2, p: 2, mb: 2 }}>
-                <Typography sx={{ color: '#fff', fontWeight: 700 }}>Oferta de compra de LIGA</Typography>
+                <Typography sx={{ color: '#fff', fontWeight: 700 }}>Oferta de compra de FIA</Typography>
                 <Typography sx={{ color: '#FFD600', fontWeight: 700, fontSize: 18 }}>
                   {selectedSalePilot.league_offer_value?.toLocaleString()} €
                 </Typography>
@@ -1530,127 +1671,18 @@ export default function MarketPage() {
                   </Typography>
                 </Grid>
               ) : (
-                trackEngineersByLeague.map(engineer => {
-                  const teamColors = {
-                    'Red Bull Racing': { primary: '#3671C6', secondary: '#1E41C3' },
-                    'Mercedes': { primary: '#6CD3BF', secondary: '#00D2BE' },
-                    'McLaren': { primary: '#FF8700', secondary: '#FF5800' },
-                    'Ferrari': { primary: '#DC0000', secondary: '#B80000' },
-                    'Aston Martin': { primary: '#358C75', secondary: '#006F62' },
-                    'Alpine': { primary: '#0090FF', secondary: '#0051FF' },
-                    'Stake F1 Team Kick Sauber': { primary: '#52E252', secondary: '#37BEDD' },
-                    'Haas': { primary: '#FFFFFF', secondary: '#E8E8E8' },
-                    'Williams': { primary: '#37BEDD', secondary: '#005AFF' },
-                    'Visa Cash App RB': { primary: '#5E8FAA', secondary: '#1E41C3' }
-                  };
-                  const teamColor = teamColors[engineer.team] || { primary: '#666666', secondary: '#444444' };
-
-                  return (
-                    <Grid item xs={12} sm={6} md={4} lg={3} key={engineer.id}>
-                      <Box
-                        sx={{
-                          background: 'linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%)',
-                          border: `2px solid ${teamColor.primary}`,
-                          borderRadius: 3,
-                          p: 2,
-                          cursor: 'pointer',
-                          transition: 'all 0.3s ease',
-                          position: 'relative',
-                          overflow: 'hidden',
-                          '&:hover': {
-                            transform: 'translateY(-4px)',
-                            boxShadow: `0 8px 25px rgba(${teamColor.primary}, 0.3)`,
-                            borderColor: teamColor.secondary,
-                          },
-                          '&::before': {
-                            content: '""',
-                            position: 'absolute',
-                            top: 0,
-                            left: 0,
-                            right: 0,
-                            height: '3px',
-                            background: `linear-gradient(90deg, ${teamColor.primary}, ${teamColor.secondary})`,
-                          }
-                        }}
-                      >
-                        <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                          <Avatar
-                           src={engineer.image_url ? `/images/ingenierosdepista/${engineer.image_url}` : ''}
-                            alt={engineer.name}
-                            sx={{
-                              width: 60,
-                              height: 60,
-                              mr: 2,
-                              border: `3px solid ${teamColor.primary}`,
-                              boxShadow: `0 4px 12px rgba(${teamColor.primary}, 0.4)`
-                            }}
-                          />
-                          <Box sx={{ flexGrow: 1 }}>
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                              <Typography variant="h6" sx={{ fontWeight: 700, color: '#fff', fontSize: '1.1rem', textShadow: '0 2px 4px rgba(0,0,0,0.5)' }}>
-                                {engineer.name}
-                              </Typography>
-                              <Box
-                                sx={{
-                                  width: 20,
-                                  height: 20,
-                                  borderRadius: '50%',
-                                  border: `2px solid ${teamColor.primary}`,
-                                  background: '#000',
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  justifyContent: 'center',
-                                  fontSize: '0.7rem',
-                                  fontWeight: 700,
-                                  color: teamColor.primary,
-                                  boxShadow: `0 2px 4px rgba(${teamColor.primary}, 0.3)`,
-                                  flexShrink: 0
-                                }}
-                              >
-                                T
-                              </Box>
-                            </Box>
-                            <Typography variant="body2" sx={{ color: teamColor.primary, fontWeight: 600, fontSize: '0.9rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                              {engineer.team}
-                            </Typography>
-                            <Typography variant="body2" sx={{ color: '#b0b0b0', fontSize: '0.8rem' }}>
-                              Piloto: {engineer.driver_name}
-                            </Typography>
-                          </Box>
-                        </Box>
-                        <Box sx={{ mt: 2 }}>
-                          <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-                            <Typography variant="body2" sx={{ color: '#b0b0b0', fontSize: '0.8rem' }}>
-                              Valor:
-                            </Typography>
-                            <Typography variant="body2" sx={{ fontWeight: 700, color: '#4CAF50', fontSize: '0.9rem' }}>
-                              {(engineer.value ?? 0).toLocaleString()} €
-                            </Typography>
-                          </Box>
-                          <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-                            <Typography variant="body2" sx={{ color: '#b0b0b0', fontSize: '0.8rem' }}>
-                              Propietario:
-                            </Typography>
-                            <Typography variant="body2" sx={{ fontWeight: 700, color: engineer.owner_id ? '#FFD600' : '#FFA500', fontSize: '0.9rem' }}>
-                              {engineer.owner_id ? `Player ${engineer.owner_id}` : 'FIA'}
-                            </Typography>
-                          </Box>
-                        </Box>
-                        <Box
-                          sx={{
-                            position: 'absolute',
-                            bottom: 0,
-                            left: 0,
-                            right: 0,
-                            height: '2px',
-                            background: `linear-gradient(90deg, ${teamColor.primary}, ${teamColor.secondary})`,
-                            opacity: 0.7
-                          }}
-                        />
-                      </Box>
-                    </Grid>
-                  );
-                })
+                trackEngineersByLeague.map(engineer => (
+                  <Grid item xs={12} sm={6} md={4} lg={3} key={engineer.id}>
+                    <EngineerRaceCard
+                      engineer={engineer}
+                      type="track_engineer"
+                      showStats={true}
+                      leagueId={selectedLeague?.id}
+                      players={players}
+                      onClick={() => navigate(`/engineer/track/${engineer.id}?league_id=${selectedLeague?.id}`)}
+                    />
+                  </Grid>
+                ))
               )}
             </Grid>
           )}
@@ -1686,124 +1718,18 @@ export default function MarketPage() {
                   </Typography>
                 </Grid>
               ) : (
-                chiefEngineersByLeague.map(engineer => {
-                  const teamColors = {
-                    'Red Bull Racing': { primary: '#3671C6', secondary: '#1E41C3' },
-                    'Mercedes': { primary: '#6CD3BF', secondary: '#00D2BE' },
-                    'McLaren': { primary: '#FF8700', secondary: '#FF5800' },
-                    'Ferrari': { primary: '#DC0000', secondary: '#B80000' },
-                    'Aston Martin': { primary: '#358C75', secondary: '#006F62' },
-                    'Alpine': { primary: '#0090FF', secondary: '#0051FF' },
-                    'Stake F1 Team Kick Sauber': { primary: '#52E252', secondary: '#37BEDD' },
-                    'Haas': { primary: '#FFFFFF', secondary: '#E8E8E8' },
-                    'Williams': { primary: '#37BEDD', secondary: '#005AFF' },
-                    'Visa Cash App RB': { primary: '#5E8FAA', secondary: '#1E41C3' }
-                  };
-                  const teamColor = teamColors[engineer.team] || { primary: '#666666', secondary: '#444444' };
-
-                  return (
-                    <Grid item xs={12} sm={6} md={4} lg={3} key={engineer.id}>
-                      <Box
-                        sx={{
-                          background: 'linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%)',
-                          border: `2px solid ${teamColor.primary}`,
-                          borderRadius: 3,
-                          p: 2,
-                          cursor: 'pointer',
-                          transition: 'all 0.3s ease',
-                          position: 'relative',
-                          overflow: 'hidden',
-                          '&:hover': {
-                            transform: 'translateY(-4px)',
-                            boxShadow: `0 8px 25px rgba(${teamColor.primary}, 0.3)`,
-                            borderColor: teamColor.secondary,
-                          },
-                          '&::before': {
-                            content: '""',
-                            position: 'absolute',
-                            top: 0,
-                            left: 0,
-                            right: 0,
-                            height: '3px',
-                            background: `linear-gradient(90deg, ${teamColor.primary}, ${teamColor.secondary})`,
-                          }
-                        }}
-                      >
-                        <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                          <Avatar
-                            src={engineer.image_url ? `/images/ingenierosdepista/${engineer.image_url}` : ''}
-                            alt={engineer.name}
-                            sx={{
-                              width: 60,
-                              height: 60,
-                              mr: 2,
-                              border: `3px solid ${teamColor.primary}`,
-                              boxShadow: `0 4px 12px rgba(${teamColor.primary}, 0.4)`
-                            }}
-                          />
-                          <Box sx={{ flexGrow: 1 }}>
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                              <Typography variant="h6" sx={{ fontWeight: 700, color: '#fff', fontSize: '1.1rem', textShadow: '0 2px 4px rgba(0,0,0,0.5)' }}>
-                                {engineer.name}
-                              </Typography>
-                                                             <Box
-                                 sx={{
-                                   width: 20,
-                                   height: 20,
-                                   borderRadius: '50%',
-                                   border: `2px solid ${teamColor.primary}`,
-                                   background: '#000',
-                                   display: 'flex',
-                                   alignItems: 'center',
-                                   justifyContent: 'center',
-                                   fontSize: '0.7rem',
-                                   fontWeight: 700,
-                                   color: teamColor.primary,
-                                   boxShadow: `0 2px 4px rgba(${teamColor.primary}, 0.3)`,
-                                   flexShrink: 0
-                                 }}
-                               >
-                                 C
-                               </Box>
-                            </Box>
-                            <Typography variant="body2" sx={{ color: teamColor.primary, fontWeight: 600, fontSize: '0.9rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                              {engineer.team}
-                            </Typography>
-                          </Box>
-                        </Box>
-                        <Box sx={{ mt: 2 }}>
-                          <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-                            <Typography variant="body2" sx={{ color: '#b0b0b0', fontSize: '0.8rem' }}>
-                              Valor:
-                            </Typography>
-                            <Typography variant="body2" sx={{ fontWeight: 700, color: '#4CAF50', fontSize: '0.9rem' }}>
-                              {(engineer.value ?? 0).toLocaleString()} €
-                            </Typography>
-                          </Box>
-                          <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-                            <Typography variant="body2" sx={{ color: '#b0b0b0', fontSize: '0.8rem' }}>
-                              Propietario:
-                            </Typography>
-                            <Typography variant="body2" sx={{ fontWeight: 700, color: engineer.owner_id ? '#FFD600' : '#FFA500', fontSize: '0.9rem' }}>
-                              {engineer.owner_id ? `Player ${engineer.owner_id}` : 'FIA'}
-                            </Typography>
-                          </Box>
-                        </Box>
-                        <Box
-                          sx={{
-                            position: 'absolute',
-                            bottom: 0,
-                            left: 0,
-                            right: 0,
-                            height: '2px',
-                            background: `linear-gradient(90deg, ${teamColor.primary}, ${teamColor.secondary})`,
-                            opacity: 0.7
-                          }}
-                        />
-                      </Box>
-                    </Grid>
-                  );
-                })
+                chiefEngineersByLeague.map(engineer => (
+                  <Grid item xs={12} sm={6} md={4} lg={3} key={engineer.id}>
+                    <EngineerRaceCard
+                      engineer={engineer}
+                      type="chief_engineer"
+                      showStats={true}
+                      leagueId={selectedLeague?.id}
+                      players={players}
+                      onClick={() => navigate(`/engineer/chief/${engineer.id}?league_id=${selectedLeague?.id}`)}
+                    />
+                  </Grid>
+                ))
               )}
             </Grid>
           )}
@@ -1839,106 +1765,17 @@ export default function MarketPage() {
                   </Typography>
                 </Grid>
               ) : (
-                teamConstructorsByLeague.map(team => {
-                  const teamColors = {
-                    'Red Bull Racing': { primary: '#3671C6', secondary: '#1E41C3' },
-                    'Mercedes': { primary: '#6CD3BF', secondary: '#00D2BE' },
-                    'McLaren': { primary: '#FF8700', secondary: '#FF5800' },
-                    'Ferrari': { primary: '#DC0000', secondary: '#B80000' },
-                    'Aston Martin': { primary: '#358C75', secondary: '#006F62' },
-                    'Alpine': { primary: '#0090FF', secondary: '#0051FF' },
-                    'Stake F1 Team Kick Sauber': { primary: '#52E252', secondary: '#37BEDD' },
-                    'Haas': { primary: '#FFFFFF', secondary: '#E8E8E8' },
-                    'Williams': { primary: '#37BEDD', secondary: '#005AFF' },
-                    'Visa Cash App RB': { primary: '#5E8FAA', secondary: '#1E41C3' }
-                  };
-                  const teamColor = teamColors[team.name] || { primary: '#666666', secondary: '#444444' };
-
-                  return (
-                    <Grid item xs={12} sm={6} md={4} lg={3} key={team.id}>
-                      <Box
-                        sx={{
-                          background: 'linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%)',
-                          border: `2px solid ${teamColor.primary}`,
-                          borderRadius: 3,
-                          p: 2,
-                          cursor: 'pointer',
-                          transition: 'all 0.3s ease',
-                          position: 'relative',
-                          overflow: 'hidden',
-                          '&:hover': {
-                            transform: 'translateY(-4px)',
-                            boxShadow: `0 8px 25px rgba(${teamColor.primary}, 0.3)`,
-                            borderColor: teamColor.secondary,
-                          },
-                          '&::before': {
-                            content: '""',
-                            position: 'absolute',
-                            top: 0,
-                            left: 0,
-                            right: 0,
-                            height: '3px',
-                            background: `linear-gradient(90deg, ${teamColor.primary}, ${teamColor.secondary})`,
-                          }
-                        }}
-                      >
-                        <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                          <Avatar
-                            src={team.image_url ? `/images/equipos/${team.image_url}` : ''}
-                            alt={team.name}
-                            sx={{
-                              width: 60,
-                              height: 60,
-                              mr: 2,
-                              border: `3px solid ${teamColor.primary}`,
-                              boxShadow: `0 4px 12px rgba(${teamColor.primary}, 0.4)`
-                            }}
-                          />
-                          <Box sx={{ flexGrow: 1 }}>
-                            <Typography variant="h6" sx={{ fontWeight: 700, color: '#fff', fontSize: '1.1rem', textShadow: '0 2px 4px rgba(0,0,0,0.5)', mb: 0.5 }}>
-                              {team.name}
-                            </Typography>
-                            <Typography variant="body2" sx={{ color: teamColor.primary, fontWeight: 600, fontSize: '0.9rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                              EQUIPO CONSTRUCTOR
-                            </Typography>
-                            <Typography variant="body2" sx={{ color: '#b0b0b0', fontSize: '0.8rem' }}>
-                              Pilotos: {team.pilots && team.pilots.length > 0 ? team.pilots.join(', ') : 'Sin pilotos asignados'}
-                            </Typography>
-                          </Box>
-                        </Box>
-                        <Box sx={{ mt: 2 }}>
-                          <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-                            <Typography variant="body2" sx={{ color: '#b0b0b0', fontSize: '0.8rem' }}>
-                              Valor:
-                            </Typography>
-                            <Typography variant="body2" sx={{ fontWeight: 700, color: '#4CAF50', fontSize: '0.9rem' }}>
-                              {(team.value ?? 0).toLocaleString()} €
-                            </Typography>
-                          </Box>
-                          <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-                            <Typography variant="body2" sx={{ color: '#b0b0b0', fontSize: '0.8rem' }}>
-                              Propietario:
-                            </Typography>
-                            <Typography variant="body2" sx={{ fontWeight: 700, color: team.owner_id ? '#FFD600' : '#FFA500', fontSize: '0.9rem' }}>
-                              {team.owner_id ? `Player ${team.owner_id}` : 'FIA'}
-                            </Typography>
-                          </Box>
-                        </Box>
-                        <Box
-                          sx={{
-                            position: 'absolute',
-                            bottom: 0,
-                            left: 0,
-                            right: 0,
-                            height: '2px',
-                            background: `linear-gradient(90deg, ${teamColor.primary}, ${teamColor.secondary})`,
-                            opacity: 0.7
-                          }}
-                        />
-                      </Box>
-                    </Grid>
-                  );
-                })
+                teamConstructorsByLeague.map(team => (
+                  <Grid item xs={12} sm={6} md={4} lg={3} key={team.id}>
+                    <TeamRaceCard
+                      team={team}
+                      showStats={true}
+                      leagueId={selectedLeague?.id}
+                      players={players}
+                      onClick={() => navigate(`/team/${team.id}?league_id=${selectedLeague?.id}`)}
+                    />
+                  </Grid>
+                ))
               )}
             </Grid>
           )}

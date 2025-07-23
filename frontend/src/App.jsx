@@ -14,6 +14,8 @@ import AuctionPilotProfilePage from './pages/AuctionPilotProfilePage';
 import AuctionPilotBidPage from './pages/AuctionPilotBidPage';
 import AuctionEngineerBidPage from './pages/AuctionEngineerBidPage';
 import AuctionTeamBidPage from './pages/AuctionTeamBidPage';
+import EngineerProfilePage from './pages/EngineerProfilePage';
+import TeamProfilePage from './pages/TeamProfilePage';
 import ProfilePage from './pages/ProfilePage';
 import AdminScoresPage from './pages/AdminScoresPage';
 
@@ -47,6 +49,8 @@ function App() {
               <Route path="/puja/:id" element={<AuctionPilotBidPage />} />
               <Route path="/puja/engineer/:type/:id" element={<AuctionEngineerBidPage />} />
               <Route path="/puja/team/:id" element={<AuctionTeamBidPage />} />
+              <Route path="/engineer/:type/:id" element={<EngineerProfilePage />} />
+              <Route path="/team/:id" element={<TeamProfilePage />} />
               <Route path="/activity" element={<ActivityPage />} />
               <Route path="/join-league" element={<JoinLeaguePage />} />
               <Route path="/profile/:id" element={<ProfilePage />} />

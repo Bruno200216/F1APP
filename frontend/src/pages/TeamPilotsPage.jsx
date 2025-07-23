@@ -5,6 +5,10 @@ import Grid from '@mui/material/Grid';
 import Alert from '@mui/material/Alert';
 import { useLeague } from '../context/LeagueContext';
 import DriverRaceCard from '../components/DriverRaceCard';
+import EngineerRaceCard from '../components/EngineerRaceCard';
+import TeamRaceCard from '../components/TeamRaceCard';
+import EngineerActionsMenu from '../components/EngineerActionsMenu';
+import TeamConstructorActionsMenu from '../components/TeamConstructorActionsMenu';
 import { useNavigate } from 'react-router-dom';
 import Tabs from '@mui/material/Tabs';
 import Tab from '@mui/material/Tab';
@@ -33,8 +37,15 @@ export default function TeamPilotsPage() {
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
   const [loadingSell, setLoadingSell] = useState(false);
 
+  const [teamData, setTeamData] = useState({
+    pilots: [],
+    track_engineers: [],
+    chief_engineers: [],
+    team_constructors: []
+  });
+
   useEffect(() => {
-    const fetchDrivers = async () => {
+    const fetchTeamData = async () => {
       setLoading(true);
       try {
         const player_id = localStorage.getItem('player_id');
@@ -50,49 +61,37 @@ export default function TeamPilotsPage() {
           setLoading(false);
           return;
         }
-        // 1. Obtener owned_pilots
-        const pbRes = await fetch(`/api/playerbyleague?player_id=${player_id}&league_id=${selectedLeague.id}`);
-        const pbData = await pbRes.json();
-        const owned = pbData.player_by_league?.owned_pilots ? JSON.parse(pbData.player_by_league.owned_pilots) : [];
-        if (!owned.length) {
-          setDrivers([]);
-          setLoading(false);
-          return;
-        }
-        // 2. Obtener perfiles de esos pilotos
-        const pilotsRes = await fetch(`/api/pilotsbyleague/owned?league_id=${selectedLeague.id}&ids=${encodeURIComponent(JSON.stringify(owned))}&player_id=${player_id}`);
-        const pilotsData = await pilotsRes.json();
-        // Mapear para añadir el id de pilot_by_leagues como pilot_by_league_id
-        if (pilotsData.pilots && Array.isArray(pilotsData.pilots)) {
-          // Hacer una petición adicional para obtener los ids de pilot_by_leagues
-          const idsRes = await fetch(`/api/pilotsbyleague?league_id=${selectedLeague.id}`);
-          const idsData = await idsRes.json();
-          // idsData.pilots es un array con {id: pilot_id, ... , owner_id, ...}
-          // Necesitamos mapear pilot_id -> id de pilot_by_leagues
-          // Creamos un diccionario pilot_id -> pilot_by_league_id
-          const pilotIdToPblId = {};
-          if (idsData.pilots && Array.isArray(idsData.pilots)) {
-            idsData.pilots.forEach(p => {
-              pilotIdToPblId[p.driver_name+"-"+p.team] = p.id;
-            });
-          }
-          // Ahora mapeamos los pilotos para añadir el campo correcto
-          const driversWithPblId = pilotsData.pilots.map(p => ({
-            ...p,
-            pilot_by_league_id: pilotIdToPblId[p.driver_name+"-"+p.team] || null
-          }));
-          setDrivers(driversWithPblId);
+
+        // Usar el nuevo endpoint que devuelve toda la plantilla
+        const teamRes = await fetch(`/api/players/${player_id}/team?league_id=${selectedLeague.id}`);
+        const teamData = await teamRes.json();
+        
+        if (teamData.team) {
+          setTeamData({
+            pilots: teamData.team.pilots || [],
+            track_engineers: teamData.team.track_engineers || [],
+            chief_engineers: teamData.team.chief_engineers || [],
+            team_constructors: teamData.team.team_constructors || []
+          });
+          // Para compatibilidad con el código existente, mantener drivers como pilotos
+          setDrivers(teamData.team.pilots || []);
         } else {
-          setDrivers(pilotsData.pilots || []);
+          setTeamData({
+            pilots: [],
+            track_engineers: [],
+            chief_engineers: [],
+            team_constructors: []
+          });
+          setDrivers([]);
         }
       } catch (err) {
-        setError('Error cargando pilotos: ' + err.message);
+        setError('Error cargando equipo: ' + err.message);
       } finally {
         setLoading(false);
       }
     };
 
-    fetchDrivers();
+    fetchTeamData();
   }, [selectedLeague]);
 
   const handleActionsClick = (event, driver) => {
@@ -188,7 +187,7 @@ export default function TeamPilotsPage() {
       <Box sx={{ width: 320, height: 420, background: 'linear-gradient(180deg, #18192a 60%, #23243a 100%)', borderRadius: 4, boxShadow: 3, p: 2, position: 'relative' }}>
         {/* Parrilla de F1: 2 filas de 5, 1 fila de 2 (ajustable según número de pilotos) */}
         <Box sx={{ display: 'flex', justifyContent: 'center', mb: 2 }}>
-          {drivers.slice(0, 2).map((driver, i) => (
+          {teamData.pilots.slice(0, 2).map((driver, i) => (
             <Box key={driver.id} sx={{ mx: 2 }}>
               <Avatar src={driver.image_url ? `/images/${driver.image_url}` : ''} sx={{ width: 64, height: 64, border: '3px solid #FFD600', mb: 1 }} />
               <Typography sx={{ color: '#fff', fontWeight: 700, fontSize: 14, textAlign: 'center' }}>{driver.driver_name}</Typography>
@@ -196,7 +195,7 @@ export default function TeamPilotsPage() {
           ))}
         </Box>
         <Box sx={{ display: 'flex', justifyContent: 'center', mb: 2 }}>
-          {drivers.slice(2, 6).map((driver, i) => (
+          {teamData.pilots.slice(2, 6).map((driver, i) => (
             <Box key={driver.id} sx={{ mx: 1 }}>
               <Avatar src={driver.image_url ? `/images/${driver.image_url}` : ''} sx={{ width: 56, height: 56, border: '2px solid #FFD600', mb: 1 }} />
               <Typography sx={{ color: '#fff', fontWeight: 700, fontSize: 13, textAlign: 'center' }}>{driver.driver_name}</Typography>
@@ -204,7 +203,7 @@ export default function TeamPilotsPage() {
           ))}
         </Box>
         <Box sx={{ display: 'flex', justifyContent: 'center', mb: 2 }}>
-          {drivers.slice(6, 10).map((driver, i) => (
+          {teamData.pilots.slice(6, 10).map((driver, i) => (
             <Box key={driver.id} sx={{ mx: 1 }}>
               <Avatar src={driver.image_url ? `/images/${driver.image_url}` : ''} sx={{ width: 48, height: 48, border: '2px solid #FFD600', mb: 1 }} />
               <Typography sx={{ color: '#fff', fontWeight: 700, fontSize: 12, textAlign: 'center' }}>{driver.driver_name}</Typography>
@@ -216,23 +215,166 @@ export default function TeamPilotsPage() {
     </Box>
   );
 
-  // Plantilla: lista de pilotos
+  // Plantilla: lista completa del equipo
   const renderPlantilla = () => (
     <Box sx={{ mt: 2 }}>
-      {drivers.length === 0 ? (
-        <Typography sx={{ color: '#fff', textAlign: 'center', mt: 4 }}>No tienes pilotos en tu equipo</Typography>
+      {/* Pilotos */}
+      <Typography sx={{ color: '#FFD600', fontWeight: 700, fontSize: 18, mb: 2, textAlign: 'center' }}>
+        🏎️ PILOTOS ({teamData.pilots.length})
+      </Typography>
+      {teamData.pilots.length === 0 ? (
+        <Typography sx={{ color: '#b0b0b0', textAlign: 'center', mb: 3 }}>No tienes pilotos en tu equipo</Typography>
       ) : (
-        drivers.map(driver => (
+        teamData.pilots.map(driver => (
           <Box key={driver.id} sx={{ display: 'flex', alignItems: 'center', background: '#23243a', borderRadius: 3, p: 2, mb: 2, boxShadow: 2 }}>
             <Avatar src={driver.image_url ? `/images/${driver.image_url}` : ''} sx={{ width: 56, height: 56, mr: 2, border: '2px solid #FFD600' }} />
             <Box sx={{ flex: 1 }}>
               <Typography sx={{ color: '#fff', fontWeight: 700 }}>{driver.driver_name}</Typography>
               <Typography sx={{ color: '#b0b0b0', fontSize: 13 }}>{driver.team}</Typography>
+              <Typography sx={{ color: '#4caf50', fontSize: 12 }}>Piloto</Typography>
             </Box>
+            <Typography sx={{ color: '#FFD600', fontWeight: 700, mr: 2 }}>
+              €{Number(driver.value).toLocaleString('es-ES')}
+            </Typography>
             <Button variant="contained" color="warning" sx={{ fontWeight: 700, borderRadius: 2 }} onClick={e => handleActionsClick(e, driver)}>Acciones</Button>
           </Box>
         ))
       )}
+
+      {/* Track Engineers */}
+      <Typography sx={{ color: '#FFD600', fontWeight: 700, fontSize: 18, mb: 2, textAlign: 'center', mt: 3 }}>
+        🔧 INGENIEROS DE PISTA ({teamData.track_engineers.length})
+      </Typography>
+      {teamData.track_engineers.length === 0 ? (
+        <Typography sx={{ color: '#b0b0b0', textAlign: 'center', mb: 3 }}>No tienes ingenieros de pista</Typography>
+      ) : (
+        <Grid container spacing={2}>
+          {teamData.track_engineers.map(engineer => (
+            <Grid item xs={12} sm={6} md={4} key={engineer.id}>
+              <EngineerRaceCard
+                engineer={engineer}
+                type="track_engineer"
+                showStats={true}
+                isOwned={true}
+                leagueId={selectedLeague?.id}
+                onClick={() => navigate(`/engineer/track/${engineer.id}?league_id=${selectedLeague?.id}`)}
+                bidActionsButton={
+                  <EngineerActionsMenu 
+                    engineer={{ ...engineer, type: 'track_engineer' }}
+                    onSell={() => {
+                      // Recargar datos del equipo
+                      const fetchTeamData = async () => {
+                        const player_id = localStorage.getItem('player_id');
+                        const teamRes = await fetch(`/api/players/${player_id}/team?league_id=${selectedLeague.id}`);
+                        const teamData = await teamRes.json();
+                        if (teamData.team) {
+                          setTeamData({
+                            pilots: teamData.team.pilots || [],
+                            track_engineers: teamData.team.track_engineers || [],
+                            chief_engineers: teamData.team.chief_engineers || [],
+                            team_constructors: teamData.team.team_constructors || []
+                          });
+                        }
+                      };
+                      fetchTeamData();
+                    }}
+                  />
+                }
+              />
+            </Grid>
+          ))}
+        </Grid>
+      )}
+
+      {/* Chief Engineers */}
+      <Typography sx={{ color: '#FFD600', fontWeight: 700, fontSize: 18, mb: 2, textAlign: 'center', mt: 3 }}>
+        👨‍💼 INGENIEROS JEFE ({teamData.chief_engineers.length})
+      </Typography>
+      {teamData.chief_engineers.length === 0 ? (
+        <Typography sx={{ color: '#b0b0b0', textAlign: 'center', mb: 3 }}>No tienes ingenieros jefe</Typography>
+      ) : (
+        <Grid container spacing={2}>
+          {teamData.chief_engineers.map(engineer => (
+            <Grid item xs={12} sm={6} md={4} key={engineer.id}>
+              <EngineerRaceCard
+                engineer={engineer}
+                type="chief_engineer"
+                showStats={true}
+                isOwned={true}
+                leagueId={selectedLeague?.id}
+                onClick={() => navigate(`/engineer/chief/${engineer.id}?league_id=${selectedLeague?.id}`)}
+                bidActionsButton={
+                  <EngineerActionsMenu 
+                    engineer={{ ...engineer, type: 'chief_engineer' }}
+                    onSell={() => {
+                      // Recargar datos del equipo
+                      const fetchTeamData = async () => {
+                        const player_id = localStorage.getItem('player_id');
+                        const teamRes = await fetch(`/api/players/${player_id}/team?league_id=${selectedLeague.id}`);
+                        const teamData = await teamRes.json();
+                        if (teamData.team) {
+                          setTeamData({
+                            pilots: teamData.team.pilots || [],
+                            track_engineers: teamData.team.track_engineers || [],
+                            chief_engineers: teamData.team.chief_engineers || [],
+                            team_constructors: teamData.team.team_constructors || []
+                          });
+                        }
+                      };
+                      fetchTeamData();
+                    }}
+                  />
+                }
+              />
+            </Grid>
+          ))}
+        </Grid>
+      )}
+
+      {/* Team Constructors */}
+      <Typography sx={{ color: '#FFD600', fontWeight: 700, fontSize: 18, mb: 2, textAlign: 'center', mt: 3 }}>
+        🏁 EQUIPOS ({teamData.team_constructors.length})
+      </Typography>
+      {teamData.team_constructors.length === 0 ? (
+        <Typography sx={{ color: '#b0b0b0', textAlign: 'center', mb: 3 }}>No tienes equipos</Typography>
+      ) : (
+        <Grid container spacing={2}>
+          {teamData.team_constructors.map(team => (
+            <Grid item xs={12} sm={6} md={4} key={team.id}>
+              <TeamRaceCard
+                team={team}
+                showStats={true}
+                isOwned={true}
+                leagueId={selectedLeague?.id}
+                onClick={() => navigate(`/team/${team.id}?league_id=${selectedLeague?.id}`)}
+                bidActionsButton={
+                  <TeamConstructorActionsMenu 
+                    team={team}
+                    onSell={() => {
+                      // Recargar datos del equipo
+                      const fetchTeamData = async () => {
+                        const player_id = localStorage.getItem('player_id');
+                        const teamRes = await fetch(`/api/players/${player_id}/team?league_id=${selectedLeague.id}`);
+                        const teamData = await teamRes.json();
+                        if (teamData.team) {
+                          setTeamData({
+                            pilots: teamData.team.pilots || [],
+                            track_engineers: teamData.team.track_engineers || [],
+                            chief_engineers: teamData.team.chief_engineers || [],
+                            team_constructors: teamData.team.team_constructors || []
+                          });
+                        }
+                      };
+                      fetchTeamData();
+                    }}
+                  />
+                }
+              />
+            </Grid>
+          ))}
+        </Grid>
+      )}
+
       {/* Menú contextual de acciones */}
       <Menu anchorEl={anchorEl} open={Boolean(anchorEl)} onClose={handleCloseMenu}>
         <MenuItem onClick={handleAddToMarket}>Añadir al mercado</MenuItem>
@@ -310,7 +452,7 @@ export default function TeamPilotsPage() {
     <Box sx={{ mt: 4, mb: 2, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
       <Box sx={{ width: 320, height: 420, background: 'linear-gradient(180deg, #18192a 60%, #23243a 100%)', borderRadius: 4, boxShadow: 3, p: 2, position: 'relative' }}>
         <Box sx={{ display: 'flex', justifyContent: 'center', mb: 2 }}>
-          {drivers.slice(0, 2).map((driver, i) => (
+          {teamData.pilots.slice(0, 2).map((driver, i) => (
             <Box key={driver.id} sx={{ mx: 2 }}>
               <Avatar src={driver.image_url ? `/images/${driver.image_url}` : ''} sx={{ width: 64, height: 64, border: '3px solid #FFD600', mb: 1 }} />
               <Typography sx={{ color: '#fff', fontWeight: 700, fontSize: 14, textAlign: 'center' }}>{driver.driver_name}</Typography>
@@ -319,7 +461,7 @@ export default function TeamPilotsPage() {
           ))}
         </Box>
         <Box sx={{ display: 'flex', justifyContent: 'center', mb: 2 }}>
-          {drivers.slice(2, 6).map((driver, i) => (
+          {teamData.pilots.slice(2, 6).map((driver, i) => (
             <Box key={driver.id} sx={{ mx: 1 }}>
               <Avatar src={driver.image_url ? `/images/${driver.image_url}` : ''} sx={{ width: 56, height: 56, border: '2px solid #FFD600', mb: 1 }} />
               <Typography sx={{ color: '#fff', fontWeight: 700, fontSize: 13, textAlign: 'center' }}>{driver.driver_name}</Typography>
@@ -328,7 +470,7 @@ export default function TeamPilotsPage() {
           ))}
         </Box>
         <Box sx={{ display: 'flex', justifyContent: 'center', mb: 2 }}>
-          {drivers.slice(6, 10).map((driver, i) => (
+          {teamData.pilots.slice(6, 10).map((driver, i) => (
             <Box key={driver.id} sx={{ mx: 1 }}>
               <Avatar src={driver.image_url ? `/images/${driver.image_url}` : ''} sx={{ width: 48, height: 48, border: '2px solid #FFD600', mb: 1 }} />
               <Typography sx={{ color: '#fff', fontWeight: 700, fontSize: 12, textAlign: 'center' }}>{driver.driver_name}</Typography>
