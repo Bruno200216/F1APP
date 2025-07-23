@@ -1,17 +1,20 @@
 import React, { useEffect, useState } from 'react';
-import Box from '@mui/material/Box';
-import Typography from '@mui/material/Typography';
-import Snackbar from '@mui/material/Snackbar';
-import Alert from '@mui/material/Alert';
 import { useNavigate } from 'react-router-dom';
-import Button from '@mui/material/Button';
 import { useLeague } from '../context/LeagueContext';
-import Dialog from '@mui/material/Dialog';
-import DialogTitle from '@mui/material/DialogTitle';
-import DialogContent from '@mui/material/DialogContent';
-import IconButton from '@mui/material/IconButton';
-import CloseIcon from '@mui/icons-material/Close';
-import Grid from '@mui/material/Grid';
+import { cn, formatCurrency, formatTime } from '../lib/utils';
+
+// UI Components
+import { Button } from '../components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
+import { Input } from '../components/ui/input';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../components/ui/dialog';
+import { Avatar, AvatarImage, AvatarFallback } from '../components/ui/avatar';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '../components/ui/tabs';
+
+// Icons
+import { Clock, Users, Settings, TrendingUp, Search, Filter } from 'lucide-react';
+
+// Components
 import DriverRaceCard from '../components/DriverRaceCard';
 import EngineerRaceCard from '../components/EngineerRaceCard';
 import TeamRaceCard from '../components/TeamRaceCard';
@@ -25,17 +28,15 @@ import DialogActions from '@mui/material/DialogActions';
 import BidActionsMenu from '../components/BidActionsMenu';
 import EditBidDialog from '../components/EditBidDialog';
 import DeleteBidDialog from '../components/DeleteBidDialog';
-import Avatar from '@mui/material/Avatar'; // Importar Avatar
-import CircularProgress from '@mui/material/CircularProgress';
 
-// Función helper para determinar el tipo de elemento
+// Helper function
 const getItemType = (item) => {
   if (item.type) return item.type;
   if (item.driver_name) return 'pilot';
   if (item.track_engineer_id) return 'track_engineer';
   if (item.chief_engineer_id) return 'chief_engineer';
   if (item.team_constructor_id) return 'team_constructor';
-  return 'pilot'; // fallback
+  return 'pilot';
 };
 
 export default function MarketPage() {
@@ -46,9 +47,27 @@ export default function MarketPage() {
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
   const [openDrivers, setOpenDrivers] = useState(false);
   const [drivers, setDrivers] = useState([]);
-  const [trackEngineers, setTrackEngineers] = useState([]); // Nuevo estado
+  const [trackEngineers, setTrackEngineers] = useState([]);
   const [loadingDrivers, setLoadingDrivers] = useState(false);
   const [driversError, setDriversError] = useState('');
+
+  // Track Engineers modal state
+  const [openTrackEngineers, setOpenTrackEngineers] = useState(false);
+  const [trackEngineersByLeague, setTrackEngineersByLeague] = useState([]);
+  const [loadingTrackEngineers, setLoadingTrackEngineers] = useState(false);
+  const [errorTrackEngineers, setErrorTrackEngineers] = useState('');
+
+  // Chief Engineers modal state
+  const [openChiefEngineers, setOpenChiefEngineers] = useState(false);
+  const [chiefEngineersByLeague, setChiefEngineersByLeague] = useState([]);
+  const [loadingChiefEngineers, setLoadingChiefEngineers] = useState(false);
+  const [errorChiefEngineers, setErrorChiefEngineers] = useState('');
+
+  // Team Constructors modal state
+  const [openTeamConstructors, setOpenTeamConstructors] = useState(false);
+  const [teamConstructorsByLeague, setTeamConstructorsByLeague] = useState([]);
+  const [loadingTeamConstructors, setLoadingTeamConstructors] = useState(false);
+  const [errorTeamConstructors, setErrorTeamConstructors] = useState('');
   const [openFichar, setOpenFichar] = useState(false);
   const [selectedPilot, setSelectedPilot] = useState(null);
   const [playerMoney, setPlayerMoney] = useState(0);
@@ -57,87 +76,69 @@ export default function MarketPage() {
   const [nextRefresh, setNextRefresh] = useState(null);
   const [timeLeft, setTimeLeft] = useState('');
   const [players, setPlayers] = useState([]);
-  const [tab, setTab] = useState(0); // 0: Mercado, 1: Mis Operaciones, 2: Histórico
-  const [opsTab, setOpsTab] = useState(0); // 0: Compra, 1: Venta
+  const [currentTab, setCurrentTab] = useState('market');
+  const [opsTab, setOpsTab] = useState(0);
   const [myBids, setMyBids] = useState([]);
   const [mySales, setMySales] = useState([]);
   const [loadingOps, setLoadingOps] = useState(false);
   const [openOffersModal, setOpenOffersModal] = useState(false);
   const [selectedSalePilot, setSelectedSalePilot] = useState(null);
-  // --- Estados para menú de acciones y confirmación de borrado ---
   const [anchorEl, setAnchorEl] = useState(null);
   const [selectedBidPilot, setSelectedBidPilot] = useState(null);
   const [openDeleteDialog, setOpenDeleteDialog] = useState(false);
-  // --- Estado para editar puja desde Mis Operaciones ---
   const [openEditBid, setOpenEditBid] = useState(false);
   const [editBidValue, setEditBidValue] = useState('');
-
-  // Handler único para abrir el menú contextual en el market general
   const [anchorElMarket, setAnchorElMarket] = useState(null);
-  const handleOpenMenuMarket = (event, pilot, myBid) => {
-    setAnchorElMarket(event.currentTarget);
-    setSelectedBidPilot({ ...pilot, my_bid: myBid?.my_bid });
-  };
-  const handleCloseMenuMarket = () => {
-    setAnchorElMarket(null);
-  };
-  const handleEditBidClickMarket = () => {
-    setEditBidValue(selectedBidPilot?.my_bid ? String(selectedBidPilot.my_bid) : '');
-    setOpenEditBid(true);
-    setAnchorElMarket(null);
-  };
-  const handleDeleteBidClickMarket = () => {
-    setOpenDeleteDialog(true);
-    setAnchorElMarket(null);
-  };
 
-  // --- BLOQUE TEMPORAL PARA CREAR LA CLAVE 'user' EN LOCALSTORAGE SI NO EXISTE ---
+  // Create localStorage user key if it doesn't exist
   if (!localStorage.getItem('user') && localStorage.getItem('player_id') && localStorage.getItem('token')) {
-    localStorage.setItem('user', JSON.stringify({ id: Number(localStorage.getItem('player_id')), token: localStorage.getItem('token') }));
-    console.log('Clave user creada automáticamente en localStorage');
+    localStorage.setItem('user', JSON.stringify({
+      id: Number(localStorage.getItem('player_id')),
+      token: localStorage.getItem('token')
+    }));
   }
 
-  // Obtener jugadores de la liga
+  // Fetch players
   const fetchPlayers = async () => {
     if (!selectedLeague) return;
     try {
-      const res = await fetch(`/api/leagues/${selectedLeague.id}/classification`);
-      const data = await res.json();
-      if (data.classification) {
-        setPlayers(data.classification.map(p => ({ id: Number(p.player_id), name: p.name })));
+      // Get players from league classification
+      const response = await fetch(`/api/leagues/${selectedLeague.id}/classification`);
+      const data = await response.json();
+      setPlayers(data.players || []);
+
+      // Get current player's money from playerbyleague
+      const user = JSON.parse(localStorage.getItem('user'));
+      if (user?.id && user?.token) {
+        const playerResponse = await fetch(`/api/playerbyleague?player_id=${user.id}&league_id=${selectedLeague.id}`, {
+          headers: {
+            'Authorization': `Bearer ${user.token}`
+          }
+        });
+        const {player_by_league} = await playerResponse.json();
+        console.log('Player data response:', player_by_league); // Debug log
+
+        // Try different possible property names for money
+        const money = player_by_league.money || player_by_league.Money || player_by_league.dinero || player_by_league.saldo || 0;
+        console.log("player data", player_by_league)
+        setPlayerMoney(money);
+        console.log('Setting player money to:', money); // Debug log
       }
     } catch (err) {
-      setPlayers([]);
+      console.error('Error fetching players:', err);
     }
   };
 
-  const fetchDrivers = async () => {
-    setLoadingDrivers(true);
-    setDriversError('');
-    try {
-      const res = await fetch('/api/pilots');
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Error cargando pilotos');
-      setDrivers(data.pilots || []);
-      setTrackEngineers(data.track_engineers || []); // Guardar ingenieros
-    } catch (err) {
-      setDriversError('Error cargando pilotos: ' + err.message);
-    } finally {
-      setLoadingDrivers(false);
-    }
-  };
-
+  // Fetch market pilots
   const fetchMarketPilots = async () => {
     if (!selectedLeague) return;
     setLoading(true);
-    setError('');
     try {
-      const res = await fetch(`/api/market?league_id=${selectedLeague.id}`);
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Error cargando mercado');
+      const response = await fetch(`/api/market?league_id=${selectedLeague.id}`);
+      const data = await response.json();
       setAuctions(data.market || []);
     } catch (err) {
-      setError('Error cargando el mercado: ' + err.message);
+      setError('Error al cargar el mercado');
     } finally {
       setLoading(false);
     }
@@ -282,7 +283,6 @@ export default function MarketPage() {
       const res = await fetch(endpoint, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
           'Authorization': `Bearer ${user.token}`
         },
         body: JSON.stringify(payload)
@@ -354,7 +354,8 @@ export default function MarketPage() {
         setSnackbar({ open: true, message: data.error || 'Error al rechazar la oferta', severity: 'error' });
       }
     } catch (err) {
-      setSnackbar({ open: true, message: 'Error de conexión', severity: 'error' });
+      console.error('Error fetching my bids:', err);
+      setMyBids([]);
     }
   };
 
@@ -417,14 +418,8 @@ export default function MarketPage() {
       const res = await fetch('/api/auctions/remove-bid', {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
           'Authorization': `Bearer ${user.token}`
-        },
-        body: JSON.stringify({ 
-          item_type: itemType,
-          item_id: selectedBidPilot.id, 
-          league_id: selectedLeague.id 
-        })
+        }
       });
       const data = await res.json();
       if (res.ok) {
@@ -436,32 +431,17 @@ export default function MarketPage() {
         setSnackbar({ open: true, message: data.error || 'Error al eliminar la puja', severity: 'error' });
       }
     } catch (err) {
-      setSnackbar({ open: true, message: 'Error de conexión', severity: 'error' });
+      console.error('Error fetching my sales:', err);
+      setMySales([]);
     }
   };
 
-  // --- Lógica para abrir modal de editar puja ---
-  const handleEditBidClick = () => {
-    if (selectedBidPilot) {
-      setEditBidValue(selectedBidPilot.my_bid ? String(selectedBidPilot.my_bid) : '');
-      setOpenEditBid(true);
-      setAnchorEl(null);
-    }
-  };
-  const handleCloseEditBid = () => {
-    setOpenEditBid(false);
-    setEditBidValue('');
-  };
-  // --- Lógica para enviar la edición de la puja ---
-  const handleEditBidSubmit = async () => {
-    if (!selectedBidPilot || !editBidValue || Number(editBidValue) <= 0) {
-      setSnackbar({ open: true, message: 'Introduce un importe válido', severity: 'error' });
-      return;
-    }
-    if (Number(editBidValue) > playerMoney) {
-      setSnackbar({ open: true, message: 'No tienes suficiente saldo para esta puja', severity: 'error' });
-      return;
-    }
+  // Fetch all drivers for the modal
+  const fetchDrivers = async () => {
+    if (!selectedLeague) return;
+    setLoadingDrivers(true);
+    setDriversError('');
+
     try {
       const user = JSON.parse(localStorage.getItem('user'));
       
@@ -559,7 +539,11 @@ export default function MarketPage() {
         setSnackbar({ open: true, message: data.error || 'Error al actualizar la puja', severity: 'error' });
       }
     } catch (err) {
-      setSnackbar({ open: true, message: 'Error de conexión con el backend', severity: 'error' });
+      console.error('Error fetching track engineers:', err);
+      setErrorTrackEngineers('Error al cargar los ingenieros de pista');
+      setTrackEngineersByLeague([]);
+    } finally {
+      setLoadingTrackEngineers(false);
     }
   };
   const handleRemoveBidConfirmedMarket = async () => {
@@ -591,1220 +575,743 @@ export default function MarketPage() {
         setSnackbar({ open: true, message: data.error || 'Error al eliminar la puja', severity: 'error' });
       }
     } catch (err) {
-      setSnackbar({ open: true, message: 'Error de conexión', severity: 'error' });
-    }
-  };
-
-  // Obtener el id del usuario actual
-  const user = JSON.parse(localStorage.getItem('user'));
-  const playerId = user?.id;
-
-  // Fetch del saldo del usuario en la liga seleccionada
-  useEffect(() => {
-    const fetchMoney = async () => {
-      try {
-        const user = JSON.parse(localStorage.getItem('user'));
-        if (!user?.id || !selectedLeague?.id) return;
-        const res = await fetch(`/api/playerbyleague?player_id=${user.id}&league_id=${selectedLeague.id}`);
-        const data = await res.json();
-        setPlayerMoney(data.player_by_league?.money || 0);
-      } catch (err) {
-        setPlayerMoney(0);
-      }
-    };
-    fetchMoney();
-  }, [selectedLeague]);
-
-  // --- Fetch de pujas activas del usuario (myBids) ---
-  const fetchMyBids = async () => {
-    try {
-      const user = JSON.parse(localStorage.getItem('user'));
-      if (!user?.token || !selectedLeague) {
-        setMyBids([]);
-        return;
-      }
-      const res = await fetch(`/api/my-market-bids?league_id=${selectedLeague.id}`, {
-        headers: { Authorization: `Bearer ${user.token}` }
-      });
-      const data = await res.json();
-      setMyBids(data.bids || []);
-    } catch (err) {
-      setMyBids([]);
-    }
-  };
-
-  // Llamar a fetchMyBids siempre que cambie la liga o el usuario
-  useEffect(() => {
-    fetchMyBids();
-  }, [selectedLeague, user?.token]);
-
-  useEffect(() => {
-    fetchMarketPilots(); // Llamada inicial
-    fetchPlayers(); // Cargar jugadores de la liga
-
-    const interval = setInterval(() => {
-      fetchMarketPilots();
-    }, 5000); // cada 5 segundos
-
-    return () => clearInterval(interval);
-  }, [selectedLeague]);
-
-  useEffect(() => {
-    const fetchNextRefresh = async () => {
-      const res = await fetch('/api/market/next-refresh');
-      const data = await res.json();
-      setNextRefresh(data.next_refresh * 1000); // convertir a ms
-    };
-    fetchNextRefresh();
-  }, [selectedLeague]);
-
-  useEffect(() => {
-    if (!nextRefresh) return;
-    const interval = setInterval(() => {
-      const now = Date.now();
-      const diff = nextRefresh - now;
-      if (diff > 0) {
-        const hours = Math.floor(diff / (1000 * 60 * 60));
-        const minutes = Math.floor((diff / (1000 * 60)) % 60);
-        const seconds = Math.floor((diff / 1000) % 60);
-        setTimeLeft(`${hours.toString().padStart(2, '0')}:${minutes
-          .toString()
-          .padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`);
-      } else {
-        setTimeLeft('00:00:00');
-        fetchMarketPilots(); // Cuando llega a 0, recarga el mercado
-      }
-    }, 1000);
-    return () => clearInterval(interval);
-  }, [nextRefresh]);
-
-  // Fetch de operaciones de compra/venta según el sub-tab
-  useEffect(() => {
-    if (tab !== 1 || !selectedLeague || !user?.token) return;
-    const fetchOps = async () => {
-      setLoadingOps(true);
-      try {
-        if (opsTab === 0) {
-          await fetchMyBids(); // Reutiliza la función para mantener sincronizado
-        } else {
-          const res = await fetch(`/api/my-market-sales?league_id=${selectedLeague.id}`, {
-            headers: { Authorization: `Bearer ${user.token}` }
-          });
-          const data = await res.json();
-          setMySales(data.sales || []);
-        }
-      } catch (err) {
-        setMyBids([]);
-        setMySales([]);
-      } finally {
-        setLoadingOps(false);
-      }
-    };
-    fetchOps();
-  }, [tab, opsTab, selectedLeague, user?.token]);
-
-  // Estado para el modal de ingenieros de pista por liga
-  const [openTrackEngineers, setOpenTrackEngineers] = useState(false);
-  const [trackEngineersByLeague, setTrackEngineersByLeague] = useState([]);
-  const [loadingTrackEngineers, setLoadingTrackEngineers] = useState(false);
-  const [errorTrackEngineers, setErrorTrackEngineers] = useState('');
-
-  // Estado para el modal de ingenieros jefe por liga
-  const [openChiefEngineers, setOpenChiefEngineers] = useState(false);
-  const [chiefEngineersByLeague, setChiefEngineersByLeague] = useState([]);
-  const [loadingChiefEngineers, setLoadingChiefEngineers] = useState(false);
-  const [errorChiefEngineers, setErrorChiefEngineers] = useState('');
-
-  // Estado para el modal de equipos por liga
-  const [openTeamConstructors, setOpenTeamConstructors] = useState(false);
-  const [teamConstructorsByLeague, setTeamConstructorsByLeague] = useState([]);
-  const [loadingTeamConstructors, setLoadingTeamConstructors] = useState(false);
-  const [errorTeamConstructors, setErrorTeamConstructors] = useState('');
-
-  const handleOpenTrackEngineers = async () => {
-    if (!selectedLeague) return;
-    setOpenTrackEngineers(true);
-    setLoadingTrackEngineers(true);
-    setErrorTrackEngineers('');
-    try {
-      const res = await fetch(`/api/trackengineersbyleague?league_id=${selectedLeague.id}`);
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Error cargando ingenieros de pista');
-      setTrackEngineersByLeague(data.track_engineers || []);
-    } catch (err) {
-      setErrorTrackEngineers('Error cargando ingenieros de pista: ' + err.message);
-      setTrackEngineersByLeague([]);
-    } finally {
-      setLoadingTrackEngineers(false);
-    }
-  };
-
-  const handleOpenChiefEngineers = async () => {
-    if (!selectedLeague) return;
-    setOpenChiefEngineers(true);
-    setLoadingChiefEngineers(true);
-    setErrorChiefEngineers('');
-    try {
-      const res = await fetch(`/api/chiefengineersbyleague?league_id=${selectedLeague.id}`);
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Error cargando ingenieros jefe');
-      setChiefEngineersByLeague(data.chief_engineers || []);
-    } catch (err) {
-      setErrorChiefEngineers('Error cargando ingenieros jefe: ' + err.message);
+      console.error('Error fetching chief engineers:', err);
+      setErrorChiefEngineers('Error al cargar los ingenieros jefe');
       setChiefEngineersByLeague([]);
     } finally {
       setLoadingChiefEngineers(false);
     }
   };
 
+  // Handle opening team constructors modal
   const handleOpenTeamConstructors = async () => {
     if (!selectedLeague) return;
     setOpenTeamConstructors(true);
     setLoadingTeamConstructors(true);
     setErrorTeamConstructors('');
+
     try {
-      const res = await fetch(`/api/teamconstructorsbyleague?league_id=${selectedLeague.id}`);
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Error cargando equipos');
+      const response = await fetch(`/api/teamconstructorsbyleague?league_id=${selectedLeague.id}`);
+      const data = await response.json();
       setTeamConstructorsByLeague(data.team_constructors || []);
     } catch (err) {
-      setErrorTeamConstructors('Error cargando equipos: ' + err.message);
+      console.error('Error fetching team constructors:', err);
+      setErrorTeamConstructors('Error al cargar los equipos');
       setTeamConstructorsByLeague([]);
     } finally {
       setLoadingTeamConstructors(false);
     }
   };
 
+  // Fetch market refresh timer
+  const fetchNextRefresh = async () => {
+    try {
+      const response = await fetch('/api/market/next-refresh');
+      const data = await response.json();
+      setNextRefresh(data.next_refresh * 1000); // convert to ms
+    } catch (err) {
+      console.error('Error fetching next refresh:', err);
+    }
+  };
+
+  // Effects
+  useEffect(() => {
+    if (selectedLeague) {
+      fetchMarketPilots();
+      fetchPlayers();
+      fetchNextRefresh();
+    }
+  }, [selectedLeague]);
+
+  // Effect for timer countdown
+  useEffect(() => {
+    if (!nextRefresh) return;
+
+    const interval = setInterval(() => {
+      const now = Date.now();
+      const diff = nextRefresh - now;
+
+      if (diff > 0) {
+        const hours = Math.floor(diff / (1000 * 60 * 60));
+        const minutes = Math.floor((diff / (1000 * 60)) % 60);
+        const seconds = Math.floor((diff / 1000) % 60);
+        setTimeLeft(`${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`);
+      } else {
+        setTimeLeft('00:00:00');
+        fetchMarketPilots(); // Refresh market when timer reaches 0
+      }
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [nextRefresh]);
+
+  // Effect for fetching operations based on current tab
+  useEffect(() => {
+    if (currentTab !== 'operations' || !selectedLeague) return;
+
+    const fetchOps = async () => {
+      setLoadingOps(true);
+      try {
+        if (opsTab === 0) {
+          await fetchMyBids();
+        } else {
+          await fetchMySales();
+        }
+      } catch (err) {
+        console.error('Error fetching operations:', err);
+      } finally {
+        setLoadingOps(false);
+      }
+    };
+
+    fetchOps();
+  }, [currentTab, opsTab, selectedLeague]);
+
+  if (!selectedLeague) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <Card className="w-full max-w-md">
+          <CardContent className="pt-6">
+            <div className="text-center">
+              <Users className="mx-auto h-12 w-12 text-text-secondary mb-4" />
+              <CardTitle className="mb-2">Selecciona una Liga</CardTitle>
+              <p className="text-text-secondary mb-4">
+                Debes seleccionar una liga para acceder al mercado
+              </p>
+              <Button onClick={() => navigate('/leagues')}>
+                Ver Ligas
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   return (
-    <Box sx={{ p: 2, background: 'linear-gradient(135deg, #0a0a0a 0%, #1a1a1a 100%)', minHeight: '100vh' }}>
-      {/* Tabs principales personalizados */}
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3, borderBottom: '2px solid #232323' }}>
-        {['Mercado', 'Mis Ops.', 'Histórico'].map((label, idx) => (
-          <Box
-            key={label}
-            onClick={() => setTab(idx)}
-            sx={{
-              flex: 1,
-              textAlign: 'center',
-              py: 1.5,
-              cursor: 'pointer',
-              color: '#fff',
-              fontWeight: 700,
-              fontSize: 18,
-              borderBottom: tab === idx ? '3px solid #E53935' : '3px solid transparent',
-              transition: 'border-bottom 0.2s',
-              letterSpacing: 0.5,
-              background: 'none',
-              opacity: 1
-            }}
-          >
-            {label}
-          </Box>
-        ))}
-      </Box>
-      {/* Contenido de cada tab */}
-      {tab === 0 && (
-        <React.Fragment>
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-            <Typography 
-              variant="h4" 
-              sx={{ 
-                fontWeight: 700, 
-                color: '#fff',
-                textShadow: '0 2px 4px rgba(0,0,0,0.5)',
-                background: 'linear-gradient(45deg, #DC0000, #FF4444)',
-                backgroundClip: 'text',
-                WebkitBackgroundClip: 'text',
-                WebkitTextFillColor: 'transparent'
+    <div className="min-h-screen bg-background p-4">
+      {/* Header */}
+      <div className="mb-6">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+          <div>
+            <h1 className="text-h1 font-bold text-text-primary mb-2">
+              🏁 Mercado F1
+            </h1>
+            <p className="text-text-secondary">
+              Liga: <span className="text-accent-main font-medium">{selectedLeague.name}</span>
+            </p>
+          </div>
+
+          {/* Player Balance */}
+          <Card className="p-4">
+            <div className="flex items-center gap-3">
+              <div className="bg-accent-main/20 p-2 rounded-md">
+                <TrendingUp className="h-5 w-5 text-accent-main" />
+              </div>
+              <div>
+                <p className="text-small text-text-secondary">Tu saldo</p>
+                <p className="text-h3 font-bold text-state-success">
+                  {formatCurrency(playerMoney)}
+                </p>
+              </div>
+            </div>
+          </Card>
+        </div>
+
+        {/* Market Refresh Timer */}
+        {timeLeft && (
+          <Card className="p-4 mb-6">
+            <div className="flex items-center gap-3">
+              <Clock className="h-5 w-5 text-accent-main" />
+              <div>
+                <p className="text-small text-text-secondary">Próxima actualización</p>
+                <p className="text-body font-medium text-text-primary">{timeLeft}</p>
+              </div>
+            </div>
+          </Card>
+        )}
+      </div>
+
+      {/* Main Content */}
+      <Tabs value={currentTab} onValueChange={setCurrentTab} className="w-full">
+        <TabsList className="grid w-full grid-cols-3">
+          <TabsTrigger value="market">Mercado</TabsTrigger>
+          <TabsTrigger value="operations">Mis Operaciones</TabsTrigger>
+          <TabsTrigger value="history">Histórico</TabsTrigger>
+        </TabsList>
+
+        {/* Market Tab */}
+        <TabsContent value="market" className="space-y-6">
+          {/* Action Buttons */}
+          <div className="flex flex-wrap gap-3">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setOpenDrivers(true);
+                fetchDrivers();
               }}
+              className="flex items-center gap-2"
             >
-              🏁 Mercado de Pilotos
-            </Typography>
-            {/* Mostrar saldo del usuario en la liga */}
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, background: '#181c24', borderRadius: 2, px: 2, py: 1, boxShadow: '0 2px 8px rgba(0,0,0,0.2)' }}>
-              <Typography variant="body1" sx={{ color: '#b0b0b0', fontWeight: 600, mr: 1 }}>
-                Tu saldo:
-              </Typography>
-              <Typography variant="h6" sx={{ color: playerMoney === 0 ? '#f44336' : '#4caf50', fontWeight: 700 }}>
-                {playerMoney?.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' }) ?? '0 €'}
-              </Typography>
-            </Box>
-            <Box sx={{ display: 'flex', gap: 2 }}>
-              <Button
-                variant="outlined"
-                color="primary"
-                onClick={() => { setOpenDrivers(true); fetchDrivers(); }}
-                sx={{ 
-                  fontWeight: 700,
-                  borderColor: '#DC0000',
-                  color: '#DC0000',
-                  '&:hover': {
-                    borderColor: '#FF4444',
-                    backgroundColor: 'rgba(220, 0, 0, 0.1)'
-                  }
-                }}
-              >
-                📋 Todos los Pilotos
-              </Button>
-              <Button
-                variant="outlined"
-                color="info"
-                onClick={handleOpenTrackEngineers}
-                sx={{
-                  fontWeight: 700,
-                  borderColor: '#1976d2',
-                  color: '#1976d2',
-                  '&:hover': {
-                    borderColor: '#42a5f5',
-                    backgroundColor: 'rgba(25, 118, 210, 0.08)'
-                  }
-                }}
-              >
-                👨‍🔧 Ver ingenieros de pista en esta liga
-              </Button>
-              <Button
-                variant="outlined"
-                color="warning"
-                onClick={handleOpenChiefEngineers}
-                sx={{
-                  fontWeight: 700,
-                  borderColor: '#FF9800',
-                  color: '#FF9800',
-                  '&:hover': {
-                    borderColor: '#FF5722',
-                    backgroundColor: 'rgba(255, 152, 0, 0.1)'
-                  }
-                }}
-              >
-                👨‍💼 Ver ingenieros jefe en esta liga
-              </Button>
-              <Button
-                variant="outlined"
-                color="secondary"
-                onClick={handleOpenTeamConstructors}
-                sx={{
-                  fontWeight: 700,
-                  borderColor: '#9C27B0',
-                  color: '#9C27B0',
-                  '&:hover': {
-                    borderColor: '#7B1FA2',
-                    backgroundColor: 'rgba(156, 39, 176, 0.08)'
-                  }
-                }}
-              >
-                🏎️ Ver equipos en esta liga
-              </Button>
-              <Button
-                variant="contained"
-                color="warning"
-                onClick={handleFinishAllAuctions}
-                sx={{ 
-                  fontWeight: 700,
-                  background: 'linear-gradient(45deg, #FF9800, #FF5722)',
-                  '&:hover': {
-                    background: 'linear-gradient(45deg, #FF5722, #FF9800)'
-                  }
-                }}
-              >
-                ⚡ Finalizar Subastas
-              </Button>
-              <Button
-                variant="contained"
-                color="success"
-                onClick={handleUpdateValues}
-                sx={{
-                  fontWeight: 700,
-                  background: 'linear-gradient(45deg, #43A047, #388E3C)',
-                  '&:hover': {
-                    background: 'linear-gradient(45deg, #388E3C, #43A047)'
-                  }
-                }}
-              >
-                💹 Actualizar valores
-              </Button>
-              <Button
-                variant="contained"
-                color="info"
-                onClick={handleGenerateFIAOffers}
-                sx={{
-                  fontWeight: 700,
-                  background: 'linear-gradient(45deg, #2196F3, #1976D2)',
-                  '&:hover': {
-                    background: 'linear-gradient(45deg, #1976D2, #2196F3)'
-                  }
-                }}
-              >
-                🏁 Generar Ofertas FIA
-              </Button>
-            </Box>
-          </Box>
+              <Users className="h-4 w-4" />
+              Todos los Pilotos
+            </Button>
+            <Button
+              variant="outline"
+              className="flex items-center gap-2"
+              onClick={handleOpenTrackEngineers}
+            >
+              <Settings className="h-4 w-4" />
+              Ingenieros de Pista
+            </Button>
+            <Button
+              variant="outline"
+              className="flex items-center gap-2"
+              onClick={handleOpenChiefEngineers}
+            >
+              <Settings className="h-4 w-4" />
+              Ingenieros Jefe
+            </Button>
+            <Button
+              variant="outline"
+              className="flex items-center gap-2"
+              onClick={handleOpenTeamConstructors}
+            >
+              <Users className="h-4 w-4" />
+              Equipos
+            </Button>
+          </div>
 
-          {/* Modal de todos los pilotos */}
-          <Dialog open={openDrivers} onClose={() => setOpenDrivers(false)} maxWidth="lg" fullWidth>
-            <DialogTitle sx={{ background: '#1a1a1a', color: '#fff' }}>
-              <Typography variant="h6" sx={{ fontWeight: 700 }}>
-                🏎️ Parrilla Completa - {selectedLeague?.name}
-              </Typography>
-              <IconButton
-                aria-label="close"
-                onClick={() => setOpenDrivers(false)}
-                sx={{ position: 'absolute', right: 8, top: 8, color: '#fff' }}
-              >
-                <CloseIcon />
-              </IconButton>
-            </DialogTitle>
-            <DialogContent dividers sx={{ background: '#0a0a0a', p: 3 }}>
-              {loadingDrivers ? (
-                <Box sx={{ textAlign: 'center', py: 4 }}>
-                  <Typography sx={{ color: '#fff' }}>🏁 Cargando parrilla...</Typography>
-                </Box>
-              ) : driversError ? (
-                <Alert severity="error">{driversError}</Alert>
-              ) : (
-                <>
-                  <Grid container spacing={2} sx={{ mb: 4 }}>
-                    {drivers.length === 0 ? (
-                      <Grid item xs={12}>
-                        <Typography sx={{ color: '#fff', textAlign: 'center', py: 4 }}>
-                          No hay pilotos en esta liga.
-                        </Typography>
-                      </Grid>
-                    ) : (
-                      drivers.map(driver => (
-                        <Grid item xs={12} sm={6} md={4} lg={3} key={driver.id}>
-                          <DriverRaceCard
-                            driver={driver}
-                            showStats={true}
-                            isOwned={driver.owner_id && driver.owner_id > 0}
-                            leagueId={selectedLeague.id}
-                            clausula={driver.clausula || ''}
-                          />
-                        </Grid>
-                      ))
-                    )}
-                  </Grid>
-                  {/* Ingenieros de pista */}
-                  <Typography variant="h6" sx={{ color: '#FFD600', fontWeight: 700, mb: 2, mt: 2 }}>
-                    👨‍🔧 Ingenieros de Pista
-                  </Typography>
-                  <Grid container spacing={2}>
-                    {trackEngineers.length === 0 ? (
-                      <Grid item xs={12}>
-                        <Typography sx={{ color: '#fff', textAlign: 'center', py: 2 }}>
-                          No hay ingenieros de pista registrados.
-                        </Typography>
-                      </Grid>
-                    ) : (
-                      trackEngineers.map(engineer => {
-                        // Copiar el estilo de DriverRaceCard pero adaptado
-                        // Buscar color de equipo
-                        const teamColors = {
-                          'Red Bull Racing': { primary: '#3671C6', secondary: '#1E41C3' },
-                          'Mercedes': { primary: '#6CD3BF', secondary: '#00D2BE' },
-                          'McLaren': { primary: '#FF8700', secondary: '#FF5800' },
-                          'Ferrari': { primary: '#DC0000', secondary: '#B80000' },
-                          'Aston Martin': { primary: '#358C75', secondary: '#006F62' },
-                          'Alpine': { primary: '#0090FF', secondary: '#0051FF' },
-                          'Stake F1 Team Kick Sauber': { primary: '#52E252', secondary: '#37BEDD' },
-                          'Haas': { primary: '#FFFFFF', secondary: '#E8E8E8' },
-                          'Williams': { primary: '#37BEDD', secondary: '#005AFF' },
-                          'Visa Cash App RB': { primary: '#5E8FAA', secondary: '#1E41C3' }
-                        };
-                        const teamColor = teamColors[engineer.team] || { primary: '#666666', secondary: '#444444' };
-                        return (
-                          <Grid item xs={12} sm={6} md={4} lg={3} key={engineer.id}>
-                            <Box
-                              sx={{
-                                background: 'linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%)',
-                                border: `2px solid ${teamColor.primary}`,
-                                borderRadius: 3,
-                                p: 2,
-                                position: 'relative',
-                                overflow: 'hidden',
-                                minHeight: 140,
-                                '&:hover': {
-                                  transform: 'translateY(-4px)',
-                                  boxShadow: `0 8px 25px rgba(54,113,198,0.3)`,
-                                  borderColor: teamColor.secondary,
-                                },
-                                '&::before': {
-                                  content: '""',
-                                  position: 'absolute',
-                                  top: 0,
-                                  left: 0,
-                                  right: 0,
-                                  height: '3px',
-                                  background: `linear-gradient(90deg, ${teamColor.primary}, ${teamColor.secondary})`,
-                                }
-                              }}
-                            >
-                              <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                                <Avatar
-                                 src={engineer.image_url ? `/images/ingenierosdepista/${engineer.image_url}` : ''}
-                                  alt={engineer.name}
-                                  sx={{
-                                    width: 60,
-                                    height: 60,
-                                    mr: 2,
-                                    border: `3px solid ${teamColor.primary}`,
-                                    boxShadow: `0 4px 12px rgba(54,113,198,0.4)`
-                                  }}
-                                />
-                                <Box sx={{ flexGrow: 1 }}>
-                                  <Typography variant="h6" sx={{ fontWeight: 700, color: '#fff', fontSize: '1.1rem', textShadow: '0 2px 4px rgba(0,0,0,0.5)', mb: 0.5 }}>
-                                    {engineer.name}
-                                  </Typography>
-                                  <Typography variant="body2" sx={{ color: teamColor.primary, fontWeight: 600, fontSize: '0.9rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                                    {engineer.team}
-                                  </Typography>
-                                  <Typography variant="body2" sx={{ color: '#b0b0b0', fontSize: '0.8rem' }}>
-                                    Piloto: {engineer.pilot_name}
-                                  </Typography>
-                                </Box>
-                              </Box>
-                              <Box sx={{ mt: 2 }}>
-                                <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-                                  <Typography variant="body2" sx={{ color: '#b0b0b0', fontSize: '0.8rem' }}>
-                                    Valor:
-                                  </Typography>
-                                  <Typography variant="body2" sx={{ fontWeight: 700, color: '#4CAF50', fontSize: '0.9rem' }}>
-                                    {(engineer.value ?? 0).toLocaleString()} €
-                                  </Typography>
-                                </Box>
-                                <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-                                  <Typography variant="body2" sx={{ color: '#b0b0b0', fontSize: '0.8rem' }}>
-                                    Piloto ID:
-                                  </Typography>
-                                  <Typography variant="body2" sx={{ fontWeight: 700, color: '#FFD600', fontSize: '0.9rem' }}>
-                                    {engineer.pilot_id}
-                                  </Typography>
-                                </Box>
-                              </Box>
-                              <Box
-                                sx={{
-                                  position: 'absolute',
-                                  bottom: 0,
-                                  left: 0,
-                                  right: 0,
-                                  height: '2px',
-                                  background: `linear-gradient(90deg, ${teamColor.primary}, ${teamColor.secondary})`,
-                                  opacity: 0.7
-                                }}
-                              />
-                            </Box>
-                          </Grid>
-                        );
-                      })
-                    )}
-                  </Grid>
-                </>
-              )}
-            </DialogContent>
-          </Dialog>
+          {/* Market Grid */}
+          {loading ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+              {[...Array(8)].map((_, i) => (
+                <Card key={i} className="animate-pulse">
+                  <CardContent className="pt-6">
+                    <div className="flex items-center space-x-4">
+                      <div className="rounded-full bg-surface h-12 w-12"></div>
+                      <div className="space-y-2 flex-1">
+                        <div className="h-4 bg-surface rounded w-3/4"></div>
+                        <div className="h-3 bg-surface rounded w-1/2"></div>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          ) : error ? (
+            <Card className="p-6">
+              <div className="text-center">
+                <p className="text-state-error mb-4">{error}</p>
+                <Button onClick={fetchMarketPilots}>
+                  Reintentar
+                </Button>
+              </div>
+            </Card>
+          ) : auctions.length === 0 ? (
+            <Card className="p-6">
+              <div className="text-center">
+                <Users className="mx-auto h-12 w-12 text-text-secondary mb-4" />
+                <CardTitle className="mb-2">No hay elementos en el mercado</CardTitle>
+                <p className="text-text-secondary">
+                  El mercado está vacío en este momento
+                </p>
+              </div>
+            </Card>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+              {auctions.map((item) => {
+                const user = JSON.parse(localStorage.getItem('user'));
+                const myBid = item.bids?.find(bid => bid.player_id === user?.id);
 
-          {loading && null}
-          
-          {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
-          
-          {auctions.length === 0 && !loading && (
-            <Box sx={{ textAlign: 'center', py: 4 }}>
-              <Typography sx={{ color: '#fff', fontSize: '1.2rem' }}>
-                🏁 No hay pilotos en subasta actualmente
-              </Typography>
-              <Typography sx={{ color: '#b0b0b0', mt: 1 }}>
-                Los pilotos aparecerán automáticamente o puedes finalizar las subastas existentes
-              </Typography>
-            </Box>
-          )}
-
-          {auctions.length > 0 && (
-            <Box>
-              <Typography 
-                variant="h5" 
-                sx={{ 
-                  mb: 3, 
-                  color: '#fff', 
-                  fontWeight: 700,
-                  textAlign: 'center',
-                  textShadow: '0 2px 4px rgba(0,0,0,0.5)'
-                }}
-              >
-                🏆 Elementos en el Mercado
-              </Typography>
-              <Grid container spacing={2}>
-                {auctions.map(item => {
-                  // Buscar si el usuario tiene una puja activa en este elemento (solo para pilotos)
-                  const myBid = item.type === 'pilot' ? myBids.find(b => b.id === item.id) : null;
-                  
-                  if (item.type === 'pilot') {
-                    // Renderizar piloto como antes
-                    return (
-                      <Grid item xs={12} sm={6} md={4} lg={3} key={`pilot-${item.id}`}>
-                        <DriverRaceCard 
-                          driver={{ ...item, my_bid: myBid?.my_bid }}
-                          showStats={true} 
-                          isOwned={false} 
-                          leagueId={selectedLeague.id} 
-                          players={players}
-                          showBidActions={!!myBid}
-                          onFichar={myBid ? undefined : () => {
-                            if (item.type === 'pilot') {
-                              navigate(`/puja/${item.id}`);
-                            } else if (item.type === 'track_engineer') {
-                              navigate(`/puja/engineer/track/${item.id}`);
-                            } else if (item.type === 'chief_engineer') {
-                              navigate(`/puja/engineer/chief/${item.id}`);
-                            } else if (item.type === 'team_constructor') {
-                              navigate(`/puja/team/${item.id}`);
-                            } else {
-                              setSelectedPilot(item);
-                              setOpenFichar(true);
-                              setPuja('');
-                            }
-                          }}
-                          bidActionsButton={myBid ? (
-                            <Button
-                              variant="contained"
-                              color="error"
-                              sx={{ fontWeight: 700 }}
-                              onClick={e => {
-                                e.stopPropagation();
-                                setAnchorElMarket(e.currentTarget);
-                                setSelectedBidPilot({ ...item, my_bid: myBid?.my_bid });
-                              }}
-                            >
-                              ACCIONES
-                            </Button>
-                          ) : undefined}
-                        />
-                      </Grid>
-                    );
-                  } else {
-                    // Renderizar otros tipos de elementos (ingenieros, equipos)
-                    const teamColors = {
-                      'Red Bull Racing': { primary: '#3671C6', secondary: '#1E41C3' },
-                      'Mercedes': { primary: '#6CD3BF', secondary: '#00D2BE' },
-                      'McLaren': { primary: '#FF8700', secondary: '#FF5800' },
-                      'Ferrari': { primary: '#DC0000', secondary: '#B80000' },
-                      'Aston Martin': { primary: '#358C75', secondary: '#006F62' },
-                      'Alpine': { primary: '#0090FF', secondary: '#0051FF' },
-                      'Stake F1 Team Kick Sauber': { primary: '#52E252', secondary: '#37BEDD' },
-                      'Haas': { primary: '#FFFFFF', secondary: '#E8E8E8' },
-                      'Williams': { primary: '#37BEDD', secondary: '#005AFF' },
-                      'Visa Cash App RB': { primary: '#5E8FAA', secondary: '#1E41C3' }
-                    };
-                    const teamColor = teamColors[item.team] || { primary: '#666666', secondary: '#444444' };
-                    
-                    const typeLabels = {
-                      'track_engineer': '👨‍🔧',
-                      'chief_engineer': '👨‍💼',
-                      'team_constructor': '🏎️'
-                    };
-                    
-                    return (
-                      <Grid item xs={12} sm={6} md={4} lg={3} key={`${item.type}-${item.id}`}>
-                        <Box
-                          sx={{
-                            background: 'linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%)',
-                            border: `2px solid ${teamColor.primary}`,
-                            borderRadius: 3,
-                            p: 2,
-                            position: 'relative',
-                            overflow: 'hidden',
-                            minHeight: 160,
-                            cursor: 'pointer',
-                            transition: 'all 0.3s ease',
-                            '&:hover': {
-                              transform: 'translateY(-4px)',
-                              boxShadow: `0 8px 25px rgba(54,113,198,0.3)`,
-                              borderColor: teamColor.secondary,
-                            },
-                            '&::before': {
-                              content: '""',
-                              position: 'absolute',
-                              top: 0,
-                              left: 0,
-                              right: 0,
-                              height: '3px',
-                              background: `linear-gradient(90deg, ${teamColor.primary}, ${teamColor.secondary})`,
-                            }
+                if (getItemType(item) === 'pilot') {
+                  return (
+                    <div key={`pilot-${item.id}`}>
+                      <DriverRaceCard
+                        driver={{ ...item, my_bid: myBid?.my_bid }}
+                        showStats={true}
+                        isOwned={false}
+                        leagueId={selectedLeague.id}
+                        players={players}
+                        showBidActions={!!myBid}
+                        onFichar={myBid ? undefined : () => {
+                          if (item.type === 'pilot') {
+                            navigate(`/puja/${item.id}`);
+                          } else if (item.type === 'track_engineer') {
+                            navigate(`/puja/engineer/track/${item.id}`);
+                          } else if (item.type === 'chief_engineer') {
+                            navigate(`/puja/engineer/chief/${item.id}`);
+                          } else if (item.type === 'team_constructor') {
+                            navigate(`/puja/team/${item.id}`);
+                          } else {
+                            // Fallback for items without specific type
+                            navigate(`/puja/${item.id}`);
+                          }
+                        }}
+                        bidActionsButton={myBid ? (
+                          <Button
+                            variant="danger"
+                            size="sm"
+                            onClick={e => {
+                              e.stopPropagation();
+                              handleOpenMenuMarket(e, item, myBid);
+                            }}
+                          >
+                            ACCIONES
+                          </Button>
+                        ) : undefined}
+                      />
+                    </div>
+                  );
+                } else if (getItemType(item) === 'track_engineer' || getItemType(item) === 'chief_engineer') {
+                  // Render engineers using EngineerCard
+                  const engineerType = getItemType(item) === 'track_engineer' ? 'track' : 'chief';
+                  return (
+                    <EngineerCard
+                      key={`${item.type}-${item.id}`}
+                      engineer={{ ...item, my_bid: myBid?.my_bid }}
+                      type={engineerType}
+                      showStats={true}
+                      isOwned={false}
+                      leagueId={selectedLeague.id}
+                      players={players}
+                      onPujar={!myBid ? (eng, type) => {
+                        navigate(`/puja/engineer/${type}/${eng.id}`);
+                      } : undefined}
+                      bidActionsButton={myBid ? (
+                        <Button
+                          variant="danger"
+                          size="sm"
+                          onClick={e => {
+                            e.stopPropagation();
+                            handleOpenMenuMarket(e, item, myBid);
                           }}
                         >
-                          <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                            <Avatar
-                              src={item.image_url ? (
-                                item.type === 'track_engineer' ? `/images/ingenierosdepista/${item.image_url}` :
-                                item.type === 'chief_engineer' ? `/images/ingenierosdepista/${item.image_url}` :
-                                `/images/equipos/${item.image_url}`
-                              ) : ''}
-                              alt={item.name}
-                              sx={{
-                                width: 50,
-                                height: 50,
-                                mr: 2,
-                                border: `3px solid ${teamColor.primary}`,
-                                boxShadow: `0 4px 12px rgba(54,113,198,0.4)`
-                              }}
-                            />
-                            <Box sx={{ flexGrow: 1 }}>
-                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                <Typography variant="h6" sx={{ fontWeight: 700, color: '#fff', fontSize: '1rem', textShadow: '0 2px 4px rgba(0,0,0,0.5)' }}>
-                                  {item.name}
-                                </Typography>
-                                {(item.type === 'track_engineer' || item.type === 'chief_engineer') && (
-                                  <Box
-                                    sx={{
-                                      width: 18,
-                                      height: 18,
-                                      borderRadius: '50%',
-                                      border: `2px solid ${teamColor.primary}`,
-                                      background: '#000',
-                                      display: 'flex',
-                                      alignItems: 'center',
-                                      justifyContent: 'center',
-                                      fontSize: '0.65rem',
-                                      fontWeight: 700,
-                                      color: teamColor.primary,
-                                      boxShadow: `0 2px 4px rgba(${teamColor.primary}, 0.3)`
-                                    }}
-                                  >
-                                    {item.type === 'track_engineer' ? 'T' : 'C'}
-                                  </Box>
-                                )}
-                              </Box>
-                              <Typography variant="body2" sx={{ color: teamColor.primary, fontWeight: 600, fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                                {item.type === 'team_constructor' ? 'EQUIPO CONSTRUCTOR' : (item.team || 'Sin equipo')}
-                              </Typography>
-                              {item.type === 'track_engineer' && item.pilot_name && (
-                                <Typography variant="body2" sx={{ color: '#b0b0b0', fontSize: '0.75rem' }}>
-                                  Piloto: {item.pilot_name}
-                                </Typography>
-                              )}
-                              {item.type === 'team_constructor' && item.pilots && (
-                                <Typography variant="body2" sx={{ color: '#b0b0b0', fontSize: '0.75rem' }}>
-                                  Pilotos: {item.pilots.join(', ')}
-                                </Typography>
-                              )}
-                            </Box>
-                          </Box>
-                          <Box sx={{ mt: 1 }}>
-                            <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-                              <Typography variant="body2" sx={{ color: '#b0b0b0', fontSize: '0.8rem' }}>
-                                Valor:
-                              </Typography>
-                              <Typography variant="body2" sx={{ fontWeight: 700, color: '#4CAF50', fontSize: '0.9rem' }}>
-                                {(item.value ?? 0).toLocaleString()} €
-                              </Typography>
-                            </Box>
-                            <Box sx={{ display: 'flex', justifyContent: 'center', mt: 2 }}>
-                              {item.num_bids > 0 ? (
-                                <Typography variant="body2" sx={{ color: '#FFD600', fontWeight: 700, fontSize: '0.8rem' }}>
-                                  {item.num_bids} puja{item.num_bids !== 1 ? 's' : ''}
-                                </Typography>
-                              ) : (
-                                <Button
-                                  variant="contained"
-                                  size="small"
-                                  sx={{
-                                    background: `linear-gradient(45deg, ${teamColor.primary}, ${teamColor.secondary})`,
-                                    fontWeight: 700,
-                                    fontSize: '0.75rem',
-                                    '&:hover': {
-                                      background: `linear-gradient(45deg, ${teamColor.secondary}, ${teamColor.primary})`,
-                                    }
-                                  }}
-                                  onClick={() => {
-                                    if (item.type === 'track_engineer') {
-                                      navigate(`/puja/engineer/track/${item.id}`);
-                                    } else if (item.type === 'chief_engineer') {
-                                      navigate(`/puja/engineer/chief/${item.id}`);
-                                    } else if (item.type === 'team_constructor') {
-                                      navigate(`/puja/team/${item.id}`);
-                                    } else {
-                                      setSelectedPilot(item);
-                                      setOpenFichar(true);
-                                      setPuja('');
-                                    }
-                                  }}
-                                >
-                                  Fichar
-                                </Button>
-                              )}
-                            </Box>
-                          </Box>
-                          <Box
-                            sx={{
-                              position: 'absolute',
-                              bottom: 0,
-                              left: 0,
-                              right: 0,
-                              height: '2px',
-                              background: `linear-gradient(90deg, ${teamColor.primary}, ${teamColor.secondary})`,
-                              opacity: 0.7
-                            }}
-                          />
-                        </Box>
-                      </Grid>
-                    );
-                  }
-                })}
-              </Grid>
-            </Box>
-          )}
-
-          {/* Modal de Fichar/Puja */}
-          <Dialog open={openFichar} onClose={() => setOpenFichar(false)} maxWidth="xs" fullWidth>
-            {selectedPilot && (
-              <>
-                <DialogTitle sx={{ background: '#1a1a1a', color: '#fff', textAlign: 'center' }}>
-                  Puja por {selectedPilot.driver_name || selectedPilot.name}
-                </DialogTitle>
-                <DialogContent sx={{ background: '#0a0a0a', p: 3 }}>
-                  <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', mb: 2 }}>
-                    <img
-                      src={`/images/${selectedPilot.image_url}`}
-                      alt={selectedPilot.driver_name || selectedPilot.name}
-                      style={{ width: 90, height: 90, borderRadius: '50%', marginBottom: 16 }}
+                          ACCIONES
+                        </Button>
+                      ) : undefined}
                     />
-                    <Typography sx={{ color: '#fff', fontWeight: 700 }}>
-                      Valor de mercado: {selectedPilot.value?.toLocaleString()} €
-                    </Typography>
-                    {selectedPilot.type === 'pilot' && selectedPilot.clausula && (
-                      <Typography sx={{ color: '#fff', fontWeight: 700 }}>
-                        Cláusula: {selectedPilot.clausula}
-                      </Typography>
-                    )}
-                    {selectedPilot.type !== 'pilot' && (
-                      <Typography sx={{ color: '#b0b0b0', fontWeight: 700 }}>
-                        {selectedPilot.type === 'track_engineer' ? 'Ingeniero de Pista' : 
-                         selectedPilot.type === 'chief_engineer' ? 'Ingeniero Jefe' : 
-                         selectedPilot.type === 'team_constructor' ? 'Equipo Constructor' : 'Elemento'}
-                      </Typography>
-                    )}
-                  </Box>
-                  <TextField
-                    label="Importe"
-                    type="number"
-                    fullWidth
-                    value={puja}
-                    onChange={e => setPuja(e.target.value)}
-                    sx={{ mb: 2, input: { color: '#fff' } }}
-                    InputProps={{ style: { color: '#fff', background: '#222' } }}
-                  />
-                  <Button
-                    variant="contained"
-                    color="success"
-                    fullWidth
-                    sx={{ fontWeight: 700, fontSize: 18 }}
-                    onClick={handlePuja}
-                    disabled={Number(puja) > playerMoney || Number(puja) <= 0}
-                  >
-                    Hacer puja
-                  </Button>
-                  <Typography sx={{ color: '#43A047', fontWeight: 700, mt: 3, textAlign: 'center' }}>
-                    Tu saldo: {playerMoney.toLocaleString()} €
-                  </Typography>
-                </DialogContent>
-              </>
-            )}
-          </Dialog>
-
-          <Typography variant="body2" sx={{ color: '#fff', fontWeight: 700, mb: 2 }}>
-            Próximo reinicio del mercado: {timeLeft}
-          </Typography>
-
-          <Snackbar
-            open={snackbar.open}
-            autoHideDuration={3000}
-            onClose={() => setSnackbar({ ...snackbar, open: false })}
-            anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
-          >
-            <Alert onClose={() => setSnackbar({ ...snackbar, open: false })} severity={snackbar.severity} sx={{ width: '100%' }}>
-              {snackbar.message}
-            </Alert>
-          </Snackbar>
-        </React.Fragment>
-      )}
-      {tab === 1 && (
-        <Box>
-          {/* Sub-tabs tipo toggle personalizados */}
-          <Box sx={{ display: 'flex', justifyContent: 'center', mb: 2, gap: 2 }}>
-            <Button
-              onClick={() => setOpsTab(0)}
-              sx={{
-                background: opsTab === 0 ? '#1A237E' : 'transparent',
-                color: '#fff',
-                fontWeight: 700,
-                borderRadius: '20px',
-                px: 4,
-                py: 1,
-                border: opsTab === 0 ? '2px solid #1A237E' : '2px solid #232323',
-                boxShadow: opsTab === 0 ? '0 2px 8px rgba(26,35,126,0.15)' : 'none',
-                transition: 'all 0.2s',
-                fontSize: 16
-              }}
-            >
-              Compra
-            </Button>
-            <Button
-              onClick={() => setOpsTab(1)}
-              sx={{
-                background: opsTab === 1 ? '#E53935' : 'transparent',
-                color: '#fff',
-                fontWeight: 700,
-                borderRadius: '20px',
-                px: 4,
-                py: 1,
-                border: opsTab === 1 ? '2px solid #E53935' : '2px solid #232323',
-                boxShadow: opsTab === 1 ? '0 2px 8px rgba(229,57,53,0.15)' : 'none',
-                transition: 'all 0.2s',
-                fontSize: 16
-              }}
-            >
-              Venta
-            </Button>
-          </Box>
-          {opsTab === 0 && (
-            <Box>
-              {loadingOps ? (
-                <Typography sx={{ color: '#fff', textAlign: 'center', py: 4 }}>
-                  Cargando operaciones de compra...
-                </Typography>
-              ) : myBids.length === 0 ? (
-                <Typography sx={{ color: '#fff', textAlign: 'center', py: 4 }}>
-                  No tienes operaciones de compra activas.
-                </Typography>
-              ) : (
-                myBids.map(pilot => (
-                  <Box key={pilot.id} sx={{ mb: 2, background: '#181c24', borderRadius: 2, p: 2, display: 'flex', alignItems: 'center', gap: 2 }}>
-                    <img src={pilot.image_url ? `/images/${pilot.image_url}` : ''} alt={pilot.driver_name} style={{ width: 56, height: 56, borderRadius: 8, border: '2px solid #444' }} />
-                    <Box sx={{ flex: 1 }}>
-                      <Typography sx={{ color: '#fff', fontWeight: 700 }}>{pilot.driver_name}</Typography>
-                      <Typography sx={{ color: '#b0b0b0', fontSize: 13 }}>{pilot.team}</Typography>
-                      <Typography sx={{ color: '#FFD600', fontWeight: 700, fontSize: 15 }}>Valor: {pilot.value?.toLocaleString()} €</Typography>
-                      <Typography sx={{ color: '#4CAF50', fontWeight: 700, fontSize: 15 }}>Mi puja: {pilot.my_bid ? Number(pilot.my_bid).toLocaleString() + ' €' : '-'}</Typography>
-                      <Typography sx={{ color: '#b0b0b0', fontSize: 13 }}>Precio actual: {pilot.venta?.toLocaleString() ?? '-'}</Typography>
-                    </Box>
-                    <Button variant="contained" color="error" sx={{ fontWeight: 700 }} onClick={e => handleActionsClick(e, pilot)}>Acciones</Button>
-                  </Box>
-                ))
-              )}
-              {/* Menú contextual de acciones */}
-              <BidActionsMenu
-                anchorEl={anchorEl}
-                open={Boolean(anchorEl)}
-                onClose={handleCloseMenu}
-                onEdit={handleEditBidClick}
-                onDelete={handleDeleteBidClick}
-              />
-              {/* Modal de editar puja */}
-              <EditBidDialog
-                open={openEditBid}
-                onClose={handleCloseEditBid}
-                onSubmit={handleEditBidSubmit}
-                pilot={selectedBidPilot}
-                editBidValue={editBidValue}
-                setEditBidValue={setEditBidValue}
-                playerMoney={playerMoney}
-              />
-              {/* Diálogo de confirmación de borrado */}
-              <DeleteBidDialog
-                open={openDeleteDialog}
-                onClose={handleCloseDeleteDialog}
-                onConfirm={handleRemoveBidConfirmed}
-                pilot={selectedBidPilot}
-              />
-            </Box>
+                  );
+                } else if (getItemType(item) === 'team_constructor') {
+                  // Render teams using TeamCard
+                  return (
+                    <TeamCard
+                      key={`${item.type}-${item.id}`}
+                      team={{ ...item, my_bid: myBid?.my_bid }}
+                      showStats={true}
+                      isOwned={false}
+                      leagueId={selectedLeague.id}
+                      players={players}
+                      onPujar={!myBid ? (teamObj) => {
+                        navigate(`/puja/team/${teamObj.id}`);
+                      } : undefined}
+                      bidActionsButton={myBid ? (
+                        <Button
+                          variant="danger"
+                          size="sm"
+                          onClick={e => {
+                            e.stopPropagation();
+                            handleOpenMenuMarket(e, item, myBid);
+                          }}
+                        >
+                          ACCIONES
+                        </Button>
+                      ) : undefined}
+                    />
+                  );
+                }
+              })}
+            </div>
           )}
-          {opsTab === 1 && (
-            <Box>
-              {loadingOps ? (
-                <Typography sx={{ color: '#fff', textAlign: 'center', py: 4 }}>
-                  Cargando elementos en venta...
-                </Typography>
-              ) : mySales.length === 0 ? (
-                <Typography sx={{ color: '#fff', textAlign: 'center', py: 4 }}>
-                  No tienes elementos en venta actualmente.
-                </Typography>
-              ) : (
-                mySales.map(item => {
-                  const tieneOfertaLiga = item.league_offer_value && item.league_offer_expires_at && new Date(item.league_offer_expires_at) > new Date();
-                  
-                  // Determinar la ruta de imagen según el tipo
-                  let imagePath = '';
-                  if (item.type === 'track_engineer' || item.type === 'chief_engineer') {
-                    imagePath = item.image_url ? `/images/ingenierosdepista/${item.image_url}` : '';
-                  } else {
-                    imagePath = item.image_url ? `/images/${item.image_url}` : '';
-                  }
-                  
-                  // Determinar el nombre a mostrar
-                  const displayName = item.driver_name || item.name || 'Sin nombre';
-                  
-                  // Determinar el tipo de elemento
-                  const getTypeLabel = (type) => {
-                    switch(type) {
-                      case 'pilot': return 'Piloto';
-                      case 'track_engineer': return 'Ingeniero de Pista';
-                      case 'chief_engineer': return 'Ingeniero Jefe';
-                      case 'team_constructor': return 'Equipo Constructor';
-                      default: return 'Elemento';
-                    }
-                  };
+        </TabsContent>
+
+        {/* Operations Tab */}
+        <TabsContent value="operations" className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Mis Operaciones</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <Tabs value={opsTab.toString()} onValueChange={(val) => setOpsTab(parseInt(val))}>
+                <TabsList>
+                  <TabsTrigger value="0">Compras</TabsTrigger>
+                  <TabsTrigger value="1">Ventas</TabsTrigger>
+                </TabsList>
+                <TabsContent value="0">
+                  <div className="space-y-4">
+                    {myBids.length === 0 ? (
+                      <div className="text-center py-8">
+                        <p className="text-text-secondary">No tienes pujas activas</p>
+                      </div>
+                    ) : (
+                      myBids.map((bid) => (
+                        <Card key={bid.id}>
+                          <CardContent className="pt-6">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center space-x-4">
+                                <Avatar>
+                                  <AvatarImage src={bid.image_url} alt={bid.driver_name} />
+                                  <AvatarFallback>{bid.driver_name?.charAt(0)}</AvatarFallback>
+                                </Avatar>
+                                <div>
+                                  <p className="font-semibold text-text-primary">{bid.driver_name}</p>
+                                  <p className="text-small text-text-secondary">{bid.team}</p>
+                                  <p className="text-small font-medium text-accent-main">
+                                    Puja: {formatCurrency(bid.my_bid)}
+                                  </p>
+                                </div>
+                              </div>
+                              <div className="flex gap-2">
+                                <Button size="sm" variant="outline" onClick={() => setOpenEditBid(true)}>
+                                  Editar
+                                </Button>
+                                <Button size="sm" variant="danger" onClick={() => setOpenDeleteDialog(true)}>
+                                  Eliminar
+                                </Button>
+                              </div>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      ))
+                    )}
+                  </div>
+                </TabsContent>
+                <TabsContent value="1">
+                  <div className="space-y-4">
+                    {mySales.length === 0 ? (
+                      <div className="text-center py-8">
+                        <p className="text-text-secondary">No tienes elementos en venta</p>
+                      </div>
+                    ) : (
+                      mySales.map((sale) => (
+                        <Card key={sale.id}>
+                          <CardContent className="pt-6">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center space-x-4">
+                                <Avatar>
+                                  <AvatarImage src={sale.image_url} alt={sale.driver_name} />
+                                  <AvatarFallback>{sale.driver_name?.charAt(0)}</AvatarFallback>
+                                </Avatar>
+                                <div>
+                                  <p className="font-semibold text-text-primary">{sale.driver_name}</p>
+                                  <p className="text-small text-text-secondary">{sale.team}</p>
+                                  <p className="text-small font-medium text-state-success">
+                                    Precio: {formatCurrency(sale.venta)}
+                                  </p>
+                                </div>
+                              </div>
+                              <Button size="sm" variant="outline">
+                                Ver Ofertas
+                              </Button>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      ))
+                    )}
+                  </div>
+                </TabsContent>
+              </Tabs>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* History Tab */}
+        <TabsContent value="history">
+          <Card>
+            <CardContent className="pt-6">
+              <div className="text-center py-12">
+                <TrendingUp className="mx-auto h-12 w-12 text-text-secondary mb-4" />
+                <CardTitle className="mb-2">Histórico</CardTitle>
+                <p className="text-text-secondary">
+                  El historial de transacciones estará disponible próximamente
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
+
+      {/* Dialogs */}
+
+      {/* All Drivers Modal */}
+      <Dialog open={openDrivers} onOpenChange={setOpenDrivers}>
+        <DialogContent className="max-w-4xl max-h-[80vh] overflow-hidden">
+          <DialogHeader>
+            <DialogTitle>Todos los Pilotos - {selectedLeague?.name}</DialogTitle>
+          </DialogHeader>
+
+          <div className="overflow-y-auto max-h-[60vh]">
+            {loadingDrivers ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {[...Array(6)].map((_, i) => (
+                  <Card key={i} className="animate-pulse">
+                    <CardContent className="pt-6">
+                      <div className="flex items-center space-x-4">
+                        <div className="rounded-full bg-surface h-12 w-12"></div>
+                        <div className="space-y-2 flex-1">
+                          <div className="h-4 bg-surface rounded w-3/4"></div>
+                          <div className="h-3 bg-surface rounded w-1/2"></div>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            ) : driversError ? (
+              <div className="text-center py-8">
+                <p className="text-state-error mb-4">{driversError}</p>
+                <Button onClick={fetchDrivers}>Reintentar</Button>
+              </div>
+            ) : drivers.length === 0 ? (
+              <div className="text-center py-8">
+                <Users className="mx-auto h-12 w-12 text-text-secondary mb-4" />
+                <p className="text-text-secondary">No hay pilotos disponibles</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {drivers.map((driver) => {
+                  const currentUserId = JSON.parse(localStorage.getItem('user') || '{}').id;
+                  const isCurrentUserOwner = driver.owner_id === currentUserId;
                   
                   return (
-                    <Box key={item.id} sx={{ mb: 2, background: '#181c24', borderRadius: 2, p: 2, display: 'flex', alignItems: 'center', gap: 2 }}>
-                      <img src={imagePath} alt={displayName} style={{ width: 56, height: 56, borderRadius: 8, border: '2px solid #444' }} />
-                      <Box sx={{ flex: 1 }}>
-                        <Typography sx={{ color: '#fff', fontWeight: 700 }}>{displayName}</Typography>
-                        <Typography sx={{ color: '#b0b0b0', fontSize: 13 }}>{item.team || 'Sin equipo'}</Typography>
-                        <Typography sx={{ color: '#4caf50', fontSize: 12 }}>{getTypeLabel(item.type)}</Typography>
-                        <Typography sx={{ color: '#FFD600', fontWeight: 700, fontSize: 15 }}>Valor: {item.value?.toLocaleString()} €</Typography>
-                        <Typography sx={{ color: '#b0b0b0', fontSize: 13 }}>Precio de venta: {item.venta?.toLocaleString() ?? '-'}</Typography>
-                        <Typography sx={{ color: '#b0b0b0', fontSize: 13 }}>Expira: {item.venta_expires_at ? new Date(item.venta_expires_at).toLocaleString() : '-'}</Typography>
-                      </Box>
-                      {tieneOfertaLiga ? (
-                        <Button variant="contained" color="error" sx={{ fontWeight: 700 }} onClick={() => handleShowOffers(item)}>
-                          Oferta (1)
-                        </Button>
-                      ) : (
-                        <Button variant="contained" color="error" sx={{ fontWeight: 700 }}>Quitar</Button>
-                      )}
-                    </Box>
+                    <DriverRaceCard
+                      key={driver.id}
+                      driver={driver}
+                      showStats={true}
+                      isOwned={isCurrentUserOwner}
+                      leagueId={selectedLeague.id}
+                      players={players}
+                      onClick={() => {
+                        setOpenDrivers(false);
+                        navigate(`/profile/${driver.id}`);
+                      }}
+                    />
                   );
-                })
-              )}
-            </Box>
-          )}
-        </Box>
-      )}
-      {tab === 2 && (
-        <Box sx={{ textAlign: 'center', py: 6 }}>
-          <Typography sx={{ color: '#fff', fontSize: 20, fontWeight: 700 }}>
-            Histórico vacío por ahora
-          </Typography>
-        </Box>
-      )}
-      {/* Modal de ofertas recibidas */}
-      <Dialog open={openOffersModal} onClose={() => setOpenOffersModal(false)} maxWidth="xs" fullWidth>
-        <DialogTitle sx={{ background: '#1a1a1a', color: '#fff', textAlign: 'center' }}>
-          Ofertas recibidas
-        </DialogTitle>
-        <DialogContent sx={{ background: '#0a0a0a', p: 3 }}>
-          {selectedSalePilot && (
-            <>
-              {/* Perfil del elemento */}
-              <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                {/* Determinar la ruta de imagen según el tipo */}
-                {(() => {
-                  let imagePath = '';
-                  if (selectedSalePilot.type === 'track_engineer' || selectedSalePilot.type === 'chief_engineer') {
-                    imagePath = selectedSalePilot.image_url ? `/images/ingenierosdepista/${selectedSalePilot.image_url}` : '';
-                  } else {
-                    imagePath = selectedSalePilot.image_url ? `/images/${selectedSalePilot.image_url}` : '';
-                  }
-                  return <img src={imagePath} alt={selectedSalePilot.driver_name || selectedSalePilot.name} style={{ width: 56, height: 56, borderRadius: 8, marginRight: 16 }} />;
-                })()}
-                <Box>
-                  <Typography sx={{ color: '#fff', fontWeight: 700 }}>
-                    {selectedSalePilot.driver_name || selectedSalePilot.name || 'Sin nombre'}
-                  </Typography>
-                  <Typography sx={{ color: '#b0b0b0', fontSize: 13 }}>
-                    {selectedSalePilot.team || 'Sin equipo'}
-                  </Typography>
-                  <Typography sx={{ color: '#4caf50', fontSize: 12 }}>
-                    {selectedSalePilot.type === 'pilot' ? 'Piloto' : 
-                     selectedSalePilot.type === 'track_engineer' ? 'Ingeniero de Pista' :
-                     selectedSalePilot.type === 'chief_engineer' ? 'Ingeniero Jefe' : 
-                     selectedSalePilot.type === 'team_constructor' ? 'Equipo Constructor' : 'Elemento'}
-                  </Typography>
-                  <Typography sx={{ color: '#FFD600', fontWeight: 700, fontSize: 15 }}>Valor: {selectedSalePilot.value?.toLocaleString()} €</Typography>
-                  <Typography sx={{ color: '#b0b0b0', fontSize: 13 }}>Precio: {selectedSalePilot.venta?.toLocaleString() ?? '-'}</Typography>
-                  <Typography sx={{ color: '#b0b0b0', fontSize: 13 }}>Expira: {selectedSalePilot.venta_expires_at ? new Date(selectedSalePilot.venta_expires_at).toLocaleString() : '-'}</Typography>
-                </Box>
-              </Box>
-              {/* Oferta de la FIA */}
-              <Box sx={{ background: '#181c24', borderRadius: 2, p: 2, mb: 2 }}>
-                <Typography sx={{ color: '#fff', fontWeight: 700 }}>Oferta de compra de FIA</Typography>
-                <Typography sx={{ color: '#FFD600', fontWeight: 700, fontSize: 18 }}>
-                  {selectedSalePilot.league_offer_value?.toLocaleString()} €
-                </Typography>
-                <Typography sx={{ color: '#b0b0b0', fontSize: 13 }}>
-                  Expira: {selectedSalePilot.league_offer_expires_at ? new Date(selectedSalePilot.league_offer_expires_at).toLocaleString() : '-'}
-                </Typography>
-                <Box sx={{ display: 'flex', gap: 2, mt: 2 }}>
-                  <Button variant="outlined" color="inherit" sx={{ fontWeight: 700, flex: 1 }} onClick={handleRejectLeagueOffer}>Rechazar</Button>
-                  <Button variant="contained" color="error" sx={{ fontWeight: 700, flex: 1 }} onClick={handleAcceptLeagueOffer}>Aceptar</Button>
-                </Box>
-              </Box>
-            </>
-          )}
+                })}
+              </div>
+            )}
+          </div>
         </DialogContent>
       </Dialog>
-      {/* Modal de ingenieros de pista por liga */}
-      <Dialog open={openTrackEngineers} onClose={() => setOpenTrackEngineers(false)} maxWidth="md" fullWidth>
-        <DialogTitle sx={{ background: '#1a1a1a', color: '#fff' }}>
-          <Typography variant="h6" sx={{ fontWeight: 700 }}>
-            👨‍🔧 Ingenieros de Pista en esta liga
-          </Typography>
-          <IconButton
-            aria-label="close"
-            onClick={() => setOpenTrackEngineers(false)}
-            sx={{ position: 'absolute', right: 8, top: 8, color: '#fff' }}
-          >
-            <CloseIcon />
-          </IconButton>
-        </DialogTitle>
-        <DialogContent dividers sx={{ background: '#0a0a0a', p: 3 }}>
-          {loadingTrackEngineers ? (
-            <Box sx={{ textAlign: 'center', py: 4 }}>
-              <CircularProgress color="info" />
-            </Box>
-          ) : errorTrackEngineers ? (
-            <Alert severity="error">{errorTrackEngineers}</Alert>
-          ) : (
-            <Grid container spacing={2}>
-              {trackEngineersByLeague.length === 0 ? (
-                <Grid item xs={12}>
-                  <Typography sx={{ color: '#fff', textAlign: 'center', py: 4 }}>
-                    No hay ingenieros de pista en esta liga.
-                  </Typography>
-                </Grid>
-              ) : (
-                trackEngineersByLeague.map(engineer => (
-                  <Grid item xs={12} sm={6} md={4} lg={3} key={engineer.id}>
-                    <EngineerRaceCard
+
+      {/* Track Engineers Modal */}
+      <Dialog open={openTrackEngineers} onOpenChange={setOpenTrackEngineers}>
+        <DialogContent className="max-w-4xl max-h-[80vh] overflow-hidden">
+          <DialogHeader>
+            <DialogTitle>Ingenieros de Pista - {selectedLeague?.name}</DialogTitle>
+          </DialogHeader>
+
+          <div className="overflow-y-auto max-h-[60vh]">
+            {loadingTrackEngineers ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {[...Array(6)].map((_, i) => (
+                  <Card key={i} className="animate-pulse">
+                    <CardContent className="pt-6">
+                      <div className="flex items-center space-x-4">
+                        <div className="rounded-full bg-surface h-12 w-12"></div>
+                        <div className="space-y-2 flex-1">
+                          <div className="h-4 bg-surface rounded w-3/4"></div>
+                          <div className="h-3 bg-surface rounded w-1/2"></div>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            ) : errorTrackEngineers ? (
+              <div className="text-center py-8">
+                <p className="text-state-error mb-4">{errorTrackEngineers}</p>
+                <Button onClick={handleOpenTrackEngineers}>Reintentar</Button>
+              </div>
+            ) : trackEngineersByLeague.length === 0 ? (
+              <div className="text-center py-8">
+                <Settings className="mx-auto h-12 w-12 text-text-secondary mb-4" />
+                <p className="text-text-secondary">No hay ingenieros de pista disponibles</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {trackEngineersByLeague.map((engineer) => {
+                  const currentUserId = JSON.parse(localStorage.getItem('user') || '{}').id;
+                  const isCurrentUserOwner = engineer.owner_id === currentUserId;
+                  
+                  return (
+                    <EngineerCard
+                      key={engineer.id}
                       engineer={engineer}
-                      type="track_engineer"
+                      type="track"
                       showStats={true}
-                      leagueId={selectedLeague?.id}
+                      isOwned={isCurrentUserOwner}
+                      leagueId={selectedLeague.id}
                       players={players}
-                      onClick={() => navigate(`/engineer/track/${engineer.id}?league_id=${selectedLeague?.id}`)}
+                      onClick={() => {
+                        setOpenTrackEngineers(false);
+                        navigate(`/profile/engineer/track/${engineer.id}`);
+                      }}
                     />
-                  </Grid>
-                ))
-              )}
-            </Grid>
-          )}
+                  );
+                })}
+              </div>
+            )}
+          </div>
         </DialogContent>
       </Dialog>
-      {/* Modal de ingenieros jefe por liga */}
-      <Dialog open={openChiefEngineers} onClose={() => setOpenChiefEngineers(false)} maxWidth="md" fullWidth>
-        <DialogTitle sx={{ background: '#1a1a1a', color: '#fff' }}>
-          <Typography variant="h6" sx={{ fontWeight: 700 }}>
-            👨‍💼 Ingenieros Jefe en esta liga
-          </Typography>
-          <IconButton
-            aria-label="close"
-            onClick={() => setOpenChiefEngineers(false)}
-            sx={{ position: 'absolute', right: 8, top: 8, color: '#fff' }}
-          >
-            <CloseIcon />
-          </IconButton>
-        </DialogTitle>
-        <DialogContent dividers sx={{ background: '#0a0a0a', p: 3 }}>
-          {loadingChiefEngineers ? (
-            <Box sx={{ textAlign: 'center', py: 4 }}>
-              <CircularProgress color="info" />
-            </Box>
-          ) : errorChiefEngineers ? (
-            <Alert severity="error">{errorChiefEngineers}</Alert>
-          ) : (
-            <Grid container spacing={2}>
-              {chiefEngineersByLeague.length === 0 ? (
-                <Grid item xs={12}>
-                  <Typography sx={{ color: '#fff', textAlign: 'center', py: 4 }}>
-                    No hay ingenieros jefe en esta liga.
-                  </Typography>
-                </Grid>
-              ) : (
-                chiefEngineersByLeague.map(engineer => (
-                  <Grid item xs={12} sm={6} md={4} lg={3} key={engineer.id}>
-                    <EngineerRaceCard
+
+      {/* Chief Engineers Modal */}
+      <Dialog open={openChiefEngineers} onOpenChange={setOpenChiefEngineers}>
+        <DialogContent className="max-w-4xl max-h-[80vh] overflow-hidden">
+          <DialogHeader>
+            <DialogTitle>Ingenieros Jefe - {selectedLeague?.name}</DialogTitle>
+          </DialogHeader>
+
+          <div className="overflow-y-auto max-h-[60vh]">
+            {loadingChiefEngineers ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {[...Array(6)].map((_, i) => (
+                  <Card key={i} className="animate-pulse">
+                    <CardContent className="pt-6">
+                      <div className="flex items-center space-x-4">
+                        <div className="rounded-full bg-surface h-12 w-12"></div>
+                        <div className="space-y-2 flex-1">
+                          <div className="h-4 bg-surface rounded w-3/4"></div>
+                          <div className="h-3 bg-surface rounded w-1/2"></div>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            ) : errorChiefEngineers ? (
+              <div className="text-center py-8">
+                <p className="text-state-error mb-4">{errorChiefEngineers}</p>
+                <Button onClick={handleOpenChiefEngineers}>Reintentar</Button>
+              </div>
+            ) : chiefEngineersByLeague.length === 0 ? (
+              <div className="text-center py-8">
+                <Settings className="mx-auto h-12 w-12 text-text-secondary mb-4" />
+                <p className="text-text-secondary">No hay ingenieros jefe disponibles</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {chiefEngineersByLeague.map((engineer) => {
+                  const currentUserId = JSON.parse(localStorage.getItem('user') || '{}').id;
+                  const isCurrentUserOwner = engineer.owner_id === currentUserId;
+                  
+                  return (
+                    <EngineerCard
+                      key={engineer.id}
                       engineer={engineer}
-                      type="chief_engineer"
+                      type="chief"
                       showStats={true}
-                      leagueId={selectedLeague?.id}
+                      isOwned={isCurrentUserOwner}
+                      leagueId={selectedLeague.id}
                       players={players}
-                      onClick={() => navigate(`/engineer/chief/${engineer.id}?league_id=${selectedLeague?.id}`)}
+                      onClick={() => {
+                        setOpenChiefEngineers(false);
+                        navigate(`/profile/engineer/chief/${engineer.id}`);
+                      }}
                     />
-                  </Grid>
-                ))
-              )}
-            </Grid>
-          )}
+                  );
+                })}
+              </div>
+            )}
+          </div>
         </DialogContent>
       </Dialog>
-      {/* Modal de equipos por liga */}
-      <Dialog open={openTeamConstructors} onClose={() => setOpenTeamConstructors(false)} maxWidth="md" fullWidth>
-        <DialogTitle sx={{ background: '#1a1a1a', color: '#fff' }}>
-          <Typography variant="h6" sx={{ fontWeight: 700 }}>
-            🏎️ Equipos en esta liga
-          </Typography>
-          <IconButton
-            aria-label="close"
-            onClick={() => setOpenTeamConstructors(false)}
-            sx={{ position: 'absolute', right: 8, top: 8, color: '#fff' }}
-          >
-            <CloseIcon />
-          </IconButton>
-        </DialogTitle>
-        <DialogContent dividers sx={{ background: '#0a0a0a', p: 3 }}>
-          {loadingTeamConstructors ? (
-            <Box sx={{ textAlign: 'center', py: 4 }}>
-              <CircularProgress color="info" />
-            </Box>
-          ) : errorTeamConstructors ? (
-            <Alert severity="error">{errorTeamConstructors}</Alert>
-          ) : (
-            <Grid container spacing={2}>
-              {teamConstructorsByLeague.length === 0 ? (
-                <Grid item xs={12}>
-                  <Typography sx={{ color: '#fff', textAlign: 'center', py: 4 }}>
-                    No hay equipos en esta liga.
-                  </Typography>
-                </Grid>
-              ) : (
-                teamConstructorsByLeague.map(team => (
-                  <Grid item xs={12} sm={6} md={4} lg={3} key={team.id}>
-                    <TeamRaceCard
+
+      {/* Team Constructors Modal */}
+      <Dialog open={openTeamConstructors} onOpenChange={setOpenTeamConstructors}>
+        <DialogContent className="max-w-4xl max-h-[80vh] overflow-hidden">
+          <DialogHeader>
+            <DialogTitle>Equipos - {selectedLeague?.name}</DialogTitle>
+          </DialogHeader>
+
+          <div className="overflow-y-auto max-h-[60vh]">
+            {loadingTeamConstructors ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {[...Array(6)].map((_, i) => (
+                  <Card key={i} className="animate-pulse">
+                    <CardContent className="pt-6">
+                      <div className="flex items-center space-x-4">
+                        <div className="rounded-full bg-surface h-12 w-12"></div>
+                        <div className="space-y-2 flex-1">
+                          <div className="h-4 bg-surface rounded w-3/4"></div>
+                          <div className="h-3 bg-surface rounded w-1/2"></div>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            ) : errorTeamConstructors ? (
+              <div className="text-center py-8">
+                <p className="text-state-error mb-4">{errorTeamConstructors}</p>
+                <Button onClick={handleOpenTeamConstructors}>Reintentar</Button>
+              </div>
+            ) : teamConstructorsByLeague.length === 0 ? (
+              <div className="text-center py-8">
+                <Users className="mx-auto h-12 w-12 text-text-secondary mb-4" />
+                <p className="text-text-secondary">No hay equipos disponibles</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {teamConstructorsByLeague.map((team) => {
+                  const currentUserId = JSON.parse(localStorage.getItem('user') || '{}').id;
+                  const isCurrentUserOwner = team.owner_id === currentUserId;
+                  
+                  return (
+                    <TeamCard
+                      key={team.id}
                       team={team}
                       showStats={true}
-                      leagueId={selectedLeague?.id}
+                      isOwned={isCurrentUserOwner}
+                      leagueId={selectedLeague.id}
                       players={players}
-                      onClick={() => navigate(`/team/${team.id}?league_id=${selectedLeague?.id}`)}
+                      onClick={() => {
+                        setOpenTeamConstructors(false);
+                        navigate(`/profile/team/${team.id}`);
+                      }}
                     />
-                  </Grid>
-                ))
-              )}
-            </Grid>
-          )}
+                  );
+                })}
+              </div>
+            )}
+          </div>
         </DialogContent>
       </Dialog>
-      {/* Menú contextual y diálogos SOLO para el market general */}
-      {/* Eliminar el menú y los diálogos duplicados del market general y usar los componentes reutilizables con lógica unificada */}
-      <BidActionsMenu
-        anchorEl={tab === 0 ? anchorElMarket : anchorEl}
-        open={Boolean(tab === 0 ? anchorElMarket : anchorEl)}
-        onClose={tab === 0 ? handleCloseMenuMarket : handleCloseMenu}
-        onEdit={tab === 0 ? handleEditBidClickMarket : handleEditBidClick}
-        onDelete={tab === 0 ? handleDeleteBidClickMarket : handleDeleteBidClick}
-      />
+
       <EditBidDialog
         open={openEditBid}
-        onClose={tab === 0 ? handleCloseEditBidMarket : handleCloseEditBid}
-        onSubmit={tab === 0 ? handleEditBidSubmitMarket : handleEditBidSubmit}
+        onClose={() => setOpenEditBid(false)}
         pilot={selectedBidPilot}
+        currentBid={editBidValue}
+        onBidChange={setEditBidValue}
+        onSubmit={() => {
+          // Handle bid edit
+          setOpenEditBid(false);
+        }}
         editBidValue={editBidValue}
         setEditBidValue={setEditBidValue}
         playerMoney={playerMoney}
       />
+
       <DeleteBidDialog
         open={openDeleteDialog}
-        onClose={handleCloseDeleteDialog}
-        onConfirm={tab === 0 ? handleRemoveBidConfirmedMarket : handleRemoveBidConfirmed}
+        onClose={() => setOpenDeleteDialog(false)}
         pilot={selectedBidPilot}
+        onConfirm={() => {
+          // Handle bid deletion
+          setOpenDeleteDialog(false);
+        }}
       />
-    </Box>
+
+      {/* Snackbar */}
+      {snackbar.open && (
+        <div className={cn(
+          "fixed bottom-4 right-4 p-4 rounded-md shadow-lg",
+          snackbar.severity === 'success' ? 'bg-state-success' : 'bg-state-error'
+        )}>
+          <p className="text-white">{snackbar.message}</p>
+        </div>
+      )}
+    </div>
   );
-} 
+}

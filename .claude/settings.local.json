@@ -1,7 +1,14 @@
 {
   "permissions": {
     "allow": [
-      "Bash(powershell:*)"
+      "Bash(powershell:*)",
+      "Bash(npm install:*)",
+      "Bash(npx tailwindcss init:*)",
+      "Bash(mkdir:*)",
+      "Bash(npm uninstall tailwindcss @tailwindcss/postcss)",
+      "Bash(npm install tailwindcss@^3.4.0)",
+      "Bash(npm run build)",
+      "mcp__ide__getDiagnostics"
     ],
     "deny": []
   }
