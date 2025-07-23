@@ -50,7 +50,7 @@ export default function AuctionPilotBidPage() {
         if (!pilotRes.ok || !pilotData.pilot) throw new Error('Piloto no encontrado');
         setPilot({ ...pilotData.pilot, ...pilotData.pilot_by_league });
         // Intentar obtener subasta existente
-        let auctionRes = await fetch(`/api/auctions/by-pilot?pilot_by_league_id=${id}&league_id=${selectedLeague?.id}`);
+        let auctionRes = await fetch(`/api/auctions/by-item?item_type=pilot&item_id=${id}&league_id=${selectedLeague?.id}`);
         let auctionData = await auctionRes.json();
         if (auctionRes.ok && auctionData.auction) {
           setAuction(auctionData.auction);
@@ -125,7 +125,8 @@ export default function AuctionPilotBidPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          pilot_by_league_id: Number(id),
+          item_type: 'pilot',
+          item_id: Number(id),
           league_id: Number(selectedLeague.id),
           player_id: Number(player_id),
           valor: Number(amount)

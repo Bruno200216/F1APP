@@ -18,7 +18,7 @@ export default function EditBidDialog({ open, onClose, onSubmit, pilot, editBidV
         <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', mb: 2 }}>
           <img
             src={pilot.image_url ? `/images/${pilot.image_url}` : ''}
-            alt={pilot.driver_name}
+            alt={pilot.driver_name || pilot.name}
             style={{ width: 90, height: 90, borderRadius: '50%', marginBottom: 16 }}
           />
           <Typography sx={{ color: '#FFD600', fontWeight: 700, fontSize: 15 }}>VALOR DE MERCADO</Typography>

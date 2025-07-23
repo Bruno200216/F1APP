@@ -16,7 +16,7 @@ export default function DeleteBidDialog({ open, onClose, onConfirm, pilot }) {
         {pilot && (
           <>
             <Typography sx={{ color: '#fff', fontWeight: 700, mb: 2 }}>
-              Vas a eliminar la puja por <span style={{ color: '#FFD600' }}>{pilot.driver_name}</span> por <span style={{ color: '#FFD600' }}>{pilot.value?.toLocaleString('es-ES')}€</span>.<br />¿Estás seguro?
+              Vas a eliminar la puja por <span style={{ color: '#FFD600' }}>{pilot.driver_name || pilot.name}</span> por <span style={{ color: '#FFD600' }}>{pilot.value?.toLocaleString('es-ES')}€</span>.<br />¿Estás seguro?
             </Typography>
           </>
         )}

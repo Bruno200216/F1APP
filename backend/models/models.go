@@ -97,12 +97,15 @@ type Bid struct {
 }
 
 type PlayerByLeague struct {
-	ID          uint64  `json:"id" gorm:"primaryKey"`
-	PlayerID    uint64  `json:"player_id" gorm:"not null"`
-	LeagueID    uint64  `json:"league_id" gorm:"not null"`
-	Money       float64 `json:"money" gorm:"default:100000000"`
-	TeamValue   float64 `json:"team_value" gorm:"default:0"`
-	OwnedPilots string  `json:"owned_pilots" gorm:"type:json"`
+	ID                    uint64  `json:"id" gorm:"primaryKey"`
+	PlayerID              uint64  `json:"player_id" gorm:"not null"`
+	LeagueID              uint64  `json:"league_id" gorm:"not null"`
+	Money                 float64 `json:"money" gorm:"default:100000000"`
+	TeamValue             float64 `json:"team_value" gorm:"default:0"`
+	OwnedPilots           string  `json:"owned_pilots" gorm:"type:json"`
+	OwnedTrackEngineers   string  `json:"owned_track_engineers" gorm:"type:json;column:owned_track_engineers"`
+	OwnedChiefEngineers   string  `json:"owned_chief_engineers" gorm:"type:json;column:owned_chief_engineers"`
+	OwnedTeamConstructors string  `json:"owned_team_constructors" gorm:"type:json;column:owned_team_constructors"`
 }
 
 // Forzar el nombre de la tabla para GORM
@@ -294,4 +297,21 @@ type TeamConstructorByLeague struct {
 
 func (TeamConstructorByLeague) TableName() string {
 	return "teamconstructor_by_league"
+}
+
+// Modelo para elementos del mercado unificado
+type MarketItem struct {
+	ID         uint   `gorm:"primaryKey"`
+	LeagueID   uint   `gorm:"not null"`
+	ItemType   string `gorm:"not null"` // "pilot", "track_engineer", "chief_engineer", "team_constructor"
+	ItemID     uint   `gorm:"not null"` // ID del elemento específico (PilotByLeague, TrackEngineerByLeague, etc.)
+	IsActive   bool   `gorm:"default:true"`
+	IsInMarket bool   `gorm:"default:false;column:is_in_market"` // Nuevo campo para marcar si está en el mercado actual
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
+	League     League `gorm:"foreignKey:LeagueID"`
+}
+
+func (MarketItem) TableName() string {
+	return "market_items"
 }

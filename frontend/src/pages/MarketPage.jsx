@@ -26,6 +26,16 @@ import DeleteBidDialog from '../components/DeleteBidDialog';
 import Avatar from '@mui/material/Avatar'; // Importar Avatar
 import CircularProgress from '@mui/material/CircularProgress';
 
+// Función helper para determinar el tipo de elemento
+const getItemType = (item) => {
+  if (item.type) return item.type;
+  if (item.driver_name) return 'pilot';
+  if (item.track_engineer_id) return 'track_engineer';
+  if (item.chief_engineer_id) return 'chief_engineer';
+  if (item.team_constructor_id) return 'team_constructor';
+  return 'pilot'; // fallback
+};
+
 export default function MarketPage() {
   const { selectedLeague } = useLeague();
   const [auctions, setAuctions] = useState([]);
@@ -182,13 +192,17 @@ export default function MarketPage() {
         setSnackbar({ open: true, message: 'Usuario no autenticado', severity: 'error' });
         return;
       }
+      
+      const itemType = getItemType(selectedPilot);
+      
       const res = await fetch('/api/auctions/bid', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          pilot_by_league_id: selectedPilot.id,
+          item_type: itemType,
+          item_id: selectedPilot.id,
           player_id: user.id,
-          league_id: selectedLeague.id, // <-- Añadido league_id
+          league_id: selectedLeague.id,
           valor: Number(puja)
         })
       });
@@ -271,13 +285,20 @@ export default function MarketPage() {
   const handleRemoveBid = async (pilot) => {
     try {
       const user = JSON.parse(localStorage.getItem('user'));
+      
+      const itemType = getItemType(pilot);
+      
       const res = await fetch('/api/auctions/remove-bid', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${user.token}`
         },
-        body: JSON.stringify({ pilot_by_league_id: pilot.id, league_id: selectedLeague.id })
+        body: JSON.stringify({ 
+          item_type: itemType,
+          item_id: pilot.id, 
+          league_id: selectedLeague.id 
+        })
       });
       const data = await res.json();
       if (res.ok) {
@@ -312,13 +333,20 @@ export default function MarketPage() {
     if (!selectedBidPilot) return;
     try {
       const user = JSON.parse(localStorage.getItem('user'));
+      
+      const itemType = getItemType(selectedBidPilot);
+      
       const res = await fetch('/api/auctions/remove-bid', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${user.token}`
         },
-        body: JSON.stringify({ pilot_by_league_id: selectedBidPilot.id, league_id: selectedLeague.id })
+        body: JSON.stringify({ 
+          item_type: itemType,
+          item_id: selectedBidPilot.id, 
+          league_id: selectedLeague.id 
+        })
       });
       const data = await res.json();
       if (res.ok) {
@@ -357,11 +385,15 @@ export default function MarketPage() {
     }
     try {
       const user = JSON.parse(localStorage.getItem('user'));
+      
+      const itemType = getItemType(selectedBidPilot);
+      
       const res = await fetch('/api/auctions/bid', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          pilot_by_league_id: selectedBidPilot.id,
+          item_type: itemType,
+          item_id: selectedBidPilot.id,
           player_id: user.id,
           league_id: selectedLeague.id, 
           valor: Number(editBidValue)
@@ -421,11 +453,15 @@ export default function MarketPage() {
     }
     try {
       const user = JSON.parse(localStorage.getItem('user'));
+      
+      const itemType = getItemType(selectedBidPilot);
+      
       const res = await fetch('/api/auctions/bid', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          pilot_by_league_id: selectedBidPilot.id,
+          item_type: itemType,
+          item_id: selectedBidPilot.id,
           player_id: user.id,
           league_id: selectedLeague.id,
           valor: Number(editBidValue)
@@ -447,13 +483,20 @@ export default function MarketPage() {
     if (!selectedBidPilot) return;
     try {
       const user = JSON.parse(localStorage.getItem('user'));
+      
+      const itemType = getItemType(selectedBidPilot);
+      
       const res = await fetch('/api/auctions/remove-bid', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${user.token}`
         },
-        body: JSON.stringify({ pilot_by_league_id: selectedBidPilot.id, league_id: selectedLeague.id })
+        body: JSON.stringify({ 
+          item_type: itemType,
+          item_id: selectedBidPilot.id, 
+          league_id: selectedLeague.id 
+        })
       });
       const data = await res.json();
       if (res.ok) {
@@ -588,6 +631,12 @@ export default function MarketPage() {
   const [loadingChiefEngineers, setLoadingChiefEngineers] = useState(false);
   const [errorChiefEngineers, setErrorChiefEngineers] = useState('');
 
+  // Estado para el modal de equipos por liga
+  const [openTeamConstructors, setOpenTeamConstructors] = useState(false);
+  const [teamConstructorsByLeague, setTeamConstructorsByLeague] = useState([]);
+  const [loadingTeamConstructors, setLoadingTeamConstructors] = useState(false);
+  const [errorTeamConstructors, setErrorTeamConstructors] = useState('');
+
   const handleOpenTrackEngineers = async () => {
     if (!selectedLeague) return;
     setOpenTrackEngineers(true);
@@ -621,6 +670,24 @@ export default function MarketPage() {
       setChiefEngineersByLeague([]);
     } finally {
       setLoadingChiefEngineers(false);
+    }
+  };
+
+  const handleOpenTeamConstructors = async () => {
+    if (!selectedLeague) return;
+    setOpenTeamConstructors(true);
+    setLoadingTeamConstructors(true);
+    setErrorTeamConstructors('');
+    try {
+      const res = await fetch(`/api/teamconstructorsbyleague?league_id=${selectedLeague.id}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Error cargando equipos');
+      setTeamConstructorsByLeague(data.team_constructors || []);
+    } catch (err) {
+      setErrorTeamConstructors('Error cargando equipos: ' + err.message);
+      setTeamConstructorsByLeague([]);
+    } finally {
+      setLoadingTeamConstructors(false);
     }
   };
 
@@ -726,6 +793,22 @@ export default function MarketPage() {
                 }}
               >
                 👨‍💼 Ver ingenieros jefe en esta liga
+              </Button>
+              <Button
+                variant="outlined"
+                color="secondary"
+                onClick={handleOpenTeamConstructors}
+                sx={{
+                  fontWeight: 700,
+                  borderColor: '#9C27B0',
+                  color: '#9C27B0',
+                  '&:hover': {
+                    borderColor: '#7B1FA2',
+                    backgroundColor: 'rgba(156, 39, 176, 0.08)'
+                  }
+                }}
+              >
+                🏎️ Ver equipos en esta liga
               </Button>
               <Button
                 variant="contained"
@@ -948,24 +1031,39 @@ export default function MarketPage() {
                   textShadow: '0 2px 4px rgba(0,0,0,0.5)'
                 }}
               >
-                🏆 Pilotos en Subasta
+                🏆 Elementos en el Mercado
               </Typography>
               <Grid container spacing={2}>
-                {auctions
-                  .filter(pilot => pilot && pilot.team && pilot.driver_name)
-                  .map(pilot => {
-                    // Buscar si el usuario tiene una puja activa en este piloto
-                    const myBid = myBids.find(b => b.id === pilot.id);
+                {auctions.map(item => {
+                  // Buscar si el usuario tiene una puja activa en este elemento (solo para pilotos)
+                  const myBid = item.type === 'pilot' ? myBids.find(b => b.id === item.id) : null;
+                  
+                  if (item.type === 'pilot') {
+                    // Renderizar piloto como antes
                     return (
-                      <Grid item xs={12} sm={6} md={4} lg={3} key={pilot.id}>
+                      <Grid item xs={12} sm={6} md={4} lg={3} key={`pilot-${item.id}`}>
                         <DriverRaceCard 
-                          driver={{ ...pilot, my_bid: myBid?.my_bid }}
+                          driver={{ ...item, my_bid: myBid?.my_bid }}
                           showStats={true} 
                           isOwned={false} 
                           leagueId={selectedLeague.id} 
                           players={players}
                           showBidActions={!!myBid}
-                          onFichar={myBid ? undefined : () => navigate(`/puja/${pilot.id}`)}
+                          onFichar={myBid ? undefined : () => {
+                            if (item.type === 'pilot') {
+                              navigate(`/puja/${item.id}`);
+                            } else if (item.type === 'track_engineer') {
+                              navigate(`/puja/engineer/track/${item.id}`);
+                            } else if (item.type === 'chief_engineer') {
+                              navigate(`/puja/engineer/chief/${item.id}`);
+                            } else if (item.type === 'team_constructor') {
+                              navigate(`/puja/team/${item.id}`);
+                            } else {
+                              setSelectedPilot(item);
+                              setOpenFichar(true);
+                              setPuja('');
+                            }
+                          }}
                           bidActionsButton={myBid ? (
                             <Button
                               variant="contained"
@@ -974,16 +1072,184 @@ export default function MarketPage() {
                               onClick={e => {
                                 e.stopPropagation();
                                 setAnchorElMarket(e.currentTarget);
-                                setSelectedBidPilot({ ...pilot, my_bid: myBid?.my_bid });
+                                setSelectedBidPilot({ ...item, my_bid: myBid?.my_bid });
                               }}
                             >
                               ACCIONES
                             </Button>
-                          ) : null}
+                          ) : undefined}
                         />
                       </Grid>
                     );
-                  })}
+                  } else {
+                    // Renderizar otros tipos de elementos (ingenieros, equipos)
+                    const teamColors = {
+                      'Red Bull Racing': { primary: '#3671C6', secondary: '#1E41C3' },
+                      'Mercedes': { primary: '#6CD3BF', secondary: '#00D2BE' },
+                      'McLaren': { primary: '#FF8700', secondary: '#FF5800' },
+                      'Ferrari': { primary: '#DC0000', secondary: '#B80000' },
+                      'Aston Martin': { primary: '#358C75', secondary: '#006F62' },
+                      'Alpine': { primary: '#0090FF', secondary: '#0051FF' },
+                      'Stake F1 Team Kick Sauber': { primary: '#52E252', secondary: '#37BEDD' },
+                      'Haas': { primary: '#FFFFFF', secondary: '#E8E8E8' },
+                      'Williams': { primary: '#37BEDD', secondary: '#005AFF' },
+                      'Visa Cash App RB': { primary: '#5E8FAA', secondary: '#1E41C3' }
+                    };
+                    const teamColor = teamColors[item.team] || { primary: '#666666', secondary: '#444444' };
+                    
+                    const typeLabels = {
+                      'track_engineer': '👨‍🔧',
+                      'chief_engineer': '👨‍💼',
+                      'team_constructor': '🏎️'
+                    };
+                    
+                    return (
+                      <Grid item xs={12} sm={6} md={4} lg={3} key={`${item.type}-${item.id}`}>
+                        <Box
+                          sx={{
+                            background: 'linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%)',
+                            border: `2px solid ${teamColor.primary}`,
+                            borderRadius: 3,
+                            p: 2,
+                            position: 'relative',
+                            overflow: 'hidden',
+                            minHeight: 160,
+                            cursor: 'pointer',
+                            transition: 'all 0.3s ease',
+                            '&:hover': {
+                              transform: 'translateY(-4px)',
+                              boxShadow: `0 8px 25px rgba(54,113,198,0.3)`,
+                              borderColor: teamColor.secondary,
+                            },
+                            '&::before': {
+                              content: '""',
+                              position: 'absolute',
+                              top: 0,
+                              left: 0,
+                              right: 0,
+                              height: '3px',
+                              background: `linear-gradient(90deg, ${teamColor.primary}, ${teamColor.secondary})`,
+                            }
+                          }}
+                        >
+                          <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                            <Avatar
+                              src={item.image_url ? (
+                                item.type === 'track_engineer' ? `/images/ingenierosdepista/${item.image_url}` :
+                                item.type === 'chief_engineer' ? `/images/ingenierosdepista/${item.image_url}` :
+                                `/images/equipos/${item.image_url}`
+                              ) : ''}
+                              alt={item.name}
+                              sx={{
+                                width: 50,
+                                height: 50,
+                                mr: 2,
+                                border: `3px solid ${teamColor.primary}`,
+                                boxShadow: `0 4px 12px rgba(54,113,198,0.4)`
+                              }}
+                            />
+                            <Box sx={{ flexGrow: 1 }}>
+                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                <Typography variant="h6" sx={{ fontWeight: 700, color: '#fff', fontSize: '1rem', textShadow: '0 2px 4px rgba(0,0,0,0.5)' }}>
+                                  {item.name}
+                                </Typography>
+                                {(item.type === 'track_engineer' || item.type === 'chief_engineer') && (
+                                  <Box
+                                    sx={{
+                                      width: 18,
+                                      height: 18,
+                                      borderRadius: '50%',
+                                      border: `2px solid ${teamColor.primary}`,
+                                      background: '#000',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      justifyContent: 'center',
+                                      fontSize: '0.65rem',
+                                      fontWeight: 700,
+                                      color: teamColor.primary,
+                                      boxShadow: `0 2px 4px rgba(${teamColor.primary}, 0.3)`
+                                    }}
+                                  >
+                                    {item.type === 'track_engineer' ? 'T' : 'C'}
+                                  </Box>
+                                )}
+                              </Box>
+                              <Typography variant="body2" sx={{ color: teamColor.primary, fontWeight: 600, fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                                {item.type === 'team_constructor' ? 'EQUIPO CONSTRUCTOR' : (item.team || 'Sin equipo')}
+                              </Typography>
+                              {item.type === 'track_engineer' && item.pilot_name && (
+                                <Typography variant="body2" sx={{ color: '#b0b0b0', fontSize: '0.75rem' }}>
+                                  Piloto: {item.pilot_name}
+                                </Typography>
+                              )}
+                              {item.type === 'team_constructor' && item.pilots && (
+                                <Typography variant="body2" sx={{ color: '#b0b0b0', fontSize: '0.75rem' }}>
+                                  Pilotos: {item.pilots.join(', ')}
+                                </Typography>
+                              )}
+                            </Box>
+                          </Box>
+                          <Box sx={{ mt: 1 }}>
+                            <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                              <Typography variant="body2" sx={{ color: '#b0b0b0', fontSize: '0.8rem' }}>
+                                Valor:
+                              </Typography>
+                              <Typography variant="body2" sx={{ fontWeight: 700, color: '#4CAF50', fontSize: '0.9rem' }}>
+                                {(item.value ?? 0).toLocaleString()} €
+                              </Typography>
+                            </Box>
+                            <Box sx={{ display: 'flex', justifyContent: 'center', mt: 2 }}>
+                              {item.num_bids > 0 ? (
+                                <Typography variant="body2" sx={{ color: '#FFD600', fontWeight: 700, fontSize: '0.8rem' }}>
+                                  {item.num_bids} puja{item.num_bids !== 1 ? 's' : ''}
+                                </Typography>
+                              ) : (
+                                <Button
+                                  variant="contained"
+                                  size="small"
+                                  sx={{
+                                    background: `linear-gradient(45deg, ${teamColor.primary}, ${teamColor.secondary})`,
+                                    fontWeight: 700,
+                                    fontSize: '0.75rem',
+                                    '&:hover': {
+                                      background: `linear-gradient(45deg, ${teamColor.secondary}, ${teamColor.primary})`,
+                                    }
+                                  }}
+                                  onClick={() => {
+                                    if (item.type === 'track_engineer') {
+                                      navigate(`/puja/engineer/track/${item.id}`);
+                                    } else if (item.type === 'chief_engineer') {
+                                      navigate(`/puja/engineer/chief/${item.id}`);
+                                    } else if (item.type === 'team_constructor') {
+                                      navigate(`/puja/team/${item.id}`);
+                                    } else {
+                                      setSelectedPilot(item);
+                                      setOpenFichar(true);
+                                      setPuja('');
+                                    }
+                                  }}
+                                >
+                                  Fichar
+                                </Button>
+                              )}
+                            </Box>
+                          </Box>
+                          <Box
+                            sx={{
+                              position: 'absolute',
+                              bottom: 0,
+                              left: 0,
+                              right: 0,
+                              height: '2px',
+                              background: `linear-gradient(90deg, ${teamColor.primary}, ${teamColor.secondary})`,
+                              opacity: 0.7
+                            }}
+                          />
+                        </Box>
+                      </Grid>
+                    );
+                  }
+                })}
               </Grid>
             </Box>
           )}
@@ -993,21 +1259,30 @@ export default function MarketPage() {
             {selectedPilot && (
               <>
                 <DialogTitle sx={{ background: '#1a1a1a', color: '#fff', textAlign: 'center' }}>
-                  Puja por {selectedPilot.driver_name}
+                  Puja por {selectedPilot.driver_name || selectedPilot.name}
                 </DialogTitle>
                 <DialogContent sx={{ background: '#0a0a0a', p: 3 }}>
                   <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', mb: 2 }}>
                     <img
                       src={`/images/${selectedPilot.image_url}`}
-                      alt={selectedPilot.driver_name}
+                      alt={selectedPilot.driver_name || selectedPilot.name}
                       style={{ width: 90, height: 90, borderRadius: '50%', marginBottom: 16 }}
                     />
                     <Typography sx={{ color: '#fff', fontWeight: 700 }}>
                       Valor de mercado: {selectedPilot.value?.toLocaleString()} €
                     </Typography>
-                    <Typography sx={{ color: '#fff', fontWeight: 700 }}>
-                      Cláusula: {selectedPilot.clausula}
-                    </Typography>
+                    {selectedPilot.type === 'pilot' && selectedPilot.clausula && (
+                      <Typography sx={{ color: '#fff', fontWeight: 700 }}>
+                        Cláusula: {selectedPilot.clausula}
+                      </Typography>
+                    )}
+                    {selectedPilot.type !== 'pilot' && (
+                      <Typography sx={{ color: '#b0b0b0', fontWeight: 700 }}>
+                        {selectedPilot.type === 'track_engineer' ? 'Ingeniero de Pista' : 
+                         selectedPilot.type === 'chief_engineer' ? 'Ingeniero Jefe' : 
+                         selectedPilot.type === 'team_constructor' ? 'Equipo Constructor' : 'Elemento'}
+                      </Typography>
+                    )}
                   </Box>
                   <TextField
                     label="Importe"
@@ -1229,7 +1504,7 @@ export default function MarketPage() {
       <Dialog open={openTrackEngineers} onClose={() => setOpenTrackEngineers(false)} maxWidth="md" fullWidth>
         <DialogTitle sx={{ background: '#1a1a1a', color: '#fff' }}>
           <Typography variant="h6" sx={{ fontWeight: 700 }}>
-            👨‍🔧 Ingenieros de pista en esta liga
+            👨‍🔧 Ingenieros de Pista en esta liga
           </Typography>
           <IconButton
             aria-label="close"
@@ -1269,6 +1544,7 @@ export default function MarketPage() {
                     'Visa Cash App RB': { primary: '#5E8FAA', secondary: '#1E41C3' }
                   };
                   const teamColor = teamColors[engineer.team] || { primary: '#666666', secondary: '#444444' };
+
                   return (
                     <Grid item xs={12} sm={6} md={4} lg={3} key={engineer.id}>
                       <Box
@@ -1277,12 +1553,13 @@ export default function MarketPage() {
                           border: `2px solid ${teamColor.primary}`,
                           borderRadius: 3,
                           p: 2,
+                          cursor: 'pointer',
+                          transition: 'all 0.3s ease',
                           position: 'relative',
                           overflow: 'hidden',
-                          minHeight: 140,
                           '&:hover': {
                             transform: 'translateY(-4px)',
-                            boxShadow: `0 8px 25px rgba(54,113,198,0.3)`,
+                            boxShadow: `0 8px 25px rgba(${teamColor.primary}, 0.3)`,
                             borderColor: teamColor.secondary,
                           },
                           '&::before': {
@@ -1298,25 +1575,46 @@ export default function MarketPage() {
                       >
                         <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
                           <Avatar
-                            src={engineer.image_url ? `/images/ingenierosdepista/${engineer.image_url}` : ''}
+                           src={engineer.image_url ? `/images/ingenierosdepista/${engineer.image_url}` : ''}
                             alt={engineer.name}
                             sx={{
                               width: 60,
                               height: 60,
                               mr: 2,
                               border: `3px solid ${teamColor.primary}`,
-                              boxShadow: `0 4px 12px rgba(54,113,198,0.4)`
+                              boxShadow: `0 4px 12px rgba(${teamColor.primary}, 0.4)`
                             }}
                           />
                           <Box sx={{ flexGrow: 1 }}>
-                            <Typography variant="h6" sx={{ fontWeight: 700, color: '#fff', fontSize: '1.1rem', textShadow: '0 2px 4px rgba(0,0,0,0.5)', mb: 0.5 }}>
-                              {engineer.name}
-                            </Typography>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                              <Typography variant="h6" sx={{ fontWeight: 700, color: '#fff', fontSize: '1.1rem', textShadow: '0 2px 4px rgba(0,0,0,0.5)' }}>
+                                {engineer.name}
+                              </Typography>
+                              <Box
+                                sx={{
+                                  width: 20,
+                                  height: 20,
+                                  borderRadius: '50%',
+                                  border: `2px solid ${teamColor.primary}`,
+                                  background: '#000',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  fontSize: '0.7rem',
+                                  fontWeight: 700,
+                                  color: teamColor.primary,
+                                  boxShadow: `0 2px 4px rgba(${teamColor.primary}, 0.3)`,
+                                  flexShrink: 0
+                                }}
+                              >
+                                T
+                              </Box>
+                            </Box>
                             <Typography variant="body2" sx={{ color: teamColor.primary, fontWeight: 600, fontSize: '0.9rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                              {engineer.team || 'Sin equipo'}
+                              {engineer.team}
                             </Typography>
                             <Typography variant="body2" sx={{ color: '#b0b0b0', fontSize: '0.8rem' }}>
-                              Piloto: {engineer.driver_name || 'Sin piloto asignado'}
+                              Piloto: {engineer.driver_name}
                             </Typography>
                           </Box>
                         </Box>
@@ -1331,10 +1629,10 @@ export default function MarketPage() {
                           </Box>
                           <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
                             <Typography variant="body2" sx={{ color: '#b0b0b0', fontSize: '0.8rem' }}>
-                              Piloto ID:
+                              Propietario:
                             </Typography>
-                            <Typography variant="body2" sx={{ fontWeight: 700, color: '#FFD600', fontSize: '0.9rem' }}>
-                              {engineer.pilot_id || '-'}
+                            <Typography variant="body2" sx={{ fontWeight: 700, color: engineer.owner_id ? '#FFD600' : '#FFA500', fontSize: '0.9rem' }}>
+                              {engineer.owner_id ? `Player ${engineer.owner_id}` : 'FIA'}
                             </Typography>
                           </Box>
                         </Box>
@@ -1362,7 +1660,7 @@ export default function MarketPage() {
       <Dialog open={openChiefEngineers} onClose={() => setOpenChiefEngineers(false)} maxWidth="md" fullWidth>
         <DialogTitle sx={{ background: '#1a1a1a', color: '#fff' }}>
           <Typography variant="h6" sx={{ fontWeight: 700 }}>
-            ��‍💼 Ingenieros Jefe en esta liga
+            👨‍💼 Ingenieros Jefe en esta liga
           </Typography>
           <IconButton
             aria-label="close"
@@ -1402,6 +1700,7 @@ export default function MarketPage() {
                     'Visa Cash App RB': { primary: '#5E8FAA', secondary: '#1E41C3' }
                   };
                   const teamColor = teamColors[engineer.team] || { primary: '#666666', secondary: '#444444' };
+
                   return (
                     <Grid item xs={12} sm={6} md={4} lg={3} key={engineer.id}>
                       <Box
@@ -1410,12 +1709,13 @@ export default function MarketPage() {
                           border: `2px solid ${teamColor.primary}`,
                           borderRadius: 3,
                           p: 2,
+                          cursor: 'pointer',
+                          transition: 'all 0.3s ease',
                           position: 'relative',
                           overflow: 'hidden',
-                          minHeight: 140,
                           '&:hover': {
                             transform: 'translateY(-4px)',
-                            boxShadow: `0 8px 25px rgba(54,113,198,0.3)`,
+                            boxShadow: `0 8px 25px rgba(${teamColor.primary}, 0.3)`,
                             borderColor: teamColor.secondary,
                           },
                           '&::before': {
@@ -1438,18 +1738,36 @@ export default function MarketPage() {
                               height: 60,
                               mr: 2,
                               border: `3px solid ${teamColor.primary}`,
-                              boxShadow: `0 4px 12px rgba(54,113,198,0.4)`
+                              boxShadow: `0 4px 12px rgba(${teamColor.primary}, 0.4)`
                             }}
                           />
                           <Box sx={{ flexGrow: 1 }}>
-                            <Typography variant="h6" sx={{ fontWeight: 700, color: '#fff', fontSize: '1.1rem', textShadow: '0 2px 4px rgba(0,0,0,0.5)', mb: 0.5 }}>
-                              {engineer.name}
-                            </Typography>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                              <Typography variant="h6" sx={{ fontWeight: 700, color: '#fff', fontSize: '1.1rem', textShadow: '0 2px 4px rgba(0,0,0,0.5)' }}>
+                                {engineer.name}
+                              </Typography>
+                                                             <Box
+                                 sx={{
+                                   width: 20,
+                                   height: 20,
+                                   borderRadius: '50%',
+                                   border: `2px solid ${teamColor.primary}`,
+                                   background: '#000',
+                                   display: 'flex',
+                                   alignItems: 'center',
+                                   justifyContent: 'center',
+                                   fontSize: '0.7rem',
+                                   fontWeight: 700,
+                                   color: teamColor.primary,
+                                   boxShadow: `0 2px 4px rgba(${teamColor.primary}, 0.3)`,
+                                   flexShrink: 0
+                                 }}
+                               >
+                                 C
+                               </Box>
+                            </Box>
                             <Typography variant="body2" sx={{ color: teamColor.primary, fontWeight: 600, fontSize: '0.9rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                              {engineer.team || 'Sin equipo'}
-                            </Typography>
-                            <Typography variant="body2" sx={{ color: '#b0b0b0', fontSize: '0.8rem' }}>
-                              Piloto: {engineer.driver_name || 'Sin piloto asignado'}
+                              {engineer.team}
                             </Typography>
                           </Box>
                         </Box>
@@ -1464,10 +1782,145 @@ export default function MarketPage() {
                           </Box>
                           <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
                             <Typography variant="body2" sx={{ color: '#b0b0b0', fontSize: '0.8rem' }}>
-                              Piloto ID:
+                              Propietario:
                             </Typography>
-                            <Typography variant="body2" sx={{ fontWeight: 700, color: '#FFD600', fontSize: '0.9rem' }}>
-                              {engineer.pilot_id || '-'}
+                            <Typography variant="body2" sx={{ fontWeight: 700, color: engineer.owner_id ? '#FFD600' : '#FFA500', fontSize: '0.9rem' }}>
+                              {engineer.owner_id ? `Player ${engineer.owner_id}` : 'FIA'}
+                            </Typography>
+                          </Box>
+                        </Box>
+                        <Box
+                          sx={{
+                            position: 'absolute',
+                            bottom: 0,
+                            left: 0,
+                            right: 0,
+                            height: '2px',
+                            background: `linear-gradient(90deg, ${teamColor.primary}, ${teamColor.secondary})`,
+                            opacity: 0.7
+                          }}
+                        />
+                      </Box>
+                    </Grid>
+                  );
+                })
+              )}
+            </Grid>
+          )}
+        </DialogContent>
+      </Dialog>
+      {/* Modal de equipos por liga */}
+      <Dialog open={openTeamConstructors} onClose={() => setOpenTeamConstructors(false)} maxWidth="md" fullWidth>
+        <DialogTitle sx={{ background: '#1a1a1a', color: '#fff' }}>
+          <Typography variant="h6" sx={{ fontWeight: 700 }}>
+            🏎️ Equipos en esta liga
+          </Typography>
+          <IconButton
+            aria-label="close"
+            onClick={() => setOpenTeamConstructors(false)}
+            sx={{ position: 'absolute', right: 8, top: 8, color: '#fff' }}
+          >
+            <CloseIcon />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent dividers sx={{ background: '#0a0a0a', p: 3 }}>
+          {loadingTeamConstructors ? (
+            <Box sx={{ textAlign: 'center', py: 4 }}>
+              <CircularProgress color="info" />
+            </Box>
+          ) : errorTeamConstructors ? (
+            <Alert severity="error">{errorTeamConstructors}</Alert>
+          ) : (
+            <Grid container spacing={2}>
+              {teamConstructorsByLeague.length === 0 ? (
+                <Grid item xs={12}>
+                  <Typography sx={{ color: '#fff', textAlign: 'center', py: 4 }}>
+                    No hay equipos en esta liga.
+                  </Typography>
+                </Grid>
+              ) : (
+                teamConstructorsByLeague.map(team => {
+                  const teamColors = {
+                    'Red Bull Racing': { primary: '#3671C6', secondary: '#1E41C3' },
+                    'Mercedes': { primary: '#6CD3BF', secondary: '#00D2BE' },
+                    'McLaren': { primary: '#FF8700', secondary: '#FF5800' },
+                    'Ferrari': { primary: '#DC0000', secondary: '#B80000' },
+                    'Aston Martin': { primary: '#358C75', secondary: '#006F62' },
+                    'Alpine': { primary: '#0090FF', secondary: '#0051FF' },
+                    'Stake F1 Team Kick Sauber': { primary: '#52E252', secondary: '#37BEDD' },
+                    'Haas': { primary: '#FFFFFF', secondary: '#E8E8E8' },
+                    'Williams': { primary: '#37BEDD', secondary: '#005AFF' },
+                    'Visa Cash App RB': { primary: '#5E8FAA', secondary: '#1E41C3' }
+                  };
+                  const teamColor = teamColors[team.name] || { primary: '#666666', secondary: '#444444' };
+
+                  return (
+                    <Grid item xs={12} sm={6} md={4} lg={3} key={team.id}>
+                      <Box
+                        sx={{
+                          background: 'linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%)',
+                          border: `2px solid ${teamColor.primary}`,
+                          borderRadius: 3,
+                          p: 2,
+                          cursor: 'pointer',
+                          transition: 'all 0.3s ease',
+                          position: 'relative',
+                          overflow: 'hidden',
+                          '&:hover': {
+                            transform: 'translateY(-4px)',
+                            boxShadow: `0 8px 25px rgba(${teamColor.primary}, 0.3)`,
+                            borderColor: teamColor.secondary,
+                          },
+                          '&::before': {
+                            content: '""',
+                            position: 'absolute',
+                            top: 0,
+                            left: 0,
+                            right: 0,
+                            height: '3px',
+                            background: `linear-gradient(90deg, ${teamColor.primary}, ${teamColor.secondary})`,
+                          }
+                        }}
+                      >
+                        <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                          <Avatar
+                            src={team.image_url ? `/images/equipos/${team.image_url}` : ''}
+                            alt={team.name}
+                            sx={{
+                              width: 60,
+                              height: 60,
+                              mr: 2,
+                              border: `3px solid ${teamColor.primary}`,
+                              boxShadow: `0 4px 12px rgba(${teamColor.primary}, 0.4)`
+                            }}
+                          />
+                          <Box sx={{ flexGrow: 1 }}>
+                            <Typography variant="h6" sx={{ fontWeight: 700, color: '#fff', fontSize: '1.1rem', textShadow: '0 2px 4px rgba(0,0,0,0.5)', mb: 0.5 }}>
+                              {team.name}
+                            </Typography>
+                            <Typography variant="body2" sx={{ color: teamColor.primary, fontWeight: 600, fontSize: '0.9rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                              EQUIPO CONSTRUCTOR
+                            </Typography>
+                            <Typography variant="body2" sx={{ color: '#b0b0b0', fontSize: '0.8rem' }}>
+                              Pilotos: {team.pilots && team.pilots.length > 0 ? team.pilots.join(', ') : 'Sin pilotos asignados'}
+                            </Typography>
+                          </Box>
+                        </Box>
+                        <Box sx={{ mt: 2 }}>
+                          <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                            <Typography variant="body2" sx={{ color: '#b0b0b0', fontSize: '0.8rem' }}>
+                              Valor:
+                            </Typography>
+                            <Typography variant="body2" sx={{ fontWeight: 700, color: '#4CAF50', fontSize: '0.9rem' }}>
+                              {(team.value ?? 0).toLocaleString()} €
+                            </Typography>
+                          </Box>
+                          <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                            <Typography variant="body2" sx={{ color: '#b0b0b0', fontSize: '0.8rem' }}>
+                              Propietario:
+                            </Typography>
+                            <Typography variant="body2" sx={{ fontWeight: 700, color: team.owner_id ? '#FFD600' : '#FFA500', fontSize: '0.9rem' }}>
+                              {team.owner_id ? `Player ${team.owner_id}` : 'FIA'}
                             </Typography>
                           </Box>
                         </Box>

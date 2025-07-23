@@ -109,13 +109,14 @@ type Bid struct {
 }
 
 type Auction struct {
-	ID              uint      `json:"id" gorm:"primaryKey"`
-	PilotByLeagueID uint      `json:"pilot_by_league_id" gorm:"not null"`
-	LeagueID        uint      `json:"league_id" gorm:"not null"`
-	EndTime         time.Time `json:"end_time" gorm:"not null"`
-	Bids            []byte    `json:"bids" gorm:"type:json"`
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
+	ID        uint      `json:"id" gorm:"primaryKey"`
+	ItemType  string    `json:"item_type" gorm:"not null"` // "pilot", "track_engineer", "chief_engineer", "team_constructor"
+	ItemID    uint      `json:"item_id" gorm:"not null"`   // ID del elemento específico (PilotByLeague, TrackEngineerByLeague, etc.)
+	LeagueID  uint      `json:"league_id" gorm:"not null"`
+	EndTime   time.Time `json:"end_time" gorm:"not null"`
+	Bids      []byte    `json:"bids" gorm:"type:json"`
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 var marketNextRefresh = time.Now().Add(24 * time.Hour)
@@ -124,76 +125,398 @@ func updateMarketNextRefresh() {
 	marketNextRefresh = time.Now().Add(24 * time.Hour)
 }
 
+// Función para actualizar la propiedad de elementos en PlayerByLeague
+func updatePlayerOwnership(playerID uint, leagueID uint, itemType string, itemID uint, add bool) error {
+	log.Printf("[updatePlayerOwnership] Iniciando: PlayerID=%d, LeagueID=%d, ItemType=%s, ItemID=%d, Add=%t", playerID, leagueID, itemType, itemID, add)
+
+	var playerLeague models.PlayerByLeague
+	if err := database.DB.Where("player_id = ? AND league_id = ?", playerID, leagueID).First(&playerLeague).Error; err != nil {
+		log.Printf("[updatePlayerOwnership] ERROR: PlayerByLeague no encontrado para PlayerID=%d, LeagueID=%d: %v", playerID, leagueID, err)
+		return err
+	}
+
+	log.Printf("[updatePlayerOwnership] PlayerByLeague encontrado: ID=%d", playerLeague.ID)
+
+	switch itemType {
+	case "pilot":
+		log.Printf("[updatePlayerOwnership] Procesando pilot")
+		log.Printf("[updatePlayerOwnership] OwnedPilots actual: %s", playerLeague.OwnedPilots)
+
+		var owned []uint
+		// Manejar NULL, string vacío, o "[]"
+		if playerLeague.OwnedPilots != "" && playerLeague.OwnedPilots != "[]" {
+			if err := json.Unmarshal([]byte(playerLeague.OwnedPilots), &owned); err != nil {
+				log.Printf("[updatePlayerOwnership] Error parseando OwnedPilots: %v", err)
+				owned = []uint{}
+			}
+		} else {
+			log.Printf("[updatePlayerOwnership] OwnedPilots está vacío o NULL, inicializando array vacío")
+			owned = []uint{}
+		}
+		log.Printf("[updatePlayerOwnership] Pilots actuales: %v", owned)
+
+		if add {
+			// Añadir si no existe
+			found := false
+			for _, id := range owned {
+				if id == itemID {
+					found = true
+					break
+				}
+			}
+			if !found {
+				owned = append(owned, itemID)
+				log.Printf("[updatePlayerOwnership] Pilot %d añadido. Lista actualizada: %v", itemID, owned)
+			} else {
+				log.Printf("[updatePlayerOwnership] Pilot %d ya existe en la lista", itemID)
+			}
+		} else {
+			// Remover
+			newOwned := make([]uint, 0)
+			for _, id := range owned {
+				if id != itemID {
+					newOwned = append(newOwned, id)
+				}
+			}
+			owned = newOwned
+			log.Printf("[updatePlayerOwnership] Pilot %d removido. Lista actualizada: %v", itemID, owned)
+		}
+
+		ownedJSON, _ := json.Marshal(owned)
+		playerLeague.OwnedPilots = string(ownedJSON)
+		log.Printf("[updatePlayerOwnership] OwnedPilots actualizado a: %s", string(ownedJSON))
+
+	case "track_engineer":
+		log.Printf("[updatePlayerOwnership] Procesando track_engineer")
+		log.Printf("[updatePlayerOwnership] OwnedTrackEngineers actual: %s", playerLeague.OwnedTrackEngineers)
+
+		var owned []uint
+		// Manejar NULL, string vacío, o "[]"
+		if playerLeague.OwnedTrackEngineers != "" && playerLeague.OwnedTrackEngineers != "[]" {
+			if err := json.Unmarshal([]byte(playerLeague.OwnedTrackEngineers), &owned); err != nil {
+				log.Printf("[updatePlayerOwnership] Error parseando OwnedTrackEngineers: %v", err)
+				owned = []uint{}
+			}
+		} else {
+			log.Printf("[updatePlayerOwnership] OwnedTrackEngineers está vacío o NULL, inicializando array vacío")
+			owned = []uint{}
+		}
+		log.Printf("[updatePlayerOwnership] Track Engineers actuales: %v", owned)
+
+		if add {
+			found := false
+			for _, id := range owned {
+				if id == itemID {
+					found = true
+					break
+				}
+			}
+			if !found {
+				owned = append(owned, itemID)
+				log.Printf("[updatePlayerOwnership] Track Engineer %d añadido. Lista actualizada: %v", itemID, owned)
+			} else {
+				log.Printf("[updatePlayerOwnership] Track Engineer %d ya existe en la lista", itemID)
+			}
+		} else {
+			newOwned := make([]uint, 0)
+			for _, id := range owned {
+				if id != itemID {
+					newOwned = append(newOwned, id)
+				}
+			}
+			owned = newOwned
+			log.Printf("[updatePlayerOwnership] Track Engineer %d removido. Lista actualizada: %v", itemID, owned)
+		}
+
+		ownedJSON, _ := json.Marshal(owned)
+		playerLeague.OwnedTrackEngineers = string(ownedJSON)
+		log.Printf("[updatePlayerOwnership] OwnedTrackEngineers actualizado a: %s", string(ownedJSON))
+
+	case "chief_engineer":
+		log.Printf("[updatePlayerOwnership] Procesando chief_engineer")
+		log.Printf("[updatePlayerOwnership] OwnedChiefEngineers actual: %s", playerLeague.OwnedChiefEngineers)
+
+		var owned []uint
+		// Manejar NULL, string vacío, o "[]"
+		if playerLeague.OwnedChiefEngineers != "" && playerLeague.OwnedChiefEngineers != "[]" {
+			if err := json.Unmarshal([]byte(playerLeague.OwnedChiefEngineers), &owned); err != nil {
+				log.Printf("[updatePlayerOwnership] Error parseando OwnedChiefEngineers: %v", err)
+				owned = []uint{}
+			}
+		} else {
+			log.Printf("[updatePlayerOwnership] OwnedChiefEngineers está vacío o NULL, inicializando array vacío")
+			owned = []uint{}
+		}
+		log.Printf("[updatePlayerOwnership] Chief Engineers actuales: %v", owned)
+
+		if add {
+			found := false
+			for _, id := range owned {
+				if id == itemID {
+					found = true
+					break
+				}
+			}
+			if !found {
+				owned = append(owned, itemID)
+				log.Printf("[updatePlayerOwnership] Chief Engineer %d añadido. Lista actualizada: %v", itemID, owned)
+			} else {
+				log.Printf("[updatePlayerOwnership] Chief Engineer %d ya existe en la lista", itemID)
+			}
+		} else {
+			newOwned := make([]uint, 0)
+			for _, id := range owned {
+				if id != itemID {
+					newOwned = append(newOwned, id)
+				}
+			}
+			owned = newOwned
+			log.Printf("[updatePlayerOwnership] Chief Engineer %d removido. Lista actualizada: %v", itemID, owned)
+		}
+
+		ownedJSON, _ := json.Marshal(owned)
+		playerLeague.OwnedChiefEngineers = string(ownedJSON)
+		log.Printf("[updatePlayerOwnership] OwnedChiefEngineers actualizado a: %s", string(ownedJSON))
+
+	case "team_constructor":
+		log.Printf("[updatePlayerOwnership] Procesando team_constructor")
+		log.Printf("[updatePlayerOwnership] OwnedTeamConstructors actual: %s", playerLeague.OwnedTeamConstructors)
+
+		var owned []uint
+		// Manejar NULL, string vacío, o "[]"
+		if playerLeague.OwnedTeamConstructors != "" && playerLeague.OwnedTeamConstructors != "[]" {
+			if err := json.Unmarshal([]byte(playerLeague.OwnedTeamConstructors), &owned); err != nil {
+				log.Printf("[updatePlayerOwnership] Error parseando OwnedTeamConstructors: %v", err)
+				owned = []uint{}
+			}
+		} else {
+			log.Printf("[updatePlayerOwnership] OwnedTeamConstructors está vacío o NULL, inicializando array vacío")
+			owned = []uint{}
+		}
+		log.Printf("[updatePlayerOwnership] Team Constructors actuales: %v", owned)
+
+		if add {
+			found := false
+			for _, id := range owned {
+				if id == itemID {
+					found = true
+					break
+				}
+			}
+			if !found {
+				owned = append(owned, itemID)
+				log.Printf("[updatePlayerOwnership] Team Constructor %d añadido. Lista actualizada: %v", itemID, owned)
+			} else {
+				log.Printf("[updatePlayerOwnership] Team Constructor %d ya existe en la lista", itemID)
+			}
+		} else {
+			newOwned := make([]uint, 0)
+			for _, id := range owned {
+				if id != itemID {
+					newOwned = append(newOwned, id)
+				}
+			}
+			owned = newOwned
+			log.Printf("[updatePlayerOwnership] Team Constructor %d removido. Lista actualizada: %v", itemID, owned)
+		}
+
+		ownedJSON, _ := json.Marshal(owned)
+		playerLeague.OwnedTeamConstructors = string(ownedJSON)
+		log.Printf("[updatePlayerOwnership] OwnedTeamConstructors actualizado a: %s", string(ownedJSON))
+	}
+
+	if err := database.DB.Save(&playerLeague).Error; err != nil {
+		log.Printf("[updatePlayerOwnership] ERROR guardando PlayerByLeague: %v", err)
+		return err
+	}
+
+	log.Printf("[updatePlayerOwnership] PlayerByLeague guardado exitosamente")
+	return nil
+}
+
 func refreshMarketForLeague(leagueID uint) error {
 	log.Printf("[refreshMarketForLeague] Refrescando mercado para liga %d", leagueID)
-	// 1. Buscar subastas activas (no finalizadas) en la liga
-	var activeAuctions []Auction
-	database.DB.Where("league_id = ? AND end_time > ?", leagueID, time.Now()).Find(&activeAuctions)
-	log.Printf("[refreshMarketForLeague] Subastas activas encontradas: %d", len(activeAuctions))
-	// 2. Obtener los pilot_by_league_id ya en subasta
-	var activePilotIDs []uint
-	for _, a := range activeAuctions {
-		activePilotIDs = append(activePilotIDs, a.PilotByLeagueID)
-	}
-	log.Printf("[refreshMarketForLeague] Pilotos ya en subasta: %v", activePilotIDs)
-	// 3. Si hay menos de 5, buscar pilotos libres que no estén ya en subasta
-	faltan := 5 - len(activeAuctions)
-	if faltan > 0 {
-		var libres []models.PilotByLeague
-		if len(activePilotIDs) > 0 {
-			log.Printf("[refreshMarketForLeague] Buscando %d pilotos libres que no estén en subasta", faltan)
-			database.DB.Raw("SELECT * FROM pilot_by_leagues WHERE league_id = ? AND owner_id = 0 AND id NOT IN ? ORDER BY RAND() LIMIT ?", leagueID, activePilotIDs, faltan).Scan(&libres)
-		} else {
-			log.Printf("[refreshMarketForLeague] Buscando %d pilotos libres (ninguno en subasta)", faltan)
-			database.DB.Raw("SELECT * FROM pilot_by_leagues WHERE league_id = ? AND owner_id = 0 ORDER BY RAND() LIMIT ?", leagueID, faltan).Scan(&libres)
-		}
-		log.Printf("[refreshMarketForLeague] Pilotos libres encontrados: %d", len(libres))
-		for _, pbl := range libres {
-			log.Printf("[refreshMarketForLeague] Creando subasta para pilot_by_league_id=%d", pbl.ID)
-			pbl.Bids = []byte("[]")
-			database.DB.Save(&pbl)
-			auction := Auction{
-				PilotByLeagueID: pbl.ID,
-				LeagueID:        leagueID,
-				EndTime:         time.Now().Add(24 * time.Hour),
+
+	// 1. Obtener todos los elementos disponibles para el mercado (que no tengan owner)
+	var availableItems []models.MarketItem
+	database.DB.Where("league_id = ? AND is_active = ?", leagueID, true).Find(&availableItems)
+	log.Printf("[refreshMarketForLeague] Total market_items encontrados: %d", len(availableItems))
+
+	// 2. Filtrar elementos que no tengan propietario
+	var freeItems []models.MarketItem
+	for _, item := range availableItems {
+		switch item.ItemType {
+		case "pilot":
+			var pbl models.PilotByLeague
+			if err := database.DB.First(&pbl, item.ItemID).Error; err == nil && pbl.OwnerID == 0 {
+				freeItems = append(freeItems, item)
+				log.Printf("[refreshMarketForLeague] Pilot libre añadido: ID=%d", item.ItemID)
+			} else {
+				log.Printf("[refreshMarketForLeague] Pilot no disponible: ID=%d, OwnerID=%d, Error=%v", item.ItemID, pbl.OwnerID, err)
 			}
-			database.DB.Create(&auction)
-			activeAuctions = append(activeAuctions, auction)
-			activePilotIDs = append(activePilotIDs, pbl.ID)
+		case "track_engineer":
+			var teb models.TrackEngineerByLeague
+			if err := database.DB.First(&teb, item.ItemID).Error; err == nil && teb.OwnerID == 0 {
+				freeItems = append(freeItems, item)
+				log.Printf("[refreshMarketForLeague] Track Engineer libre añadido: ID=%d", item.ItemID)
+			} else {
+				log.Printf("[refreshMarketForLeague] Track Engineer no disponible: ID=%d, OwnerID=%d, Error=%v", item.ItemID, teb.OwnerID, err)
+			}
+		case "chief_engineer":
+			var ceb models.ChiefEngineerByLeague
+			if err := database.DB.First(&ceb, item.ItemID).Error; err == nil && ceb.OwnerID == 0 {
+				freeItems = append(freeItems, item)
+				log.Printf("[refreshMarketForLeague] Chief Engineer libre añadido: ID=%d", item.ItemID)
+			} else {
+				log.Printf("[refreshMarketForLeague] Chief Engineer no disponible: ID=%d, OwnerID=%d, Error=%v", item.ItemID, ceb.OwnerID, err)
+			}
+		case "team_constructor":
+			var tcb models.TeamConstructorByLeague
+			if err := database.DB.First(&tcb, item.ItemID).Error; err == nil && tcb.OwnerID == 0 {
+				freeItems = append(freeItems, item)
+				log.Printf("[refreshMarketForLeague] Team Constructor libre añadido: ID=%d", item.ItemID)
+			} else {
+				log.Printf("[refreshMarketForLeague] Team Constructor no disponible: ID=%d, OwnerID=%d, Error=%v", item.ItemID, tcb.OwnerID, err)
+			}
 		}
 	}
-	// 4. Generar ofertas de la liga para pilotos en venta (owner_id ≠ 0 y venta activa)
-	var enVenta []models.PilotByLeague
-	database.DB.Where("league_id = ? AND owner_id != 0 AND venta IS NOT NULL AND venta_expires_at > ?", leagueID, time.Now()).Find(&enVenta)
-	for _, pbl := range enVenta {
-		var pilot models.Pilot
-		database.DB.First(&pilot, pbl.PilotID)
-		valor := pilot.Value
-		if valor == 0 {
-			continue
+
+	log.Printf("[refreshMarketForLeague] Elementos libres encontrados: %d (pilotos + ingenieros + equipos)", len(freeItems))
+
+	// Mostrar desglose por tipo
+	pilotCount := 0
+	trackEngCount := 0
+	chiefEngCount := 0
+	teamConsCount := 0
+	for _, item := range freeItems {
+		switch item.ItemType {
+		case "pilot":
+			pilotCount++
+		case "track_engineer":
+			trackEngCount++
+		case "chief_engineer":
+			chiefEngCount++
+		case "team_constructor":
+			teamConsCount++
 		}
-		// Oferta aleatoria entre -10% y +10%
-		min := valor * 0.9
-		max := valor * 1.1
-		oferta := min + (max-min)*rand.Float64()
-		expires := time.Now().Add(24 * time.Hour)
-		pbl.LeagueOfferValue = &oferta
-		pbl.LeagueOfferExpiresAt = &expires
-		database.DB.Save(&pbl)
 	}
-	// 5. Actualizar market_pilots en la liga con los ids de los pilotos en subasta activa (aunque sea vacío)
-	var ids []uint
-	for _, a := range activeAuctions {
-		ids = append(ids, a.PilotByLeagueID)
+	log.Printf("[refreshMarketForLeague] Desglose - Pilotos: %d, Track Engineers: %d, Chief Engineers: %d, Team Constructors: %d", pilotCount, trackEngCount, chiefEngCount, teamConsCount)
+
+	// 3. Seleccionar exactamente 8 elementos aleatorios mezclando todos los tipos
+	selectedCount := 8
+	if len(freeItems) < selectedCount {
+		selectedCount = len(freeItems)
+		log.Printf("[refreshMarketForLeague] ADVERTENCIA: Solo hay %d elementos libres, seleccionando todos", selectedCount)
 	}
-	idsJSON, _ := json.Marshal(ids)
-	log.Printf("[refreshMarketForLeague] market_pilots a guardar para liga %d: %s", leagueID, string(idsJSON))
-	err := database.DB.Model(&models.League{}).Where("id = ?", leagueID).Update("market_pilots", idsJSON).Error
-	if err != nil {
-		log.Printf("[refreshMarketForLeague] ERROR actualizando market_pilots: %v", err)
-	} else {
-		log.Printf("[refreshMarketForLeague] market_pilots actualizado correctamente para liga %d", leagueID)
+
+	// Mezclar aleatoriamente usando Fisher-Yates shuffle
+	for i := len(freeItems) - 1; i > 0; i-- {
+		j := rand.Intn(i + 1)
+		freeItems[i], freeItems[j] = freeItems[j], freeItems[i]
 	}
+
+	selectedItems := freeItems[:selectedCount]
+	log.Printf("[refreshMarketForLeague] Elementos seleccionados para el mercado: %d de %d disponibles", len(selectedItems), len(freeItems))
+
+	// Mostrar qué se seleccionó
+	for i, item := range selectedItems {
+		log.Printf("[refreshMarketForLeague] Seleccionado %d: Tipo=%s, ID=%d", i+1, item.ItemType, item.ItemID)
+	}
+
+	// 4. Marcar elementos seleccionados como en el mercado y crear subastas
+	// Primero, desmarcar todos los elementos del mercado anterior
+	result := database.DB.Model(&models.MarketItem{}).Where("league_id = ?", leagueID).Update("is_in_market", false)
+	log.Printf("[refreshMarketForLeague] Desmarcados %d elementos del mercado anterior", result.RowsAffected)
+
+	for i, item := range selectedItems {
+		// Marcar este elemento como en el mercado
+		updateResult := database.DB.Model(&models.MarketItem{}).Where("id = ?", item.ID).Update("is_in_market", true)
+		log.Printf("[refreshMarketForLeague] Elemento %d marcado: ID=%d, Tipo=%s, RowsAffected=%d", i+1, item.ID, item.ItemType, updateResult.RowsAffected)
+
+		switch item.ItemType {
+		case "pilot":
+			// Para pilotos, crear subasta
+			var pbl models.PilotByLeague
+			if err := database.DB.First(&pbl, item.ItemID).Error; err == nil {
+				// Verificar si ya existe subasta activa
+				var existingAuction Auction
+				if err := database.DB.Where("item_type = ? AND item_id = ? AND league_id = ? AND end_time > ?", "pilot", pbl.ID, leagueID, time.Now()).First(&existingAuction).Error; err != nil {
+					// No existe, crear nueva
+					auction := Auction{
+						ItemType: "pilot",
+						ItemID:   pbl.ID,
+						LeagueID: leagueID,
+						EndTime:  time.Now().Add(24 * time.Hour),
+						Bids:     []byte("[]"),
+					}
+					database.DB.Create(&auction)
+					log.Printf("[refreshMarketForLeague] Subasta creada para pilot ID %d", pbl.ID)
+				} else {
+					log.Printf("[refreshMarketForLeague] Subasta ya existe para pilot ID %d", pbl.ID)
+				}
+			}
+		case "track_engineer":
+			// Crear subasta para track engineer
+			var teb models.TrackEngineerByLeague
+			if err := database.DB.First(&teb, item.ItemID).Error; err == nil {
+				// Verificar si ya existe subasta activa
+				var existingAuction Auction
+				if err := database.DB.Where("item_type = ? AND item_id = ? AND league_id = ? AND end_time > ?", "track_engineer", teb.ID, leagueID, time.Now()).First(&existingAuction).Error; err != nil {
+					// No existe, crear nueva
+					auction := Auction{
+						ItemType: "track_engineer",
+						ItemID:   teb.ID,
+						LeagueID: leagueID,
+						EndTime:  time.Now().Add(24 * time.Hour),
+						Bids:     []byte("[]"),
+					}
+					database.DB.Create(&auction)
+					log.Printf("[refreshMarketForLeague] Subasta creada para track engineer ID %d", teb.ID)
+				}
+			}
+		case "chief_engineer":
+			// Crear subasta para chief engineer
+			var ceb models.ChiefEngineerByLeague
+			if err := database.DB.First(&ceb, item.ItemID).Error; err == nil {
+				// Verificar si ya existe subasta activa
+				var existingAuction Auction
+				if err := database.DB.Where("item_type = ? AND item_id = ? AND league_id = ? AND end_time > ?", "chief_engineer", ceb.ID, leagueID, time.Now()).First(&existingAuction).Error; err != nil {
+					// No existe, crear nueva
+					auction := Auction{
+						ItemType: "chief_engineer",
+						ItemID:   ceb.ID,
+						LeagueID: leagueID,
+						EndTime:  time.Now().Add(24 * time.Hour),
+						Bids:     []byte("[]"),
+					}
+					database.DB.Create(&auction)
+					log.Printf("[refreshMarketForLeague] Subasta creada para chief engineer ID %d", ceb.ID)
+				}
+			}
+		case "team_constructor":
+			// Crear subasta para team constructor
+			var tcb models.TeamConstructorByLeague
+			if err := database.DB.First(&tcb, item.ItemID).Error; err == nil {
+				// Verificar si ya existe subasta activa
+				var existingAuction Auction
+				if err := database.DB.Where("item_type = ? AND item_id = ? AND league_id = ? AND end_time > ?", "team_constructor", tcb.ID, tcb.LeagueID, time.Now()).First(&existingAuction).Error; err != nil {
+					// No existe, crear nueva
+					auction := Auction{
+						ItemType: "team_constructor",
+						ItemID:   tcb.ID,
+						LeagueID: leagueID,
+						EndTime:  time.Now().Add(24 * time.Hour),
+						Bids:     []byte("[]"),
+					}
+					database.DB.Create(&auction)
+					log.Printf("[refreshMarketForLeague] Subasta creada para team constructor ID %d", tcb.ID)
+				}
+			}
+		}
+	}
+
+	log.Printf("[refreshMarketForLeague] Mercado actualizado con %d elementos seleccionados", len(selectedItems))
+
 	return nil
 }
 
@@ -375,16 +698,19 @@ func main() {
 			c.JSON(401, gin.H{"error": "No autenticado"})
 			return
 		}
+		log.Printf("[CREAR LIGA] user_id obtenido del contexto: %v (tipo: %T)", userID, userID)
 		league := models.League{
 			Name:     req.Name,
 			Code:     req.Code,
 			PlayerID: userID.(uint),
 		}
+		log.Printf("[CREAR LIGA] Liga a crear: Name=%s, Code=%s, PlayerID=%d", league.Name, league.Code, league.PlayerID)
 		if err := database.DB.Create(&league).Error; err != nil {
+			log.Printf("[CREAR LIGA] Error al crear liga: %v", err)
 			c.JSON(500, gin.H{"error": "Error creando liga"})
 			return
 		}
-		log.Printf("[CREAR LIGA] Liga creada con id=%d, nombre=%s", league.ID, league.Name)
+		log.Printf("[CREAR LIGA] Liga creada exitosamente - ID=%d, Nombre=%s, PlayerID=%d", league.ID, league.Name, league.PlayerID)
 		// Poblar tabla PilotByLeague con los pilotos generales
 		var pilots []models.Pilot
 		database.DB.Find(&pilots)
@@ -408,11 +734,14 @@ func main() {
 		} else {
 			// Crear el registro en player_by_league solo para el creador
 			playerByLeague := models.PlayerByLeague{
-				PlayerID:    uint64(userID.(uint)),
-				LeagueID:    uint64(league.ID),
-				Money:       100000000, // 100M
-				TeamValue:   0,
-				OwnedPilots: "[]",
+				PlayerID:              uint64(userID.(uint)),
+				LeagueID:              uint64(league.ID),
+				Money:                 100000000, // 100M
+				TeamValue:             0,
+				OwnedPilots:           "[]",
+				OwnedTrackEngineers:   "[]",
+				OwnedChiefEngineers:   "[]",
+				OwnedTeamConstructors: "[]",
 			}
 			if err := database.DB.Create(&playerByLeague).Error; err != nil {
 				log.Printf("Error creando player_by_league: %v", err)
@@ -497,6 +826,65 @@ func main() {
 				}
 			}
 		}
+
+		// Poblar tabla market_items con todos los elementos disponibles para el mercado
+		log.Printf("[CREAR LIGA] Poblando market_items para liga %d", league.ID)
+
+		// Añadir todos los pilotos
+		for _, pbl := range pilotsByLeague {
+			marketItem := models.MarketItem{
+				LeagueID: league.ID,
+				ItemType: "pilot",
+				ItemID:   pbl.ID,
+				IsActive: true,
+			}
+			database.DB.Create(&marketItem)
+		}
+
+		// Añadir todos los track engineers
+		var allTrackEngineers []models.TrackEngineerByLeague
+		database.DB.Where("league_id = ?", league.ID).Find(&allTrackEngineers)
+		for _, teb := range allTrackEngineers {
+			marketItem := models.MarketItem{
+				LeagueID: league.ID,
+				ItemType: "track_engineer",
+				ItemID:   teb.ID,
+				IsActive: true,
+			}
+			database.DB.Create(&marketItem)
+		}
+
+		// Añadir todos los chief engineers
+		var allChiefEngineers []models.ChiefEngineerByLeague
+		database.DB.Where("league_id = ?", league.ID).Find(&allChiefEngineers)
+		for _, ceb := range allChiefEngineers {
+			marketItem := models.MarketItem{
+				LeagueID: league.ID,
+				ItemType: "chief_engineer",
+				ItemID:   ceb.ID,
+				IsActive: true,
+			}
+			database.DB.Create(&marketItem)
+		}
+
+		// Añadir todos los team constructors
+		var allTeamConstructors []models.TeamConstructorByLeague
+		database.DB.Where("league_id = ?", league.ID).Find(&allTeamConstructors)
+		for _, tcb := range allTeamConstructors {
+			marketItem := models.MarketItem{
+				LeagueID: league.ID,
+				ItemType: "team_constructor",
+				ItemID:   tcb.ID,
+				IsActive: true,
+			}
+			database.DB.Create(&marketItem)
+		}
+
+		log.Printf("[CREAR LIGA] Market_items poblado correctamente")
+
+		// Crear el mercado inicial de la liga (8 elementos aleatorios)
+		refreshMarketForLeague(league.ID)
+
 		c.JSON(201, gin.H{"league": league})
 	})
 
@@ -656,9 +1044,10 @@ func main() {
 		endTime := time.Now().Add(24 * time.Hour)
 		for _, pbl := range libres {
 			auction := Auction{
-				PilotByLeagueID: pbl.ID,
-				LeagueID:        req.LeagueID,
-				EndTime:         endTime,
+				ItemType: "pilot",
+				ItemID:   pbl.ID,
+				LeagueID: req.LeagueID,
+				EndTime:  endTime,
 			}
 			database.DB.Create(&auction)
 			auctions = append(auctions, auction)
@@ -687,7 +1076,7 @@ func main() {
 		}
 		// Buscar el piloto en la liga
 		var pbl models.PilotByLeague
-		if err := database.DB.First(&pbl, auction.PilotByLeagueID).Error; err != nil {
+		if err := database.DB.First(&pbl, auction.ItemID).Error; err != nil {
 			c.JSON(404, gin.H{"error": "Piloto en subasta no encontrado"})
 			return
 		}
@@ -725,7 +1114,7 @@ func main() {
 		playerLeague.Money -= float64(maxBid.Valor)
 		// Actualizar owned_pilots y team_value
 		var owned []uint
-		if len(playerLeague.OwnedPilots) > 0 {
+		if playerLeague.OwnedPilots != "" && playerLeague.OwnedPilots != "[]" {
 			_ = json.Unmarshal([]byte(playerLeague.OwnedPilots), &owned)
 		}
 		// Añadir solo si no está ya presente
@@ -797,61 +1186,270 @@ func main() {
 		c.JSON(200, gin.H{"pilots": result})
 	})
 
-	// Adaptar la lógica de pujas para NO descontar dinero al pujar
+	// Endpoint para obtener la plantilla completa de un jugador (pilotos + ingenieros + equipos)
+	router.GET("/api/players/:player_id/team", func(c *gin.Context) {
+		playerID := c.Param("player_id")
+		leagueID := c.Query("league_id")
+		if playerID == "" || leagueID == "" {
+			c.JSON(400, gin.H{"error": "Faltan parámetros player_id o league_id"})
+			return
+		}
+
+		log.Printf("[TEAM] Obteniendo plantilla para player_id=%s, league_id=%s", playerID, leagueID)
+
+		// Obtener PlayerByLeague para acceder a las columnas owned_*
+		var playerLeague models.PlayerByLeague
+		if err := database.DB.Where("player_id = ? AND league_id = ?", playerID, leagueID).First(&playerLeague).Error; err != nil {
+			log.Printf("[TEAM] Error obteniendo PlayerByLeague: %v", err)
+			c.JSON(404, gin.H{"error": "Jugador no encontrado en la liga"})
+			return
+		}
+
+		log.Printf("[TEAM] PlayerByLeague encontrado: Money=%.2f, TeamValue=%.2f", playerLeague.Money, playerLeague.TeamValue)
+
+		result := map[string]interface{}{
+			"player_id":         playerLeague.PlayerID,
+			"league_id":         playerLeague.LeagueID,
+			"money":             playerLeague.Money,
+			"team_value":        playerLeague.TeamValue,
+			"pilots":            []map[string]interface{}{},
+			"track_engineers":   []map[string]interface{}{},
+			"chief_engineers":   []map[string]interface{}{},
+			"team_constructors": []map[string]interface{}{},
+		}
+
+		// 1. Obtener pilotos propios
+		var ownedPilotIDs []uint
+		if playerLeague.OwnedPilots != "" && playerLeague.OwnedPilots != "[]" {
+			_ = json.Unmarshal([]byte(playerLeague.OwnedPilots), &ownedPilotIDs)
+		}
+		log.Printf("[TEAM] Pilotos propios: %v", ownedPilotIDs)
+
+		if len(ownedPilotIDs) > 0 {
+			var pilotsByLeague []models.PilotByLeague
+			database.DB.Where("league_id = ? AND pilot_id IN ? AND owner_id = ?", leagueID, ownedPilotIDs, playerID).Find(&pilotsByLeague)
+
+			var pilots []map[string]interface{}
+			for _, pbl := range pilotsByLeague {
+				var pilot models.Pilot
+				database.DB.First(&pilot, pbl.PilotID)
+				pilots = append(pilots, map[string]interface{}{
+					"id":                 pilot.ID,
+					"pilot_by_league_id": pbl.ID,
+					"driver_name":        pilot.DriverName,
+					"team":               pilot.Team,
+					"image_url":          pilot.ImageURL,
+					"mode":               pilot.Mode,
+					"total_points":       pilot.TotalPoints,
+					"value":              pilot.Value,
+					"clausulatime":       pbl.Clausulatime,
+					"clausula_value":     pbl.ClausulaValue,
+					"owner_id":           pbl.OwnerID,
+					"type":               "pilot",
+				})
+			}
+			result["pilots"] = pilots
+			log.Printf("[TEAM] %d pilotos agregados", len(pilots))
+		}
+
+		// 2. Obtener track engineers propios - Los IDs son de track_engineer_by_league.id
+		var ownedTrackEngIDs []uint
+		if playerLeague.OwnedTrackEngineers != "" && playerLeague.OwnedTrackEngineers != "[]" {
+			_ = json.Unmarshal([]byte(playerLeague.OwnedTrackEngineers), &ownedTrackEngIDs)
+		}
+		log.Printf("[TEAM] Track Engineers propios (IDs de track_engineer_by_league): %v", ownedTrackEngIDs)
+
+		if len(ownedTrackEngIDs) > 0 {
+			var trackEngineers []map[string]interface{}
+			for _, tebID := range ownedTrackEngIDs {
+				var teb models.TrackEngineerByLeague
+				if err := database.DB.Where("id = ? AND league_id = ? AND owner_id = ?", tebID, leagueID, playerID).First(&teb).Error; err == nil {
+					var te models.TrackEngineer
+					database.DB.First(&te, teb.TrackEngineerID)
+
+					// Buscar piloto relacionado
+					var pilot models.Pilot
+					pilotTeam := ""
+					if err := database.DB.Where("track_engineer_id = ?", te.ID).First(&pilot).Error; err == nil {
+						pilotTeam = pilot.Team
+					}
+
+					// Arreglar ruta de imagen
+					imageURL := te.ImageURL
+					if imageURL != "" && !strings.Contains(imageURL, "ingenierosdepista/") {
+						imageURL = "images/ingenierosdepista/" + strings.TrimPrefix(imageURL, "images/")
+					}
+
+					trackEngineers = append(trackEngineers, map[string]interface{}{
+						"id":                teb.ID,
+						"track_engineer_id": te.ID,
+						"name":              te.Name,
+						"image_url":         imageURL,
+						"value":             te.Value,
+						"team":              pilotTeam,
+						"owner_id":          teb.OwnerID,
+						"type":              "track_engineer",
+					})
+				}
+			}
+			result["track_engineers"] = trackEngineers
+			log.Printf("[TEAM] %d track engineers agregados", len(trackEngineers))
+		}
+
+		// 3. Obtener chief engineers propios - Los IDs son de chief_engineer_by_league.id
+		var ownedChiefEngIDs []uint
+		if playerLeague.OwnedChiefEngineers != "" && playerLeague.OwnedChiefEngineers != "[]" {
+			_ = json.Unmarshal([]byte(playerLeague.OwnedChiefEngineers), &ownedChiefEngIDs)
+		}
+		log.Printf("[TEAM] Chief Engineers propios (IDs de chief_engineer_by_league): %v", ownedChiefEngIDs)
+
+		if len(ownedChiefEngIDs) > 0 {
+			var chiefEngineers []map[string]interface{}
+			for _, cebID := range ownedChiefEngIDs {
+				var ceb models.ChiefEngineerByLeague
+				if err := database.DB.Where("id = ? AND league_id = ? AND owner_id = ?", cebID, leagueID, playerID).First(&ceb).Error; err == nil {
+					var ce models.ChiefEngineer
+					database.DB.First(&ce, ceb.ChiefEngineerID)
+
+					chiefEngineers = append(chiefEngineers, map[string]interface{}{
+						"id":                ce.ID,
+						"chief_engineer_id": ce.ID,
+						"name":              ce.Name,
+						"image_url":         ce.ImageURL,
+						"value":             ce.Value,
+						"team":              ce.Team,
+						"owner_id":          ceb.OwnerID,
+						"type":              "chief_engineer",
+					})
+				}
+			}
+			result["chief_engineers"] = chiefEngineers
+			log.Printf("[TEAM] %d chief engineers agregados", len(chiefEngineers))
+		}
+
+		// 4. Obtener team constructors propios - Los IDs son de team_constructor_by_league.id
+		var ownedTeamConsIDs []uint
+		if playerLeague.OwnedTeamConstructors != "" && playerLeague.OwnedTeamConstructors != "[]" {
+			_ = json.Unmarshal([]byte(playerLeague.OwnedTeamConstructors), &ownedTeamConsIDs)
+		}
+		log.Printf("[TEAM] Team Constructors propios (IDs de team_constructor_by_league): %v", ownedTeamConsIDs)
+
+		if len(ownedTeamConsIDs) > 0 {
+			var teamConstructors []map[string]interface{}
+			for _, tcbID := range ownedTeamConsIDs {
+				var tcb models.TeamConstructorByLeague
+				if err := database.DB.Where("id = ? AND league_id = ? AND owner_id = ?", tcbID, leagueID, playerID).First(&tcb).Error; err == nil {
+					var tc models.TeamConstructor
+					database.DB.First(&tc, tcb.TeamConstructorID)
+
+					// Buscar pilotos del equipo
+					var pilots []models.Pilot
+					database.DB.Where("teamconstructor_id = ? AND mode = ?", tc.ID, "race").Find(&pilots)
+					var pilotNames []string
+					for _, pilot := range pilots {
+						pilotNames = append(pilotNames, pilot.DriverName)
+					}
+
+					teamConstructors = append(teamConstructors, map[string]interface{}{
+						"id":                  tc.ID,
+						"team_constructor_id": tc.ID,
+						"name":                tc.Name,
+						"image_url":           tc.ImageURL,
+						"value":               tc.Value,
+						"team":                tc.Name,
+						"pilots":              pilotNames,
+						"pilot_count":         len(pilotNames),
+						"owner_id":            tcb.OwnerID,
+						"type":                "team_constructor",
+					})
+				}
+			}
+			result["team_constructors"] = teamConstructors
+			log.Printf("[TEAM] %d team constructors agregados", len(teamConstructors))
+		}
+
+		log.Printf("[TEAM] Plantilla completa enviada: %d pilotos, %d track eng, %d chief eng, %d equipos",
+			len(result["pilots"].([]map[string]interface{})),
+			len(result["track_engineers"].([]map[string]interface{})),
+			len(result["chief_engineers"].([]map[string]interface{})),
+			len(result["team_constructors"].([]map[string]interface{})))
+
+		c.JSON(200, gin.H{"team": result})
+	})
+
+	// Función unificada de pujas para pilotos, ingenieros y equipos
 	router.POST("/api/auctions/bid", func(c *gin.Context) {
 		var req struct {
-			PilotByLeagueID uint    `json:"pilot_by_league_id"`
-			LeagueID        uint    `json:"league_id"`
-			PlayerID        uint    `json:"player_id"`
-			Valor           float64 `json:"valor"`
+			ItemType string  `json:"item_type"` // "pilot", "track_engineer", "chief_engineer", "team_constructor"
+			ItemID   uint    `json:"item_id"`   // ID del elemento específico
+			LeagueID uint    `json:"league_id"`
+			PlayerID uint    `json:"player_id"`
+			Valor    float64 `json:"valor"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(400, gin.H{"error": "Datos inválidos"})
 			return
 		}
-		fmt.Printf("[BID] Recibido: pilot_by_league_id=%v, league_id=%v, player_id=%v, valor=%v\n", req.PilotByLeagueID, req.LeagueID, req.PlayerID, req.Valor)
+		log.Printf("[BID] ===== NUEVA PUJA =====")
+		log.Printf("[BID] item_type=%s, item_id=%d, league_id=%d, player_id=%d, valor=%.2f", req.ItemType, req.ItemID, req.LeagueID, req.PlayerID, req.Valor)
+
 		var auction Auction
-		if err := database.DB.Where("pilot_by_league_id = ? AND league_id = ? AND end_time > ?", req.PilotByLeagueID, req.LeagueID, time.Now()).First(&auction).Error; err != nil {
+		if err := database.DB.Where("item_type = ? AND item_id = ? AND league_id = ? AND end_time > ?", req.ItemType, req.ItemID, req.LeagueID, time.Now()).First(&auction).Error; err != nil {
+			log.Printf("[BID] No existe subasta activa, creando nueva para %s ID %d", req.ItemType, req.ItemID)
 			// No existe subasta, crearla
 			auction = Auction{
-				PilotByLeagueID: req.PilotByLeagueID,
-				LeagueID:        req.LeagueID,
-				EndTime:         time.Now().Add(24 * time.Hour),
-				Bids:            []byte("[]"),
+				ItemType: req.ItemType,
+				ItemID:   req.ItemID,
+				LeagueID: req.LeagueID,
+				EndTime:  time.Now().Add(24 * time.Hour),
+				Bids:     []byte("[]"),
 			}
-			database.DB.Create(&auction)
+			if err := database.DB.Create(&auction).Error; err != nil {
+				log.Printf("[BID] ERROR creando subasta: %v", err)
+				c.JSON(500, gin.H{"error": "Error creando subasta"})
+				return
+			}
+			log.Printf("[BID] Subasta creada exitosamente: ID=%d", auction.ID)
+		} else {
+			log.Printf("[BID] Subasta existente encontrada: ID=%d, EndTime=%v", auction.ID, auction.EndTime)
 		}
-		fmt.Printf("[BID] auction.Bids antes de parsear: %s\n", string(auction.Bids))
+		log.Printf("[BID] Bids actuales en subasta: %s", string(auction.Bids))
 		// Leer bids actuales
 		var bids []Bid
 		if len(auction.Bids) > 0 {
-			_ = json.Unmarshal(auction.Bids, &bids)
+			if err := json.Unmarshal(auction.Bids, &bids); err != nil {
+				log.Printf("[BID] ERROR parseando bids: %v", err)
+				bids = []Bid{}
+			}
 		}
-		fmt.Printf("[BID] Bids antes de actualizar: %+v\n", bids)
+		log.Printf("[BID] Bids parseados: %+v", bids)
+
 		// Buscar si el jugador ya tiene una puja
 		found := false
 		for i, b := range bids {
 			if b.PlayerID == req.PlayerID {
-				fmt.Printf("[BID] Actualizando puja existente de player_id=%v de %v a %v\n", b.PlayerID, bids[i].Valor, req.Valor)
+				log.Printf("[BID] Actualizando puja existente de player_id=%d de %.2f a %.2f", b.PlayerID, bids[i].Valor, req.Valor)
 				bids[i].Valor = req.Valor // Actualiza el valor de la puja existente
 				found = true
 				break
 			}
 		}
 		if !found {
-			fmt.Printf("[BID] Añadiendo nueva puja para player_id=%v valor=%v\n", req.PlayerID, req.Valor)
+			log.Printf("[BID] Añadiendo nueva puja para player_id=%d valor=%.2f", req.PlayerID, req.Valor)
 			bids = append(bids, Bid{PlayerID: req.PlayerID, Valor: req.Valor})
 		}
-		fmt.Printf("[BID] Bids después de actualizar: %+v\n", bids)
+		log.Printf("[BID] Bids después de actualizar: %+v", bids)
+
 		bidsJSON, _ := json.Marshal(bids)
 		auction.Bids = bidsJSON
-		fmt.Printf("[BID] auction.Bids antes de guardar: %s\n", string(auction.Bids))
+		log.Printf("[BID] JSON final a guardar: %s", string(bidsJSON))
+
 		if err := database.DB.Save(&auction).Error; err != nil {
+			log.Printf("[BID] ERROR guardando subasta: %v", err)
 			c.JSON(500, gin.H{"error": "Error guardando la puja"})
 			return
 		}
-		fmt.Printf("[BID] auction.Bids después de guardar: %s\n", string(auction.Bids))
-		fmt.Printf("[BID] Bids guardados en DB: %s\n", string(bidsJSON))
+		log.Printf("[BID] Puja guardada exitosamente en subasta ID %d", auction.ID)
 		c.JSON(200, gin.H{"message": "Puja registrada", "auction_id": auction.ID})
 	})
 
@@ -866,95 +1464,254 @@ func main() {
 			c.JSON(404, gin.H{"error": "Liga no encontrada"})
 			return
 		}
-		var ids []uint
-		shouldRefresh := league.MarketPilots == nil || len(league.MarketPilots) == 0
-		if league.MarketNextRefresh == nil || league.MarketNextRefresh.Before(time.Now()) {
-			shouldRefresh = true
+
+		// Verificar si necesita refrescar el mercado
+		var marketItemCount int64
+		err := database.DB.Model(&models.MarketItem{}).Where("league_id = ? AND is_in_market = ?", leagueID, true).Count(&marketItemCount).Error
+		if err != nil {
+			log.Printf("[MARKET] Error contando elementos en mercado (probablemente falta columna is_in_market): %v", err)
+			// Fallback: usar el método anterior temporalmente
+			shouldRefresh := league.MarketPilots == nil || len(league.MarketPilots) == 0
+			if league.MarketNextRefresh == nil || league.MarketNextRefresh.Before(time.Now()) {
+				shouldRefresh = true
+			}
+			if shouldRefresh {
+				refreshMarketForLeague(league.ID)
+				next := time.Now().Add(24 * time.Hour)
+				league.MarketNextRefresh = &next
+				database.DB.Save(&league)
+			}
+		} else {
+			log.Printf("[MARKET] Elementos actualmente en mercado: %d", marketItemCount)
+			shouldRefresh := marketItemCount == 0
+			if league.MarketNextRefresh == nil || league.MarketNextRefresh.Before(time.Now()) {
+				shouldRefresh = true
+			}
+			if shouldRefresh {
+				log.Printf("[MARKET] Refrescando mercado para liga %s", leagueID)
+				refreshMarketForLeague(league.ID)
+				next := time.Now().Add(24 * time.Hour)
+				league.MarketNextRefresh = &next
+				database.DB.Save(&league)
+			}
 		}
-		if shouldRefresh {
-			refreshMarketForLeague(league.ID)
-			next := time.Now().Add(24 * time.Hour)
-			league.MarketNextRefresh = &next
-			database.DB.Save(&league)
-			database.DB.First(&league, leagueID)
-		}
-		if league.MarketPilots != nil && len(league.MarketPilots) > 0 {
-			_ = json.Unmarshal(league.MarketPilots, &ids)
-		}
-		log.Printf("IDs leídos de market_pilots para la liga %s: %v", leagueID, ids)
-		var libres []models.PilotByLeague
-		if len(ids) > 0 {
-			database.DB.Where("id IN ?", ids).Find(&libres)
-		}
+
 		var result []map[string]interface{}
-		for _, pbl := range libres {
-			var pilot models.Pilot
-			if err := database.DB.First(&pilot, pbl.PilotID).Error; err != nil {
-				continue
-			}
-			// Buscar la subasta activa para este piloto en la liga
-			var auction Auction
-			numBids := 0
-			if err := database.DB.Where("pilot_by_league_id = ? AND league_id = ? AND end_time > ?", pbl.ID, pbl.LeagueID, time.Now()).First(&auction).Error; err == nil {
-				if auction.Bids != nil && len(auction.Bids) > 0 {
-					var bids []Bid
-					_ = json.Unmarshal(auction.Bids, &bids)
-					numBids = len(bids)
+
+		// Obtener elementos del mercado que están marcados como is_in_market = true
+		var marketItems []models.MarketItem
+		database.DB.Where("league_id = ? AND is_active = ? AND is_in_market = ?", leagueID, true, true).Find(&marketItems)
+
+		log.Printf("[MARKET] Consulta ejecutada: league_id=%s, is_active=true, is_in_market=true", leagueID)
+		log.Printf("[MARKET] Elementos encontrados con is_in_market=true: %d", len(marketItems))
+
+		// Si no hay elementos marcados, forzar refresh del mercado
+		if len(marketItems) == 0 {
+			log.Printf("[MARKET] No hay elementos marcados, forzando refresh del mercado")
+			refreshMarketForLeague(league.ID)
+			// Volver a consultar después del refresh
+			database.DB.Where("league_id = ? AND is_active = ? AND is_in_market = ?", leagueID, true, true).Find(&marketItems)
+			log.Printf("[MARKET] Elementos encontrados después del refresh: %d", len(marketItems))
+		}
+
+		log.Printf("[MARKET] Elementos en el mercado para liga %s: %d", leagueID, len(marketItems))
+		for _, item := range marketItems {
+			log.Printf("[MARKET] - Tipo: %s, ItemID: %d", item.ItemType, item.ItemID)
+		}
+
+		for _, item := range marketItems {
+
+			switch item.ItemType {
+			case "pilot":
+				var pbl models.PilotByLeague
+				if err := database.DB.First(&pbl, item.ItemID).Error; err != nil {
+					continue
 				}
+				var pilot models.Pilot
+				if err := database.DB.First(&pilot, pbl.PilotID).Error; err != nil {
+					continue
+				}
+
+				// Buscar subasta activa
+				var auction Auction
+				numBids := 0
+				if err := database.DB.Where("item_type = ? AND item_id = ? AND league_id = ? AND end_time > ?", "pilot", pbl.ID, pbl.LeagueID, time.Now()).First(&auction).Error; err == nil {
+					if auction.Bids != nil && len(auction.Bids) > 0 {
+						var bids []Bid
+						_ = json.Unmarshal(auction.Bids, &bids)
+						numBids = len(bids)
+					}
+					log.Printf("[MARKET] Subasta encontrada para pilot ID %d: %d pujas", pbl.ID, numBids)
+				} else {
+					log.Printf("[MARKET] No hay subasta activa para pilot ID %d: %v", pbl.ID, err)
+				}
+
+				marketItem := map[string]interface{}{
+					"id":             pbl.ID,
+					"type":           "pilot",
+					"pilot_id":       pilot.ID,
+					"driver_name":    pilot.DriverName,
+					"team":           pilot.Team,
+					"image_url":      pilot.ImageURL,
+					"mode":           pilot.Mode,
+					"total_points":   pilot.TotalPoints,
+					"value":          pilot.Value,
+					"num_bids":       numBids,
+					"owner_id":       pbl.OwnerID,
+					"is_direct_sale": false,
+				}
+				result = append(result, marketItem)
+
+			case "track_engineer":
+				var teb models.TrackEngineerByLeague
+				if err := database.DB.First(&teb, item.ItemID).Error; err != nil {
+					continue
+				}
+				var te models.TrackEngineer
+				if err := database.DB.First(&te, teb.TrackEngineerID).Error; err != nil {
+					continue
+				}
+
+				// Buscar piloto relacionado si existe
+				var pilot models.Pilot
+				pilotName := ""
+				pilotTeam := ""
+				if err := database.DB.Where("track_engineer_id = ?", te.ID).First(&pilot).Error; err == nil {
+					pilotName = pilot.DriverName
+					pilotTeam = pilot.Team
+				}
+
+				// Arreglar ruta de imagen para ingenieros de pista
+				imageURL := te.ImageURL
+				if imageURL != "" && !strings.Contains(imageURL, "ingenierosdepista/") {
+					imageURL = "images/ingenierosdepista/" + strings.TrimPrefix(imageURL, "images/")
+				}
+
+				// Buscar subasta activa
+				var auction Auction
+				numBids := 0
+				log.Printf("[MARKET] Buscando subasta para track_engineer: item_type=track_engineer, item_id=%d, league_id=%d", teb.ID, teb.LeagueID)
+				if err := database.DB.Where("item_type = ? AND item_id = ? AND league_id = ? AND end_time > ?", "track_engineer", teb.ID, teb.LeagueID, time.Now()).First(&auction).Error; err == nil {
+					log.Printf("[MARKET] Subasta encontrada: ID=%d, Bids=%s", auction.ID, string(auction.Bids))
+					if auction.Bids != nil && len(auction.Bids) > 0 && string(auction.Bids) != "[]" {
+						var bids []Bid
+						if err := json.Unmarshal(auction.Bids, &bids); err == nil {
+							numBids = len(bids)
+							log.Printf("[MARKET] Bids parseados correctamente: %d pujas", numBids)
+						} else {
+							log.Printf("[MARKET] ERROR parseando bids: %v", err)
+						}
+					}
+					log.Printf("[MARKET] Subasta encontrada para track_engineer ID %d: %d pujas", teb.ID, numBids)
+				} else {
+					log.Printf("[MARKET] No hay subasta activa para track_engineer ID %d: %v", teb.ID, err)
+				}
+
+				marketItem := map[string]interface{}{
+					"id":         teb.ID,
+					"type":       "track_engineer",
+					"name":       te.Name,
+					"image_url":  imageURL,
+					"value":      te.Value,
+					"pilot_name": pilotName,
+					"team":       pilotTeam,
+					"owner_id":   teb.OwnerID,
+					"num_bids":   numBids,
+				}
+				result = append(result, marketItem)
+
+			case "chief_engineer":
+				var ceb models.ChiefEngineerByLeague
+				if err := database.DB.First(&ceb, item.ItemID).Error; err != nil {
+					continue
+				}
+				var ce models.ChiefEngineer
+				if err := database.DB.First(&ce, ceb.ChiefEngineerID).Error; err != nil {
+					continue
+				}
+
+				// Buscar subasta activa
+				var auction Auction
+				numBids := 0
+				log.Printf("[MARKET] Buscando subasta para chief_engineer: item_type=chief_engineer, item_id=%d, league_id=%d", ceb.ID, ceb.LeagueID)
+				if err := database.DB.Where("item_type = ? AND item_id = ? AND league_id = ? AND end_time > ?", "chief_engineer", ceb.ID, ceb.LeagueID, time.Now()).First(&auction).Error; err == nil {
+					log.Printf("[MARKET] Subasta encontrada: ID=%d, Bids=%s", auction.ID, string(auction.Bids))
+					if auction.Bids != nil && len(auction.Bids) > 0 && string(auction.Bids) != "[]" {
+						var bids []Bid
+						if err := json.Unmarshal(auction.Bids, &bids); err == nil {
+							numBids = len(bids)
+							log.Printf("[MARKET] Bids parseados correctamente: %d pujas", numBids)
+						} else {
+							log.Printf("[MARKET] ERROR parseando bids: %v", err)
+						}
+					}
+					log.Printf("[MARKET] Subasta encontrada para chief_engineer ID %d: %d pujas", ceb.ID, numBids)
+				} else {
+					log.Printf("[MARKET] No hay subasta activa para chief_engineer ID %d: %v", ceb.ID, err)
+				}
+
+				marketItem := map[string]interface{}{
+					"id":        ceb.ID,
+					"type":      "chief_engineer",
+					"name":      ce.Name,
+					"image_url": ce.ImageURL,
+					"value":     ce.Value,
+					"team":      ce.Team,
+					"owner_id":  ceb.OwnerID,
+					"num_bids":  numBids,
+				}
+				result = append(result, marketItem)
+
+			case "team_constructor":
+				var tcb models.TeamConstructorByLeague
+				if err := database.DB.First(&tcb, item.ItemID).Error; err != nil {
+					continue
+				}
+				var tc models.TeamConstructor
+				if err := database.DB.First(&tc, tcb.TeamConstructorID).Error; err != nil {
+					continue
+				}
+
+				// Buscar pilotos relacionados con este equipo
+				var pilots []models.Pilot
+				database.DB.Where("teamconstructor_id = ? AND mode = ?", tc.ID, "race").Find(&pilots)
+
+				var pilotNames []string
+				for _, pilot := range pilots {
+					pilotNames = append(pilotNames, pilot.DriverName)
+				}
+
+				// Buscar subasta activa
+				var auction Auction
+				numBids := 0
+				if err := database.DB.Where("item_type = ? AND item_id = ? AND league_id = ? AND end_time > ?", "team_constructor", tcb.ID, tcb.LeagueID, time.Now()).First(&auction).Error; err == nil {
+					if auction.Bids != nil && len(auction.Bids) > 0 {
+						var bids []Bid
+						_ = json.Unmarshal(auction.Bids, &bids)
+						numBids = len(bids)
+					}
+					log.Printf("[MARKET] Subasta encontrada para team_constructor ID %d: %d pujas", tcb.ID, numBids)
+				} else {
+					log.Printf("[MARKET] No hay subasta activa para team_constructor ID %d: %v", tcb.ID, err)
+				}
+
+				marketItem := map[string]interface{}{
+					"id":          tcb.ID,
+					"type":        "team_constructor",
+					"name":        tc.Name,
+					"image_url":   tc.ImageURL,
+					"value":       tc.Value,
+					"owner_id":    tcb.OwnerID,
+					"pilots":      pilotNames,
+					"pilot_count": len(pilotNames),
+					"team":        tc.Name, // Añadir el nombre del equipo para los colores
+					"num_bids":    numBids,
+				}
+				result = append(result, marketItem)
 			}
-			item := map[string]interface{}{
-				"id":             pbl.ID,
-				"clausulatime":   pbl.Clausulatime,
-				"clausula_value": pbl.ClausulaValue,
-				"pilot_id":       pilot.ID,
-				"driver_name":    pilot.DriverName,
-				"team":           pilot.Team,
-				"image_url":      pilot.ImageURL,
-				"mode":           pilot.Mode,
-				"total_points":   pilot.TotalPoints,
-				"value":          pilot.Value,
-				"week_points":    0,
-				"num_bids":       numBids,
-				"is_direct_sale": false,
-			}
-			result = append(result, item)
 		}
-		// Añadir pilotos en venta directa de usuarios (venta no nulo y venta_expires_at en el futuro)
-		var ventas []models.PilotByLeague
-		database.DB.Where("league_id = ? AND venta IS NOT NULL AND venta_expires_at > ?", leagueID, time.Now()).Find(&ventas)
-		// Evitar duplicados
-		idSet := make(map[uint]bool)
-		for _, id := range ids {
-			idSet[id] = true
-		}
-		for _, pbl := range ventas {
-			if idSet[pbl.ID] {
-				continue
-			}
-			var pilot models.Pilot
-			if err := database.DB.First(&pilot, pbl.PilotID).Error; err != nil {
-				continue
-			}
-			item := map[string]interface{}{
-				"id":               pbl.ID,
-				"clausulatime":     pbl.Clausulatime,
-				"clausula_value":   pbl.ClausulaValue,
-				"pilot_id":         pilot.ID,
-				"driver_name":      pilot.DriverName,
-				"team":             pilot.Team,
-				"image_url":        pilot.ImageURL,
-				"mode":             pilot.Mode,
-				"total_points":     pilot.TotalPoints,
-				"value":            pilot.Value,
-				"week_points":      0,
-				"venta":            pbl.Venta,
-				"venta_expires_at": pbl.VentaExpiresAt,
-				"owner_id":         pbl.OwnerID,
-				"is_direct_sale":   true,
-			}
-			result = append(result, item)
-		}
-		log.Printf("Pilotos que se envían al frontend: %+v", result)
+
+		log.Printf("[MARKET] Elementos enviados al frontend: %d", len(result))
 		c.JSON(200, gin.H{"market": result})
 	})
 
@@ -979,16 +1736,42 @@ func main() {
 			c.JSON(400, gin.H{"error": "Falta league_id"})
 			return
 		}
+
+		log.Printf("[REFRESH-AND-FINISH] ===== INICIANDO FINALIZACIÓN =====")
+		log.Printf("[REFRESH-AND-FINISH] LeagueID: %s", leagueID)
+		log.Printf("[REFRESH-AND-FINISH] Tiempo actual: %v", time.Now())
+
+		// Primero buscar TODAS las subastas de la liga (incluso las expiradas)
+		var allAuctions []Auction
+		database.DB.Where("league_id = ?", leagueID).Find(&allAuctions)
+		log.Printf("[REFRESH-AND-FINISH] Total subastas en la liga: %d", len(allAuctions))
+
+		for i, auction := range allAuctions {
+			log.Printf("[REFRESH-AND-FINISH] Subasta %d: ID=%d, Type=%s, ItemID=%d, EndTime=%v, Activa=%t",
+				i+1, auction.ID, auction.ItemType, auction.ItemID, auction.EndTime, auction.EndTime.After(time.Now()))
+		}
+
+		// Ahora buscar solo las activas
 		var auctions []Auction
 		database.DB.Where("league_id = ? AND end_time > ?", leagueID, time.Now()).Find(&auctions)
+		log.Printf("[REFRESH-AND-FINISH] Subastas activas encontradas: %d", len(auctions))
 		finalizados := 0
-		for _, auction := range auctions {
+		for i, auction := range auctions {
+			log.Printf("[REFRESH-AND-FINISH] Procesando subasta %d/%d: ID=%d, Type=%s, ItemID=%d",
+				i+1, len(auctions), auction.ID, auction.ItemType, auction.ItemID)
+
 			// Buscar bids
 			var bids []Bid
 			if len(auction.Bids) > 0 {
-				_ = json.Unmarshal(auction.Bids, &bids)
+				if err := json.Unmarshal(auction.Bids, &bids); err != nil {
+					log.Printf("[REFRESH-AND-FINISH] ERROR parseando bids de subasta %d: %v", auction.ID, err)
+					continue
+				}
 			}
+			log.Printf("[REFRESH-AND-FINISH] Bids encontrados: %d - %+v", len(bids), bids)
+
 			if len(bids) == 0 {
+				log.Printf("[REFRESH-AND-FINISH] No hay pujas en subasta %d, saltando", auction.ID)
 				continue // No hay pujas, no se asigna
 			}
 			// Buscar la puja más alta
@@ -998,59 +1781,152 @@ func main() {
 					maxBid = bid
 				}
 			}
-			// Asignar el piloto al ganador
-			var pbl models.PilotByLeague
-			if err := database.DB.First(&pbl, auction.PilotByLeagueID).Error; err != nil {
-				continue
-			}
-			pbl.OwnerID = maxBid.PlayerID
-			pbl.Bids = []byte("[]")
-			database.DB.Save(&pbl)
-			// Actualizar PlayerByLeague del ganador
+
+			log.Printf("[REFRESH-AND-FINISH] Procesando subasta %s ID %d, ganador: %d, valor: %.2f", auction.ItemType, auction.ItemID, maxBid.PlayerID, maxBid.Valor)
+
+			// Verificar que el ganador tenga suficiente dinero
 			var playerLeague models.PlayerByLeague
-			if err := database.DB.Where("player_id = ? AND league_id = ?", maxBid.PlayerID, pbl.LeagueID).First(&playerLeague).Error; err != nil {
+			if err := database.DB.Where("player_id = ? AND league_id = ?", maxBid.PlayerID, auction.LeagueID).First(&playerLeague).Error; err != nil {
+				log.Printf("[REFRESH-AND-FINISH] Error: jugador %d no encontrado en liga %d", maxBid.PlayerID, auction.LeagueID)
 				continue
 			}
 			if playerLeague.Money < float64(maxBid.Valor) {
+				log.Printf("[REFRESH-AND-FINISH] Error: jugador %d no tiene suficiente dinero (%.2f < %.2f)", maxBid.PlayerID, playerLeague.Money, maxBid.Valor)
 				continue
 			}
+
+			// Descontar dinero
 			playerLeague.Money -= float64(maxBid.Valor)
-			// Actualizar owned_pilots y team_value
-			var owned []uint
-			if len(playerLeague.OwnedPilots) > 0 {
-				_ = json.Unmarshal([]byte(playerLeague.OwnedPilots), &owned)
-			}
-			alreadyOwned := false
-			for _, pid := range owned {
-				if pid == pbl.PilotID {
-					alreadyOwned = true
-					break
+
+			// Asignar según el tipo
+			switch auction.ItemType {
+			case "pilot":
+				var pbl models.PilotByLeague
+				if err := database.DB.First(&pbl, auction.ItemID).Error; err != nil {
+					log.Printf("[REFRESH-AND-FINISH] Error: pilot_by_league %d no encontrado", auction.ItemID)
+					continue
+				}
+				pbl.OwnerID = maxBid.PlayerID
+				database.DB.Save(&pbl)
+
+				// Actualizar owned_pilots
+				if err := updatePlayerOwnership(maxBid.PlayerID, auction.LeagueID, "pilot", pbl.PilotID, true); err != nil {
+					log.Printf("[REFRESH-AND-FINISH] Error actualizando ownership de pilot: %v", err)
+				}
+
+				// Actualizar team_value
+				var pilot models.Pilot
+				if err := database.DB.First(&pilot, pbl.PilotID).Error; err == nil {
+					playerLeague.TeamValue += pilot.Value
+				}
+
+				// Guardar histórico
+				errHist := database.DB.Exec(`INSERT INTO pilot_value_history (pilot_id, pilot_by_league_id, league_id, player_id, valor_pagado, fecha, tipo, counterparty_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, pbl.PilotID, pbl.ID, pbl.LeagueID, maxBid.PlayerID, maxBid.Valor, time.Now(), "fichaje", 0).Error
+				if errHist != nil {
+					log.Printf("[REFRESH-AND-FINISH] Error guardando histórico pilot: %v", errHist)
+				}
+
+				// Actualizar cláusula
+				if pbl.ClausulaValue == nil || maxBid.Valor > *pbl.ClausulaValue {
+					pbl.ClausulaValue = &maxBid.Valor
+				}
+				clausulaExpira := auction.EndTime.Add(14 * 24 * time.Hour)
+				pbl.Clausulatime = &clausulaExpira
+				database.DB.Save(&pbl)
+
+			case "track_engineer":
+				var teb models.TrackEngineerByLeague
+				if err := database.DB.First(&teb, auction.ItemID).Error; err != nil {
+					log.Printf("[REFRESH-AND-FINISH] Error: track_engineer_by_league %d no encontrado", auction.ItemID)
+					continue
+				}
+				log.Printf("[REFRESH-AND-FINISH] Track Engineer encontrado: ID=%d, TrackEngineerID=%d, OwnerID actual=%d", teb.ID, teb.TrackEngineerID, teb.OwnerID)
+
+				teb.OwnerID = maxBid.PlayerID
+				database.DB.Save(&teb)
+				log.Printf("[REFRESH-AND-FINISH] Track Engineer owner actualizado a: %d", maxBid.PlayerID)
+
+				// Actualizar owned_track_engineers - USAR teb.ID (track_engineer_by_league.id) NO teb.TrackEngineerID
+				log.Printf("[REFRESH-AND-FINISH] Actualizando ownership: PlayerID=%d, LeagueID=%d, TrackEngineerByLeagueID=%d", maxBid.PlayerID, auction.LeagueID, teb.ID)
+				if err := updatePlayerOwnership(maxBid.PlayerID, auction.LeagueID, "track_engineer", teb.ID, true); err != nil {
+					log.Printf("[REFRESH-AND-FINISH] ERROR actualizando ownership de track_engineer: %v", err)
+				} else {
+					log.Printf("[REFRESH-AND-FINISH] Ownership de track_engineer actualizado correctamente")
+				}
+
+				// Actualizar team_value
+				var te models.TrackEngineer
+				if err := database.DB.First(&te, teb.TrackEngineerID).Error; err == nil {
+					log.Printf("[REFRESH-AND-FINISH] Sumando valor del track engineer: %.2f", te.Value)
+					playerLeague.TeamValue += te.Value
+				} else {
+					log.Printf("[REFRESH-AND-FINISH] Error obteniendo TrackEngineer ID %d: %v", teb.TrackEngineerID, err)
+				}
+
+			case "chief_engineer":
+				var ceb models.ChiefEngineerByLeague
+				if err := database.DB.First(&ceb, auction.ItemID).Error; err != nil {
+					log.Printf("[REFRESH-AND-FINISH] Error: chief_engineer_by_league %d no encontrado", auction.ItemID)
+					continue
+				}
+				log.Printf("[REFRESH-AND-FINISH] Chief Engineer encontrado: ID=%d, ChiefEngineerID=%d, OwnerID actual=%d", ceb.ID, ceb.ChiefEngineerID, ceb.OwnerID)
+
+				ceb.OwnerID = maxBid.PlayerID
+				database.DB.Save(&ceb)
+				log.Printf("[REFRESH-AND-FINISH] Chief Engineer owner actualizado a: %d", maxBid.PlayerID)
+
+				// Actualizar owned_chief_engineers - USAR ceb.ID (chief_engineer_by_league.id) NO ceb.ChiefEngineerID
+				log.Printf("[REFRESH-AND-FINISH] Actualizando ownership: PlayerID=%d, LeagueID=%d, ChiefEngineerByLeagueID=%d", maxBid.PlayerID, auction.LeagueID, ceb.ID)
+				if err := updatePlayerOwnership(maxBid.PlayerID, auction.LeagueID, "chief_engineer", ceb.ID, true); err != nil {
+					log.Printf("[REFRESH-AND-FINISH] ERROR actualizando ownership de chief_engineer: %v", err)
+				} else {
+					log.Printf("[REFRESH-AND-FINISH] Ownership de chief_engineer actualizado correctamente")
+				}
+
+				// Actualizar team_value
+				var ce models.ChiefEngineer
+				if err := database.DB.First(&ce, ceb.ChiefEngineerID).Error; err == nil {
+					log.Printf("[REFRESH-AND-FINISH] Sumando valor del chief engineer: %.2f", ce.Value)
+					playerLeague.TeamValue += ce.Value
+				} else {
+					log.Printf("[REFRESH-AND-FINISH] Error obteniendo ChiefEngineer ID %d: %v", ceb.ChiefEngineerID, err)
+				}
+
+			case "team_constructor":
+				var tcb models.TeamConstructorByLeague
+				if err := database.DB.First(&tcb, auction.ItemID).Error; err != nil {
+					log.Printf("[REFRESH-AND-FINISH] Error: team_constructor_by_league %d no encontrado", auction.ItemID)
+					continue
+				}
+				log.Printf("[REFRESH-AND-FINISH] Team Constructor encontrado: ID=%d, TeamConstructorID=%d, OwnerID actual=%d", tcb.ID, tcb.TeamConstructorID, tcb.OwnerID)
+
+				tcb.OwnerID = maxBid.PlayerID
+				database.DB.Save(&tcb)
+				log.Printf("[REFRESH-AND-FINISH] Team Constructor owner actualizado a: %d", maxBid.PlayerID)
+
+				// Actualizar owned_team_constructors - USAR tcb.ID (team_constructor_by_league.id) NO tcb.TeamConstructorID
+				log.Printf("[REFRESH-AND-FINISH] Actualizando ownership: PlayerID=%d, LeagueID=%d, TeamConstructorByLeagueID=%d", maxBid.PlayerID, auction.LeagueID, tcb.ID)
+				if err := updatePlayerOwnership(maxBid.PlayerID, auction.LeagueID, "team_constructor", tcb.ID, true); err != nil {
+					log.Printf("[REFRESH-AND-FINISH] ERROR actualizando ownership de team_constructor: %v", err)
+				} else {
+					log.Printf("[REFRESH-AND-FINISH] Ownership de team_constructor actualizado correctamente")
+				}
+
+				// Actualizar team_value
+				var tc models.TeamConstructor
+				if err := database.DB.First(&tc, tcb.TeamConstructorID).Error; err == nil {
+					log.Printf("[REFRESH-AND-FINISH] Sumando valor del team constructor: %.2f", tc.Value)
+					playerLeague.TeamValue += tc.Value
+				} else {
+					log.Printf("[REFRESH-AND-FINISH] Error obteniendo TeamConstructor ID %d: %v", tcb.TeamConstructorID, err)
 				}
 			}
-			if !alreadyOwned {
-				owned = append(owned, pbl.PilotID)
-			}
-			ownedJSON, _ := json.Marshal(owned)
-			playerLeague.OwnedPilots = string(ownedJSON)
-			if !alreadyOwned {
-				var pilot models.Pilot
-				database.DB.First(&pilot, pbl.PilotID)
-				playerLeague.TeamValue += pilot.Value
-			}
+
+			// Guardar el player_by_league actualizado
 			database.DB.Save(&playerLeague)
 			finalizados++
-			// Guardar histórico de fichaje (refresh-and-finish)
-			errHist := database.DB.Exec(`INSERT INTO pilot_value_history (pilot_id, pilot_by_league_id, league_id, player_id, valor_pagado, fecha, tipo, counterparty_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, pbl.PilotID, pbl.ID, pbl.LeagueID, maxBid.PlayerID, maxBid.Valor, time.Now(), "fichaje", 0).Error
-			if errHist != nil {
-				log.Printf("[HISTORICO] Error guardando en pilot_value_history (refresh-and-finish): %v", errHist)
-			}
-			// En /api/market/refresh-and-finish, después de asignar el piloto al ganador:
-			if pbl.ClausulaValue == nil || maxBid.Valor > *pbl.ClausulaValue {
-				pbl.ClausulaValue = &maxBid.Valor
-			}
-			clausulaExpira := auction.EndTime.Add(14 * 24 * time.Hour)
-			pbl.Clausulatime = &clausulaExpira
-			database.DB.Save(&pbl)
+
+			log.Printf("[REFRESH-AND-FINISH] Subasta finalizada exitosamente: %s ID %d -> Player %d", auction.ItemType, auction.ItemID, maxBid.PlayerID)
 		}
 		// Eliminar subastas antiguas/finalizadas
 		id, _ := strconv.ParseUint(leagueID, 10, 64)
@@ -1076,6 +1952,56 @@ func main() {
 
 	router.GET("/api/market/next-refresh", func(c *gin.Context) {
 		c.JSON(200, gin.H{"next_refresh": marketNextRefresh.Unix()})
+	})
+
+	// Endpoint de prueba para updatePlayerOwnership
+	router.POST("/api/debug/test-ownership", func(c *gin.Context) {
+		var req struct {
+			PlayerID uint   `json:"player_id"`
+			LeagueID uint   `json:"league_id"`
+			ItemType string `json:"item_type"`
+			ItemID   uint   `json:"item_id"`
+			Add      bool   `json:"add"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(400, gin.H{"error": "Datos inválidos"})
+			return
+		}
+
+		log.Printf("[TEST] ===== PROBANDO updatePlayerOwnership =====")
+		log.Printf("[TEST] PlayerID=%d, LeagueID=%d, ItemType=%s, ItemID=%d, Add=%t",
+			req.PlayerID, req.LeagueID, req.ItemType, req.ItemID, req.Add)
+
+		if err := updatePlayerOwnership(req.PlayerID, req.LeagueID, req.ItemType, req.ItemID, req.Add); err != nil {
+			log.Printf("[TEST] ERROR: %v", err)
+			c.JSON(500, gin.H{"error": err.Error()})
+			return
+		}
+
+		log.Printf("[TEST] updatePlayerOwnership ejecutado exitosamente")
+		c.JSON(200, gin.H{"message": "Ownership actualizado correctamente"})
+	})
+
+	// Endpoint temporal para debug - verificar estado de player_by_league
+	router.GET("/api/debug/playerbyleague", func(c *gin.Context) {
+		playerID := c.Query("player_id")
+		leagueID := c.Query("league_id")
+		if playerID == "" || leagueID == "" {
+			c.JSON(400, gin.H{"error": "Faltan parámetros player_id o league_id"})
+			return
+		}
+		var pbLeague models.PlayerByLeague
+		if err := database.DB.Where("player_id = ? AND league_id = ?", playerID, leagueID).First(&pbLeague).Error; err != nil {
+			c.JSON(404, gin.H{"error": "No encontrado"})
+			return
+		}
+		log.Printf("[DEBUG] PlayerByLeague encontrado:")
+		log.Printf("[DEBUG] - PlayerID: %d, LeagueID: %d", pbLeague.PlayerID, pbLeague.LeagueID)
+		log.Printf("[DEBUG] - OwnedPilots: %s", pbLeague.OwnedPilots)
+		log.Printf("[DEBUG] - OwnedTrackEngineers: %s", pbLeague.OwnedTrackEngineers)
+		log.Printf("[DEBUG] - OwnedChiefEngineers: %s", pbLeague.OwnedChiefEngineers)
+		log.Printf("[DEBUG] - OwnedTeamConstructors: %s", pbLeague.OwnedTeamConstructors)
+		c.JSON(200, gin.H{"player_by_league": pbLeague})
 	})
 
 	// Endpoint para consultar el saldo y datos de un jugador en una liga
@@ -1124,11 +2050,14 @@ func main() {
 		}
 		// Crear el registro en player_by_league para el usuario
 		playerByLeague := models.PlayerByLeague{
-			PlayerID:    uint64(userID.(uint)),
-			LeagueID:    uint64(league.ID),
-			Money:       100000000, // 100M
-			TeamValue:   0,
-			OwnedPilots: "[]",
+			PlayerID:              uint64(userID.(uint)),
+			LeagueID:              uint64(league.ID),
+			Money:                 100000000, // 100M
+			TeamValue:             0,
+			OwnedPilots:           "[]",
+			OwnedTrackEngineers:   "[]",
+			OwnedChiefEngineers:   "[]",
+			OwnedTeamConstructors: "[]",
 		}
 		if err := database.DB.Create(&playerByLeague).Error; err != nil {
 			log.Printf("Error creando player_by_league al unirse: %v", err)
@@ -1151,7 +2080,7 @@ func main() {
 		// Si se pasa league_id, incluir datos del piloto y la liga
 		if leagueID != "" {
 			var pbl models.PilotByLeague
-			if err := database.DB.First(&pbl, auction.PilotByLeagueID).Error; err == nil {
+			if err := database.DB.First(&pbl, auction.ItemID).Error; err == nil {
 				var pilot models.Pilot
 				database.DB.First(&pilot, pbl.PilotID)
 				c.JSON(200, gin.H{"auction": auction, "pilot_by_league": pbl, "pilot": pilot})
@@ -1161,17 +2090,18 @@ func main() {
 		c.JSON(200, gin.H{"auction": auction})
 	})
 
-	// Endpoint para obtener la subasta activa de un piloto en una liga
-	router.GET("/api/auctions/by-pilot", func(c *gin.Context) {
-		pblID := c.Query("pilot_by_league_id")
+	// Endpoint para obtener la subasta activa de cualquier elemento en una liga
+	router.GET("/api/auctions/by-item", func(c *gin.Context) {
+		itemType := c.Query("item_type")
+		itemID := c.Query("item_id")
 		leagueID := c.Query("league_id")
-		if pblID == "" || leagueID == "" {
-			c.JSON(400, gin.H{"error": "Faltan parámetros"})
+		if itemType == "" || itemID == "" || leagueID == "" {
+			c.JSON(400, gin.H{"error": "Faltan parámetros item_type, item_id o league_id"})
 			return
 		}
 		var auction Auction
-		if err := database.DB.Where("pilot_by_league_id = ? AND league_id = ? AND end_time > ?", pblID, leagueID, time.Now()).First(&auction).Error; err != nil {
-			c.JSON(404, gin.H{"error": "No hay subasta activa para este piloto"})
+		if err := database.DB.Where("item_type = ? AND item_id = ? AND league_id = ? AND end_time > ?", itemType, itemID, leagueID, time.Now()).First(&auction).Error; err != nil {
+			c.JSON(404, gin.H{"error": "No hay subasta activa para este elemento"})
 			return
 		}
 		c.JSON(200, gin.H{"auction": auction})
@@ -1212,6 +2142,38 @@ func main() {
 			database.DB.Where("id IN ?", leagueIDs).Find(&leagues)
 		}
 		c.JSON(200, gin.H{"leagues": leagues})
+	})
+
+	// Endpoint para verificar todas las ligas con sus player_id (debug)
+	router.GET("/api/leagues/debug", func(c *gin.Context) {
+		var leagues []models.League
+		database.DB.Find(&leagues)
+
+		var result []map[string]interface{}
+		for _, league := range leagues {
+			// Buscar información del player
+			var player models.Player
+			playerInfo := map[string]interface{}{
+				"player_id": league.PlayerID,
+				"name":      "Usuario no encontrado",
+				"email":     "",
+			}
+			if err := database.DB.First(&player, league.PlayerID).Error; err == nil {
+				playerInfo["name"] = player.Name
+				playerInfo["email"] = player.Email
+			}
+
+			item := map[string]interface{}{
+				"league_id":   league.ID,
+				"league_name": league.Name,
+				"league_code": league.Code,
+				"player_id":   league.PlayerID,
+				"creator":     playerInfo,
+				"created_at":  league.CreatedAt,
+			}
+			result = append(result, item)
+		}
+		c.JSON(200, gin.H{"leagues": result})
 	})
 
 	// Endpoint para clasificación de una liga
@@ -1389,7 +2351,7 @@ func main() {
 		playerLeague.Money += *pbl.LeagueOfferValue
 		// Eliminar el piloto vendido del array owned_pilots
 		var owned []uint
-		if len(playerLeague.OwnedPilots) > 0 {
+		if playerLeague.OwnedPilots != "" && playerLeague.OwnedPilots != "[]" {
 			_ = json.Unmarshal([]byte(playerLeague.OwnedPilots), &owned)
 		}
 		nuevaOwned := make([]uint, 0, len(owned))
@@ -1493,7 +2455,7 @@ func main() {
 		c.JSON(200, gin.H{"sales": result})
 	})
 
-	// Endpoint para obtener los pilotos donde el usuario tiene pujas activas pero no es propietario
+	// Endpoint para obtener todos los elementos donde el usuario tiene pujas activas pero no es propietario
 	router.GET("/api/my-market-bids", authMiddleware(), func(c *gin.Context) {
 		userIDRaw, ok := c.Get("user_id")
 		if !ok {
@@ -1512,6 +2474,8 @@ func main() {
 		}
 		var auctions []Auction
 		database.DB.Where("league_id = ? AND end_time > ?", leagueID, time.Now()).Find(&auctions)
+		log.Printf("[MY-BIDS] Encontradas %d subastas activas para liga %s", len(auctions), leagueID)
+
 		var result []map[string]interface{}
 		for _, auction := range auctions {
 			var bids []Bid
@@ -1529,40 +2493,142 @@ func main() {
 				}
 			}
 			if found {
-				var pbl models.PilotByLeague
-				if err := database.DB.First(&pbl, auction.PilotByLeagueID).Error; err != nil {
-					continue
+				log.Printf("[MY-BIDS] Usuario %d tiene puja en %s ID %d", userID, auction.ItemType, auction.ItemID)
+
+				switch auction.ItemType {
+				case "pilot":
+					var pbl models.PilotByLeague
+					if err := database.DB.First(&pbl, auction.ItemID).Error; err != nil {
+						log.Printf("[MY-BIDS] Error buscando pilot ID %d: %v", auction.ItemID, err)
+						continue
+					}
+					if pbl.OwnerID == userID {
+						continue // No mostrar si es propietario
+					}
+					var pilot models.Pilot
+					database.DB.First(&pilot, pbl.PilotID)
+					item := map[string]interface{}{
+						"id":               pbl.ID,
+						"type":             "pilot",
+						"pilot_id":         pilot.ID,
+						"driver_name":      pilot.DriverName,
+						"name":             pilot.DriverName,
+						"team":             pilot.Team,
+						"image_url":        pilot.ImageURL,
+						"value":            pilot.Value,
+						"venta":            pbl.Venta,
+						"venta_expires_at": pbl.VentaExpiresAt,
+						"clausulatime":     pbl.Clausulatime,
+						"clausula_value":   pbl.ClausulaValue,
+						"owner_id":         pbl.OwnerID,
+						"my_bid":           myBidValue,
+					}
+					result = append(result, item)
+
+				case "track_engineer":
+					var teb models.TrackEngineerByLeague
+					if err := database.DB.First(&teb, auction.ItemID).Error; err != nil {
+						log.Printf("[MY-BIDS] Error buscando track_engineer ID %d: %v", auction.ItemID, err)
+						continue
+					}
+					if teb.OwnerID == userID {
+						continue // No mostrar si es propietario
+					}
+					var te models.TrackEngineer
+					database.DB.First(&te, teb.TrackEngineerID)
+
+					// Buscar piloto relacionado
+					var pilot models.Pilot
+					pilotTeam := ""
+					if err := database.DB.Where("track_engineer_id = ?", te.ID).First(&pilot).Error; err == nil {
+						pilotTeam = pilot.Team
+					}
+
+					// Arreglar ruta de imagen para ingenieros de pista
+					imageURL := te.ImageURL
+					if imageURL != "" && !strings.Contains(imageURL, "ingenierosdepista/") {
+						imageURL = "images/ingenierosdepista/" + strings.TrimPrefix(imageURL, "images/")
+					}
+
+					item := map[string]interface{}{
+						"id":               teb.ID,
+						"type":             "track_engineer",
+						"name":             te.Name,
+						"driver_name":      te.Name,
+						"team":             pilotTeam,
+						"image_url":        imageURL,
+						"value":            te.Value,
+						"venta":            teb.Venta,
+						"venta_expires_at": teb.VentaExpiresAt,
+						"owner_id":         teb.OwnerID,
+						"my_bid":           myBidValue,
+					}
+					result = append(result, item)
+
+				case "chief_engineer":
+					var ceb models.ChiefEngineerByLeague
+					if err := database.DB.First(&ceb, auction.ItemID).Error; err != nil {
+						log.Printf("[MY-BIDS] Error buscando chief_engineer ID %d: %v", auction.ItemID, err)
+						continue
+					}
+					if ceb.OwnerID == userID {
+						continue // No mostrar si es propietario
+					}
+					var ce models.ChiefEngineer
+					database.DB.First(&ce, ceb.ChiefEngineerID)
+					item := map[string]interface{}{
+						"id":               ceb.ID,
+						"type":             "chief_engineer",
+						"name":             ce.Name,
+						"driver_name":      ce.Name,
+						"team":             ce.Team,
+						"image_url":        ce.ImageURL,
+						"value":            ce.Value,
+						"venta":            ceb.Venta,
+						"venta_expires_at": ceb.VentaExpiresAt,
+						"owner_id":         ceb.OwnerID,
+						"my_bid":           myBidValue,
+					}
+					result = append(result, item)
+
+				case "team_constructor":
+					var tcb models.TeamConstructorByLeague
+					if err := database.DB.First(&tcb, auction.ItemID).Error; err != nil {
+						log.Printf("[MY-BIDS] Error buscando team_constructor ID %d: %v", auction.ItemID, err)
+						continue
+					}
+					if tcb.OwnerID == userID {
+						continue // No mostrar si es propietario
+					}
+					var tc models.TeamConstructor
+					database.DB.First(&tc, tcb.TeamConstructorID)
+					item := map[string]interface{}{
+						"id":               tcb.ID,
+						"type":             "team_constructor",
+						"name":             tc.Name,
+						"driver_name":      tc.Name,
+						"team":             tc.Name,
+						"image_url":        tc.ImageURL,
+						"value":            tc.Value,
+						"venta":            tcb.Venta,
+						"venta_expires_at": tcb.VentaExpiresAt,
+						"owner_id":         tcb.OwnerID,
+						"my_bid":           myBidValue,
+					}
+					result = append(result, item)
 				}
-				if pbl.OwnerID == userID {
-					continue // No mostrar si es propietario
-				}
-				var pilot models.Pilot
-				database.DB.First(&pilot, pbl.PilotID)
-				item := map[string]interface{}{
-					"id":               pbl.ID,
-					"pilot_id":         pilot.ID,
-					"driver_name":      pilot.DriverName,
-					"team":             pilot.Team,
-					"image_url":        pilot.ImageURL,
-					"value":            pilot.Value,
-					"venta":            pbl.Venta,
-					"venta_expires_at": pbl.VentaExpiresAt,
-					"clausulatime":     pbl.Clausulatime,
-					"clausula_value":   pbl.ClausulaValue,
-					"owner_id":         pbl.OwnerID,
-					"my_bid":           myBidValue,
-				}
-				result = append(result, item)
 			}
 		}
+		log.Printf("[MY-BIDS] Devolviendo %d elementos con pujas del usuario %d", len(result), userID)
 		c.JSON(200, gin.H{"bids": result})
 	})
 
-	// Endpoint para eliminar la puja de un usuario sobre un piloto en una liga
+	// Endpoint para eliminar la puja de un usuario sobre cualquier elemento en una liga
 	router.POST("/api/auctions/remove-bid", authMiddleware(), func(c *gin.Context) {
 		var req struct {
-			PilotByLeagueID uint `json:"pilot_by_league_id"`
-			LeagueID        uint `json:"league_id"`
+			ItemType string `json:"item_type"`
+			ItemID   uint   `json:"item_id"`
+			LeagueID uint   `json:"league_id"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(400, gin.H{"error": "Datos inválidos"})
@@ -1579,8 +2645,8 @@ func main() {
 			return
 		}
 		var auction Auction
-		if err := database.DB.Where("pilot_by_league_id = ? AND league_id = ? AND end_time > ?", req.PilotByLeagueID, req.LeagueID, time.Now()).First(&auction).Error; err != nil {
-			c.JSON(404, gin.H{"error": "No hay subasta activa para este piloto"})
+		if err := database.DB.Where("item_type = ? AND item_id = ? AND league_id = ? AND end_time > ?", req.ItemType, req.ItemID, req.LeagueID, time.Now()).First(&auction).Error; err != nil {
+			c.JSON(404, gin.H{"error": "No hay subasta activa para este elemento"})
 			return
 		}
 		var bids []Bid
@@ -1938,7 +3004,6 @@ func main() {
 		for _, teb := range trackEngineersByLeague {
 			var te models.TrackEngineer
 			database.DB.First(&te, teb.TrackEngineerID)
-			// Buscar piloto relacionado por track_engineer_id
 			var pilot models.Pilot
 			dbPilot := database.DB.Where("track_engineer_id = ?", te.ID).First(&pilot)
 			item := map[string]interface{}{
@@ -1950,11 +3015,14 @@ func main() {
 				"owner_id":          teb.OwnerID,
 				"venta":             teb.Venta,
 				"league_id":         teb.LeagueID,
+				"type":              "track_engineer", // Añadir tipo para identificación
 			}
 			if dbPilot.Error == nil {
 				item["pilot_id"] = pilot.ID
 				item["driver_name"] = pilot.DriverName
 				item["team"] = pilot.Team
+			} else {
+				item["team"] = "Sin equipo" // Valor por defecto
 			}
 			result = append(result, item)
 		}
@@ -1964,18 +3032,15 @@ func main() {
 	// Endpoint para obtener los ingenieros jefe por liga
 	router.GET("/api/chiefengineersbyleague", func(c *gin.Context) {
 		leagueID := c.Query("league_id")
-		log.Printf("[CHIEFENG] league_id recibido: %v", leagueID)
 		if leagueID == "" {
 			c.JSON(400, gin.H{"error": "Falta league_id"})
 			return
 		}
 		var chiefEngineersByLeague []models.ChiefEngineerByLeague
 		if err := database.DB.Where("league_id = ?", leagueID).Find(&chiefEngineersByLeague).Error; err != nil {
-			log.Printf("[CHIEFENG] Error obteniendo ingenieros jefe: %v", err)
 			c.JSON(500, gin.H{"error": "Error obteniendo ingenieros jefe"})
 			return
 		}
-		log.Printf("[CHIEFENG] Encontrados %d ingenieros jefe para league_id=%v", len(chiefEngineersByLeague), leagueID)
 		var result []map[string]interface{}
 		for _, ceb := range chiefEngineersByLeague {
 			var ce models.ChiefEngineer
@@ -1988,12 +3053,52 @@ func main() {
 				"value":             ce.Value,
 				"team":              ce.Team,
 				"owner_id":          ceb.OwnerID,
-				"venta":             ceb.Venta,
-				"league_id":         ceb.LeagueID,
 			}
 			result = append(result, item)
 		}
 		c.JSON(200, gin.H{"chief_engineers": result})
+	})
+
+	router.GET("/api/teamconstructorsbyleague", func(c *gin.Context) {
+		leagueID := c.Query("league_id")
+		if leagueID == "" {
+			c.JSON(400, gin.H{"error": "Falta league_id"})
+			return
+		}
+		var teamConstructorsByLeague []models.TeamConstructorByLeague
+		if err := database.DB.Where("league_id = ?", leagueID).Find(&teamConstructorsByLeague).Error; err != nil {
+			c.JSON(500, gin.H{"error": "Error obteniendo equipos"})
+			return
+		}
+		var result []map[string]interface{}
+		for _, tcb := range teamConstructorsByLeague {
+			var tc models.TeamConstructor
+			database.DB.First(&tc, tcb.TeamConstructorID)
+
+			// Buscar pilotos relacionados con este equipo
+			var pilots []models.Pilot
+			database.DB.Where("teamconstructor_id = ? AND mode = ?", tc.ID, "race").Find(&pilots)
+
+			var pilotNames []string
+			for _, pilot := range pilots {
+				pilotNames = append(pilotNames, pilot.DriverName)
+			}
+
+			item := map[string]interface{}{
+				"id":                  tcb.ID,
+				"team_constructor_id": tcb.TeamConstructorID,
+				"name":                tc.Name,
+				"image_url":           tc.ImageURL,
+				"value":               tc.Value,
+				"owner_id":            tcb.OwnerID,
+				"venta":               tcb.Venta,
+				"league_id":           tcb.LeagueID,
+				"pilots":              pilotNames,
+				"pilot_count":         len(pilotNames),
+			}
+			result = append(result, item)
+		}
+		c.JSON(200, gin.H{"team_constructors": result})
 	})
 
 	port := os.Getenv("PORT")
