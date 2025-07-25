@@ -39,6 +39,14 @@ export default function EngineerCard({
     return type === 'track' ? 'INGENIERO DE PISTA' : 'INGENIERO JEFE';
   };
 
+  // Utilidad para evitar rutas duplicadas
+  const getEngineerImageUrl = (image_url) => {
+    if (!image_url) return '';
+    return image_url.startsWith('ingenierosdepista/')
+      ? `/images/${image_url}`
+      : `/images/ingenierosdepista/${image_url}`;
+  };
+
   return (
     <Card 
       className={cn(
@@ -69,7 +77,7 @@ export default function EngineerCard({
         <div className="flex items-start space-x-4 mb-4">
           <Avatar className="w-16 h-16 border-2 shadow-lg" style={{ borderColor: teamColor.primary }}>
             <AvatarImage 
-              src={engineer.image_url ? `/images/ingenierosdepista/${engineer.image_url}` : ''}
+              src={getEngineerImageUrl(engineer.image_url)}
               alt={engineer.name}
             />
             <AvatarFallback className="text-text-primary font-bold text-lg">

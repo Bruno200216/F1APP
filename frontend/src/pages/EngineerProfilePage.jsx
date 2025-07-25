@@ -1,397 +1,254 @@
-import React, { useEffect, useState } from 'react';
-import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
-import Box from '@mui/material/Box';
-import Typography from '@mui/material/Typography';
-import Avatar from '@mui/material/Avatar';
-import Button from '@mui/material/Button';
-import TextField from '@mui/material/TextField';
-import Alert from '@mui/material/Alert';
-import IconButton from '@mui/material/IconButton';
-import CloseIcon from '@mui/icons-material/Close';
-import CircularProgress from '@mui/material/CircularProgress';
-import Paper from '@mui/material/Paper';
+import React, { useEffect, useState, useRef } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
+import { Card, CardHeader, CardContent, CardTitle } from '../components/ui/card';
+import { Avatar, AvatarImage, AvatarFallback } from '../components/ui/avatar';
+import { Button } from '../components/ui/button';
+import { Badge } from '../components/ui/badge';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '../components/ui/tabs';
+import { ChevronLeft, ChevronRight, X, Lock } from 'lucide-react';
 import { useLeague } from '../context/LeagueContext';
-
-// Colores de equipos de F1
-const teamColors = {
-  'Red Bull Racing': { primary: '#3671C6', secondary: '#1E41C3' },
-  'Mercedes': { primary: '#6CD3BF', secondary: '#00D2BE' },
-  'McLaren': { primary: '#FF8700', secondary: '#FF5800' },
-  'Ferrari': { primary: '#DC0000', secondary: '#B80000' },
-  'Aston Martin': { primary: '#358C75', secondary: '#006F62' },
-  'Alpine': { primary: '#0090FF', secondary: '#0051FF' },
-  'Stake F1 Team Kick Sauber': { primary: '#52E252', secondary: '#37BEDD' },
-  'Haas': { primary: '#FFFFFF', secondary: '#E8E8E8' },
-  'Williams': { primary: '#37BEDD', secondary: '#005AFF' },
-  'Visa Cash App RB': { primary: '#5E8FAA', secondary: '#1E41C3' }
-};
+import { getTeamColor } from '../lib/utils';
 
 export default function EngineerProfilePage() {
-  const { type, id } = useParams(); // type: 'track' o 'chief'
-  const [searchParams] = useSearchParams();
-  const navigate = useNavigate();
+  const { type, id } = useParams();
   const { selectedLeague } = useLeague();
+  const navigate = useNavigate();
   const [engineer, setEngineer] = useState(null);
+  const [trackEngineer, setTrackEngineer] = useState(null);
+  const [chiefEngineer, setChiefEngineer] = useState(null);
+  const [pilots, setPilots] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [amount, setAmount] = useState('');
-  const [msg, setMsg] = useState('');
-  const [submitting, setSubmitting] = useState(false);
-  const [saldo, setSaldo] = useState(null);
-  const [saldoLoading, setSaldoLoading] = useState(false);
-  const [auction, setAuction] = useState(null);
-  const [auctionLoading, setAuctionLoading] = useState(false);
+  const [grandPrix, setGrandPrix] = useState([]);
+  const [selectedGP, setSelectedGP] = useState(0);
+  const gpRefs = useRef([]);
 
   useEffect(() => {
-    const fetchEngineerData = async () => {
-      setLoading(true);
-      setError('');
-      try {
-        // Determinar el endpoint basándose en el tipo
-        const endpoint = type === 'track' ? 
-          `/api/trackengineersbyleague?league_id=${selectedLeague?.id}` :
-          `/api/chiefengineersbyleague?league_id=${selectedLeague?.id}`;
-        
-        let engineerRes = await fetch(endpoint);
-        let engineerData = await engineerRes.json();
-        
-        if (!engineerRes.ok) throw new Error('Ingeniero no encontrado');
-        
-        // Buscar el ingeniero específico por ID
-        const engineers = type === 'track' ? engineerData.track_engineers : engineerData.chief_engineers;
-        const foundEngineer = engineers.find(eng => eng.id === parseInt(id));
-        
-        if (!foundEngineer) throw new Error('Ingeniero no encontrado');
-        
-        setEngineer(foundEngineer);
-        
-        // Intentar obtener subasta existente
-        const itemType = type === 'track' ? 'track_engineer' : 'chief_engineer';
-        let auctionRes = await fetch(`/api/auctions/by-item?item_type=${itemType}&item_id=${id}&league_id=${selectedLeague?.id}`);
-        let auctionData = await auctionRes.json();
-        if (auctionRes.ok && auctionData.auction) {
-          setAuction(auctionData.auction);
-        } else {
-          setAuction(null);
-        }
-      } catch (err) {
-        setError('Error cargando datos del ingeniero');
-      } finally {
-        setLoading(false);
-      }
-    };
-    if (id && selectedLeague?.id && type) fetchEngineerData();
-  }, [id, selectedLeague, type]);
+    if (!id || !type || !selectedLeague?.id) return;
+    setLoading(true);
+    setError('');
+    fetch(`/api/${type === 'track' ? 'trackengineersbyleague' : 'chiefengineersbyleague'}?id=${id}&league_id=${selectedLeague.id}`)
+      .then(res => res.json())
+      .then(data => {
+        if (!data || data.error) throw new Error(data?.error || 'No data');
+        setEngineer(data.engineer || data);
+        setTrackEngineer(data.track_engineer || null);
+        setChiefEngineer(data.chief_engineer || null);
+        setPilots(data.pilots || []);
+      })
+      .catch(err => setError(err.message))
+      .finally(() => setLoading(false));
+  }, [id, type, selectedLeague]);
 
   useEffect(() => {
-    // Obtener saldo al cargar la página
-    const fetchSaldo = async () => {
-      setSaldoLoading(true);
-      try {
-        const player_id = localStorage.getItem('player_id');
-        if (player_id && selectedLeague) {
-          const res = await fetch(`/api/playerbyleague?player_id=${player_id}&league_id=${selectedLeague.id}`);
-          const data = await res.json();
-          setSaldo(data.player_by_league?.money ?? 0);
-        }
-      } catch (e) {
-        setSaldo(0);
-      } finally {
-        setSaldoLoading(false);
+    fetch('/api/grand-prix')
+      .then(res => res.json())
+      .then(data => setGrandPrix(data.gps || []));
+  }, []);
+
+  if (loading) return <div className="min-h-screen bg-background flex items-center justify-center"><p className="text-body text-text-primary">Cargando perfil...</p></div>;
+  if (error || !engineer) return <div className="min-h-screen bg-background flex items-center justify-center"><h2 className="text-h2 font-semibold text-state-error">{error || 'Ingeniero no encontrado'}</h2></div>;
+
+  // Datos principales
+  const data = type === 'track' ? trackEngineer : chiefEngineer;
+  if (!data) return <div className="min-h-screen bg-background flex items-center justify-center"><h2 className="text-h2 font-semibold text-state-error">Ingeniero no encontrado</h2></div>;
+  const teamColor = getTeamColor(data.Team);
+
+  // Parse points_by_gp (puede ser json string o array)
+  let pointsByGP = [];
+  try {
+    if (data.PointsByGP) {
+      pointsByGP = typeof data.PointsByGP === 'string' ? JSON.parse(data.PointsByGP) : data.PointsByGP;
+    }
+  } catch (e) { pointsByGP = []; }
+
+  // Tabla de criterios legibles
+  const readableCriteria = type === 'chief'
+    ? {
+        TeamExpectedPosition: 'Posición esperada equipo',
+        TeamFinishPosition: 'Posición real equipo',
+        Delta: 'Delta equipo',
+        TotalPoints: 'Puntos totales',
       }
-    };
-    fetchSaldo();
-  }, [selectedLeague]);
+    : {
+        Performance: 'Performance',
+        TotalPoints: 'Puntos totales',
+      };
 
-  const handleBid = async () => {
-    if (!amount || isNaN(amount) || parseFloat(amount) <= 0) {
-      setMsg('Por favor ingresa una cantidad válida');
-      return;
-    }
-
-    setSubmitting(true);
-    setMsg('');
-
-    try {
-      const player_id = localStorage.getItem('player_id');
-      const itemType = type === 'track' ? 'track_engineer' : 'chief_engineer';
-      
-      const response = await fetch('/api/auctions/bid', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          player_id: parseInt(player_id),
-          league_id: selectedLeague.id,
-          item_type: itemType,
-          item_id: parseInt(id),
-          amount: parseFloat(amount)
-        }),
-      });
-
-      const data = await response.json();
-
-      if (response.ok) {
-        setMsg('Puja realizada con éxito');
-        setAmount('');
-        // Recargar datos de la subasta
-        setAuctionLoading(true);
-        try {
-          let auctionRes = await fetch(`/api/auctions/by-item?item_type=${itemType}&item_id=${id}&league_id=${selectedLeague?.id}`);
-          let auctionData = await auctionRes.json();
-          if (auctionRes.ok && auctionData.auction) {
-            setAuction(auctionData.auction);
-          }
-        } catch (e) {
-          console.error('Error recargando subasta:', e);
-        } finally {
-          setAuctionLoading(false);
-        }
-      } else {
-        setMsg(data.error || 'Error al realizar la puja');
+  // Barra de navegación de GPs con flechas y scroll
+  const handlePrevGP = () => {
+    setSelectedGP((prev) => Math.max(prev - 1, 0));
+    setTimeout(() => {
+      if (gpRefs.current[selectedGP - 1]) {
+        gpRefs.current[selectedGP - 1].scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
       }
-    } catch (error) {
-      setMsg('Error de conexión');
-    } finally {
-      setSubmitting(false);
-    }
+    }, 50);
   };
-
-  const handleClose = () => {
-    navigate(-1);
+  const handleNextGP = () => {
+    setSelectedGP((prev) => Math.min(prev + 1, grandPrix.length - 1));
+    setTimeout(() => {
+      if (gpRefs.current[selectedGP + 1]) {
+        gpRefs.current[selectedGP + 1].scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+      }
+    }, 50);
   };
-
-  if (loading) {
-    return (
-      <Box sx={{ 
-        display: 'flex', 
-        justifyContent: 'center', 
-        alignItems: 'center', 
-        height: '100vh',
-        background: 'linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%)'
-      }}>
-        <CircularProgress />
-      </Box>
-    );
-  }
-
-  if (error) {
-    return (
-      <Box sx={{ 
-        display: 'flex', 
-        justifyContent: 'center', 
-        alignItems: 'center', 
-        height: '100vh',
-        background: 'linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%)'
-      }}>
-        <Alert severity="error">{error}</Alert>
-      </Box>
-    );
-  }
-
-  const teamColor = teamColors[engineer.team] || { primary: '#666666', secondary: '#444444' };
-  const engineerType = type === 'track' ? 'Ingeniero de Pista' : 'Ingeniero Jefe';
-  const engineerIcon = type === 'track' ? '🔧' : '👨‍💼';
-
-  // Calcular mínimo de puja
-  let minBid = engineer ? engineer.value : 0;
-  if (auction && auction.bids && auction.bids.length > 0) {
-    try {
-      const maxBid = Math.max(...auction.bids.map(bid => parseFloat(bid.amount)));
-      minBid = maxBid + 1;
-    } catch (e) {
-      minBid = engineer.value + 1;
-    }
-  }
 
   return (
-    <Box sx={{ 
-      minHeight: '100vh',
-      background: 'linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%)',
-      p: 2
-    }}>
-      <Paper
-        elevation={8}
-        sx={{
-          maxWidth: 600,
-          mx: 'auto',
-          background: 'linear-gradient(135deg, #2d2d2d 0%, #1a1a1a 100%)',
-          border: `2px solid ${teamColor.primary}`,
-          borderRadius: 3,
-          overflow: 'hidden',
-          position: 'relative'
-        }}
-      >
-        {/* Header con botón de cerrar */}
-        <Box sx={{ 
-          display: 'flex', 
-          justifyContent: 'space-between', 
-          alignItems: 'center',
-          p: 2,
-          background: `linear-gradient(90deg, ${teamColor.primary}, ${teamColor.secondary})`
-        }}>
-          <Typography variant="h5" sx={{ color: '#fff', fontWeight: 700 }}>
-            Perfil del {engineerType}
-          </Typography>
-          <IconButton onClick={handleClose} sx={{ color: '#fff' }}>
-            <CloseIcon />
-          </IconButton>
-        </Box>
-
-        {/* Contenido principal */}
-        <Box sx={{ p: 3 }}>
-          {/* Información del ingeniero */}
-          <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
-            <Avatar
-              src={engineer.image_url ? `/images/ingenierosdepista/${engineer.image_url}` : ''}
-              alt={engineer.name}
-              sx={{
-                width: 80,
-                height: 80,
-                mr: 3,
-                border: `4px solid ${teamColor.primary}`,
-                boxShadow: `0 6px 20px rgba(${teamColor.primary}, 0.4)`
-              }}
-            />
-            <Box>
-              <Typography variant="h4" sx={{ color: '#fff', fontWeight: 700, mb: 1 }}>
-                {engineer.name}
-              </Typography>
-              <Typography variant="h6" sx={{ color: teamColor.primary, fontWeight: 600, mb: 0.5 }}>
-                {engineer.team}
-              </Typography>
-              <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                <Typography variant="body1" sx={{ color: '#b0b0b0', mr: 1 }}>
-                  {engineerType}
-                </Typography>
-                <Box sx={{ fontSize: '1.2rem' }}>{engineerIcon}</Box>
-              </Box>
-            </Box>
-          </Box>
-
-          {/* Estadísticas */}
-          <Box sx={{ mb: 3 }}>
-            <Typography variant="h6" sx={{ color: '#fff', mb: 2, fontWeight: 600 }}>
-              Estadísticas
-            </Typography>
-            <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2 }}>
-              <Paper sx={{ p: 2, background: '#333', border: `1px solid ${teamColor.primary}` }}>
-                <Typography variant="body2" sx={{ color: '#b0b0b0', mb: 1 }}>
-                  Valor
-                </Typography>
-                <Typography variant="h6" sx={{ color: '#4CAF50', fontWeight: 700 }}>
-                  {(engineer.value || 0).toLocaleString()} €
-                </Typography>
-              </Paper>
-              <Paper sx={{ p: 2, background: '#333', border: `1px solid ${teamColor.primary}` }}>
-                <Typography variant="body2" sx={{ color: '#b0b0b0', mb: 1 }}>
-                  Experiencia
-                </Typography>
-                <Typography variant="h6" sx={{ color: '#FF9800', fontWeight: 700 }}>
-                  {engineer.experience || engineer.exp_pos_mean || 'N/A'}
-                </Typography>
-              </Paper>
-            </Box>
-          </Box>
-
-          {/* Estado de la subasta */}
-          {auction && (
-            <Box sx={{ mb: 3 }}>
-              <Typography variant="h6" sx={{ color: '#fff', mb: 2, fontWeight: 600 }}>
-                Estado de la Subasta
-              </Typography>
-              <Paper sx={{ p: 2, background: '#333', border: `1px solid ${teamColor.primary}` }}>
-                <Typography variant="body2" sx={{ color: '#b0b0b0', mb: 1 }}>
-                  Pujas actuales: {auction.bids?.length || 0}
-                </Typography>
-                {auction.bids && auction.bids.length > 0 && (
-                  <Typography variant="body2" sx={{ color: '#FFD600', fontWeight: 600 }}>
-                    Puja más alta: {Math.max(...auction.bids.map(bid => parseFloat(bid.amount))).toLocaleString()} €
-                  </Typography>
+    <div className="min-h-screen bg-background p-0">
+      <div className="max-w-lg mx-auto pt-16">
+        <Card className="relative border-2 shadow-card" style={{ borderColor: teamColor.primary }}>
+          <Button 
+            onClick={() => navigate(-1)} 
+            variant="ghost" 
+            size="icon"
+            className="absolute top-3 right-3 text-text-primary hover:bg-surface-elevated"
+          >
+            <X className="h-4 w-4" />
+          </Button>
+          <CardHeader>
+            <div className="flex items-center space-x-4">
+              <Avatar className="w-16 h-16 border-2" style={{ borderColor: teamColor.primary }}>
+                <AvatarImage src={data.ImageURL ? `/images/ingenierosdepista/${data.ImageURL}` : ''} alt={data.Name} />
+                <AvatarFallback className="text-text-primary bg-surface">
+                  {data.Name?.split(' ').map(n => n[0]).join('')}
+                </AvatarFallback>
+              </Avatar>
+              <div className="flex-1">
+                <CardTitle className="text-h2 font-bold mb-1" style={{ color: teamColor.primary }}>
+                  {data.Name}
+                </CardTitle>
+                <p className="text-small text-text-secondary font-medium mb-2">{data.Team}</p>
+                {type === 'track' && pilots && pilots.length > 0 && (
+                  <p className="text-small text-text-primary font-medium mb-2">
+                    👤 Piloto asignado: <span className="font-bold" style={{ color: teamColor.primary }}>{pilots[0].driver_name}</span>
+                  </p>
                 )}
-              </Paper>
-            </Box>
-          )}
-
-          {/* Formulario de puja */}
-          <Box sx={{ mb: 3 }}>
-            <Typography variant="h6" sx={{ color: '#fff', mb: 2, fontWeight: 600 }}>
-              Realizar Puja
-            </Typography>
-            <Box sx={{ display: 'flex', gap: 2, alignItems: 'flex-end' }}>
-              <TextField
-                label="Cantidad (€)"
-                type="number"
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-                sx={{
-                  flexGrow: 1,
-                  '& .MuiOutlinedInput-root': {
-                    color: '#fff',
-                    '& fieldset': {
-                      borderColor: teamColor.primary,
-                    },
-                    '&:hover fieldset': {
-                      borderColor: teamColor.secondary,
-                    },
-                  },
-                  '& .MuiInputLabel-root': {
-                    color: '#b0b0b0',
-                  },
-                }}
-                inputProps={{
-                  min: minBid,
-                  step: 1
-                }}
-              />
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge variant="accent" className="font-bold">
+                    {type === 'track' ? 'Ingeniero de pista' : 'Chief Engineer'}
+                  </Badge>
+                  <Badge variant="success" className="font-bold">
+                    {(data.Value || 0).toLocaleString()} €
+                  </Badge>
+                  {engineer.ClausulaValue && (
+                    <Badge variant="error" className="flex items-center gap-1">
+                      <Lock className="h-3 w-3" />
+                      <span>{engineer.ClausulaValue?.toLocaleString()} €</span>
+                    </Badge>
+                  )}
+                  {engineer.ClausulaExpiresAt && (
+                    <Badge variant="warning" className="text-xs">
+                      Exp: {new Date(engineer.ClausulaExpiresAt).toLocaleDateString()}
+                    </Badge>
+                  )}
+                </div>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent>
+            {/* Barra de navegación de GPs con flechas SIEMPRE visible */}
+            <div className="mb-4 flex items-center justify-center gap-2">
               <Button
-                variant="contained"
-                onClick={handleBid}
-                disabled={submitting || !amount || parseFloat(amount) < minBid}
-                sx={{
-                  background: '#DC0000',
-                  '&:hover': {
-                    background: '#B80000',
-                  },
-                  '&:disabled': {
-                    background: '#666',
-                  }
-                }}
+                variant="ghost"
+                size="icon"
+                onClick={handlePrevGP}
+                disabled={selectedGP === 0}
+                className="text-accent-main hover:bg-surface-elevated"
+                style={{ borderRadius: 12 }}
               >
-                {submitting ? <CircularProgress size={20} /> : 'Pujar'}
+                <ChevronLeft className="w-6 h-6" />
               </Button>
-            </Box>
-            {minBid > engineer.value && (
-              <Typography variant="body2" sx={{ color: '#FF9800', mt: 1 }}>
-                Puja mínima: {minBid.toLocaleString()} €
-              </Typography>
-            )}
-          </Box>
+              <div className="flex gap-2 overflow-x-auto scrollbar-hide px-2" style={{ maxWidth: 320 }}>
+                {grandPrix.map((gp, idx) => (
+                  <div
+                    key={gp.gp_index}
+                    ref={el => gpRefs.current[idx] = el}
+                    onClick={() => setSelectedGP(idx)}
+                    className={
+                      'flex flex-col items-center cursor-pointer p-2 rounded-lg transition-all ' +
+                      (selectedGP === idx
+                        ? 'bg-surface-elevated shadow-card border-2 border-accent-main'
+                        : 'bg-surface hover:bg-surface-elevated border border-border')
+                    }
+                    style={{ minWidth: 64, maxWidth: 80 }}
+                  >
+                    {gp.flag && (
+                      <img
+                        src={`/images/flags/${gp.flag}`}
+                        alt={gp.country}
+                        className="w-8 h-5 mb-1 rounded border border-border"
+                        style={{ boxShadow: selectedGP === idx ? '0 0 8px #9D4EDD' : undefined }}
+                      />
+                    )}
+                    <span
+                      className="text-xs font-semibold text-center"
+                      style={{ color: selectedGP === idx ? '#9D4EDD' : '#C9A9DD', fontWeight: 600 }}
+                    >
+                      {gp.country?.length > 8 ? gp.country.substring(0, 6) + '...' : gp.country}
+                    </span>
+                  </div>
+                ))}
+              </div>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={handleNextGP}
+                disabled={selectedGP === grandPrix.length - 1}
+                className="text-accent-main hover:bg-surface-elevated"
+                style={{ borderRadius: 12 }}
+              >
+                <ChevronRight className="w-6 h-6" />
+              </Button>
+            </div>
+            {/* Selected GP Display */}
+            <div className="text-center mb-6">
+              <h2 className="text-h3 font-bold mb-2" style={{ color: teamColor.primary }}>
+                {(grandPrix && grandPrix[selectedGP]) ? grandPrix[selectedGP].country : ''}
+              </h2>
+            </div>
+            {/* Points Display */}
+            <div className="text-center mb-6">
+              <h3 className="text-subtitle font-bold mb-2" style={{ color: teamColor.primary }}>
+                Puntos en este GP
+              </h3>
+              <div className="text-4xl font-black text-accent-main">
+                {pointsByGP && pointsByGP[selectedGP] !== undefined ? pointsByGP[selectedGP] : 0}
+              </div>
+            </div>
 
-          {/* Mensajes */}
-          {msg && (
-            <Alert 
-              severity={msg.includes('éxito') ? 'success' : 'error'} 
-              sx={{ mb: 2 }}
-            >
-              {msg}
-            </Alert>
-          )}
-
-          {/* Saldo del jugador */}
-          {!saldoLoading && (
-            <Box sx={{ textAlign: 'center' }}>
-              <Typography variant="body2" sx={{ color: '#b0b0b0' }}>
-                Tu saldo actual:
-              </Typography>
-              <Typography variant="h6" sx={{ color: '#4CAF50', fontWeight: 700 }}>
-                {saldo?.toLocaleString()} €
-              </Typography>
-            </Box>
-          )}
-        </Box>
-      </Paper>
-    </Box>
+            {/* Scoring Criteria Table */}
+            <div className="mt-6">
+              <h3 className="text-subtitle font-bold mb-4" style={{ color: teamColor.primary }}>
+                Criterios de Puntuación
+              </h3>
+              <div className="bg-surface-elevated rounded-md border border-border overflow-hidden">
+                <table className="w-full text-text-primary">
+                  <thead>
+                    <tr className="border-b border-border bg-surface">
+                      <th className="text-left py-3 px-4 text-small font-semibold text-text-secondary">Cantidad</th>
+                      <th className="text-left py-3 px-4 text-small font-semibold text-text-secondary">Criterio</th>
+                      <th className="text-right py-3 px-4 text-small font-semibold text-text-secondary">Valor</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {Object.entries(readableCriteria).map(([key, label]) => (
+                      <tr key={key} className="border-b border-border last:border-b-0 hover:bg-surface transition-colors">
+                        <td className="py-3 px-4 text-small text-center font-medium">
+                          {data[key] !== undefined && data[key] !== null ? data[key] : 0}
+                        </td>
+                        <td className="py-3 px-4 text-small">{label}</td>
+                        <td className="py-3 px-4 text-small text-right font-medium">
+                          {data[key] !== undefined && data[key] !== null ? data[key] : '-'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    </div>
   );
 } 

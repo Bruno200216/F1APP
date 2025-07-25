@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useLeague } from '../context/LeagueContext';
-import { cn, formatCurrency, formatTime } from '../lib/utils';
+import { cn, formatCurrency, formatTime, getTeamColor } from '../lib/utils';
 
 // UI Components
 import { Button } from '../components/ui/button';
@@ -12,7 +12,7 @@ import { Avatar, AvatarImage, AvatarFallback } from '../components/ui/avatar';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '../components/ui/tabs';
 
 // Icons
-import { Clock, Users, Settings, TrendingUp, Search, Filter } from 'lucide-react';
+import { Clock, Users, Settings, TrendingUp, Search, Filter, Plus, Trash2, X } from 'lucide-react';
 
 // Components
 import DriverRaceCard from '../components/DriverRaceCard';
@@ -43,11 +43,62 @@ const getItemType = (item) => {
   return 'pilot';
 };
 
+// Función para limpiar la ruta de imagen
+const cleanImageUrl = (url) => {
+  if (!url) return '';
+  
+  // Convertir a string y normalizar separadores
+  let cleanUrl = String(url).replace(/\\/g, '/');
+  
+  // Eliminar todos los prefijos posibles de forma más robusta
+  const prefixesToRemove = [
+    'images/ingenierosdepista/',
+    'images/equipos/',
+    'images/',
+    'ingenierosdepista/',
+    'equipos/'
+  ];
+  
+  for (const prefix of prefixesToRemove) {
+    if (cleanUrl.startsWith(prefix)) {
+      cleanUrl = cleanUrl.substring(prefix.length);
+      break; // Solo eliminar el primer prefijo encontrado
+    }
+  }
+  
+  return cleanUrl;
+};
+
+// Función para obtener la ruta correcta de imagen según el tipo
+const getImageUrl = (item, type) => {
+  const imageUrl = item.image_url || item.ImageURL;
+  if (!imageUrl) return '';
+  
+  const cleanUrl = cleanImageUrl(imageUrl);
+  const finalUrl = (() => {
+    switch (type) {
+      case 'team_constructor':
+        return `/images/equipos/${cleanUrl}`;
+      case 'track_engineer':
+      case 'chief_engineer':
+        return `/images/ingenierosdepista/${cleanUrl}`;
+      case 'pilot':
+      default:
+        return `/images/${cleanUrl}`;
+    }
+  })();
+  
+  return finalUrl;
+};
+
 export default function MarketPage() {
   const { selectedLeague } = useLeague();
   const [auctions, setAuctions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  
+  // Admin check state
+  const [isAdmin, setIsAdmin] = useState(false);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
   const [openDrivers, setOpenDrivers] = useState(false);
   const [drivers, setDrivers] = useState([]);
@@ -103,6 +154,28 @@ export default function MarketPage() {
     }));
   }
 
+  // Check if current user is admin
+  const checkAdminStatus = async () => {
+    const token = localStorage.getItem('token');
+    const player_id = localStorage.getItem('player_id');
+    if (!token || !player_id) return;
+    
+    try {
+      const response = await fetch(`/api/players/${player_id}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setIsAdmin(data.player?.is_admin || false);
+      }
+    } catch (err) {
+      console.error('Error checking admin status:', err);
+      setIsAdmin(false);
+    }
+  };
+
   // Fetch players
   const fetchPlayers = async () => {
     if (!selectedLeague) return;
@@ -141,6 +214,7 @@ export default function MarketPage() {
     try {
       const response = await fetch(`/api/market?league_id=${selectedLeague.id}`);
       const data = await response.json();
+      console.log('📊 Datos del mercado recibidos:', data);
       setAuctions(data.market || []);
     } catch (err) {
       setError('Error al cargar el mercado');
@@ -505,28 +579,41 @@ export default function MarketPage() {
     try {
       const user = JSON.parse(localStorage.getItem('user'));
       
-      // Determinar el endpoint según el tipo de elemento
+      // Estrategia temporal: usar venta: -1 como señal para quitar del mercado
+      // El backend debería interpretar valores negativos como "quitar del mercado"
+      // y poner Venta = nil, VentaExpiresAt = nil
+      
       let endpoint = '';
-      let payload = {
-        league_id: selectedLeague.id
-      };
+      let payload = {};
       
       switch(selectedSalePilot.type) {
         case 'pilot':
-          endpoint = '/api/pilotbyleague/remove-from-market';
-          payload.pilot_by_league_id = selectedSalePilot.id;
+          endpoint = '/api/pilotbyleague/sell';
+          payload = {
+            pilot_by_league_id: selectedSalePilot.id,
+            venta: -1 // Valor especial para indicar "quitar del mercado"
+          };
           break;
         case 'track_engineer':
-          endpoint = '/api/trackengineerbyleague/remove-from-market';
-          payload.track_engineer_by_league_id = selectedSalePilot.id;
+          endpoint = '/api/trackengineerbyleague/sell';
+          payload = {
+            track_engineer_by_league_id: selectedSalePilot.id,
+            venta: -1
+          };
           break;
         case 'chief_engineer':
-          endpoint = '/api/chiefengineerbyleague/remove-from-market';
-          payload.chief_engineer_by_league_id = selectedSalePilot.id;
+          endpoint = '/api/chiefengineerbyleague/sell';
+          payload = {
+            chief_engineer_by_league_id: selectedSalePilot.id,
+            venta: -1
+          };
           break;
         case 'team_constructor':
-          endpoint = '/api/teamconstructorbyleague/remove-from-market';
-          payload.team_constructor_by_league_id = selectedSalePilot.id;
+          endpoint = '/api/teamconstructorbyleague/sell';
+          payload = {
+            team_constructor_by_league_id: selectedSalePilot.id,
+            venta: -1
+          };
           break;
         default:
           setSnackbar({ open: true, message: 'Tipo de elemento no soportado', severity: 'error' });
@@ -543,10 +630,27 @@ export default function MarketPage() {
       });
       const data = await res.json();
       if (res.ok) {
-        const elementType = selectedSalePilot.type === 'pilot' ? 'Piloto' : 
-                           selectedSalePilot.type === 'track_engineer' ? 'Ingeniero de Pista' :
-                           selectedSalePilot.type === 'chief_engineer' ? 'Ingeniero Jefe' : 'Equipo Constructor';
-        setSnackbar({ open: true, message: `${elementType} retirado del mercado.`, severity: 'success' });
+        // Verificar si el backend realmente quitó del mercado o solo cambió el precio
+        if (data.message && data.message.includes('retirado del mercado')) {
+          // Backend confirmó que quitó del mercado
+          const elementType = selectedSalePilot.type === 'pilot' ? 'Piloto' : 
+                             selectedSalePilot.type === 'track_engineer' ? 'Ingeniero de Pista' :
+                             selectedSalePilot.type === 'chief_engineer' ? 'Ingeniero Jefe' : 'Equipo Constructor';
+          setSnackbar({ open: true, message: `${elementType} retirado del mercado.`, severity: 'success' });
+        } else if (data.message && data.message.includes('puesto a la venta')) {
+          // Backend aún no soporta quitar del mercado (versión antigua)
+          setSnackbar({ 
+            open: true, 
+            message: 'ATENCIÓN: El backend aún no soporta quitar del mercado. Se necesita implementar esta funcionalidad.', 
+            severity: 'warning' 
+          });
+        } else {
+          // Respuesta genérica exitosa
+          const elementType = selectedSalePilot.type === 'pilot' ? 'Piloto' : 
+                             selectedSalePilot.type === 'track_engineer' ? 'Ingeniero de Pista' :
+                             selectedSalePilot.type === 'chief_engineer' ? 'Ingeniero Jefe' : 'Equipo Constructor';
+          setSnackbar({ open: true, message: `${elementType} retirado del mercado.`, severity: 'success' });
+        }
         setOpenRemoveFromMarketDialog(false);
         // Actualizar datos sin cambiar de página
         fetchOps(); // Recargar elementos en venta
@@ -642,33 +746,24 @@ export default function MarketPage() {
     setDriversError('');
 
     try {
-      const user = JSON.parse(localStorage.getItem('user'));
+      console.log('🔄 Fetching drivers for league:', selectedLeague.id);
+      const response = await fetch(`/api/pilotsbyleague?league_id=${selectedLeague.id}`);
       
-      const itemType = getItemType(selectedBidPilot);
-      
-      const res = await fetch('/api/auctions/bid', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          item_type: itemType,
-          item_id: selectedBidPilot.id,
-          player_id: user.id,
-          league_id: selectedLeague.id, 
-          valor: Number(editBidValue)
-        })
-      });
-      const data = await res.json();
-      if (res.ok) {
-        setSnackbar({ open: true, message: data.message || 'Puja actualizada', severity: 'success' });
-        setOpenEditBid(false);
-        // Actualizar datos sin cambiar de página
-        fetchMyBids(); // Recargar pujas activas
-        fetchMoney(); // Actualizar saldo del jugador
-      } else {
-        setSnackbar({ open: true, message: data.error || 'Error al actualizar la puja', severity: 'error' });
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
       }
+      
+      const data = await response.json();
+      console.log('📊 Drivers data received:', data);
+      
+      setDrivers(data.pilots || []);
+      setDriversError('');
     } catch (err) {
-      setSnackbar({ open: true, message: 'Error de conexión con el backend', severity: 'error' });
+      console.error('Error fetching drivers:', err);
+      setDriversError('Error al cargar los pilotos');
+      setDrivers([]);
+    } finally {
+      setLoadingDrivers(false);
     }
   };
 
@@ -732,6 +827,7 @@ export default function MarketPage() {
         // Actualizar datos sin cambiar de página
         fetchMyBids(); // Recargar pujas activas
         fetchMoney(); // Actualizar saldo del jugador
+        fetchMarketPilots(); // También actualizar el mercado
       } else {
         setSnackbar({ open: true, message: data.error || 'Error al actualizar la puja', severity: 'error' });
       }
@@ -848,8 +944,9 @@ export default function MarketPage() {
     setErrorTrackEngineers('');
 
     try {
-      const response = await fetch(`/api/trackengineersbyleague?league_id=${selectedLeague.id}`);
+      const response = await fetch(`/api/trackengineersbyleague/list?league_id=${selectedLeague.id}`);
       const data = await response.json();
+      console.log('🔧 Track engineers recibidos:', data);
       setTrackEngineersByLeague(data.track_engineers || []);
     } catch (err) {
       console.error('Error fetching track engineers:', err);
@@ -868,8 +965,9 @@ export default function MarketPage() {
     setErrorChiefEngineers('');
 
     try {
-      const response = await fetch(`/api/chiefengineersbyleague?league_id=${selectedLeague.id}`);
+      const response = await fetch(`/api/chiefengineersbyleague/list?league_id=${selectedLeague.id}`);
       const data = await response.json();
+      console.log('👨‍💼 Chief engineers recibidos:', data);
       setChiefEngineersByLeague(data.chief_engineers || []);
     } catch (err) {
       console.error('Error fetching chief engineers:', err);
@@ -888,8 +986,9 @@ export default function MarketPage() {
     setErrorTeamConstructors('');
 
     try {
-      const response = await fetch(`/api/teamconstructorsbyleague?league_id=${selectedLeague.id}`);
+      const response = await fetch(`/api/teamconstructorsbyleague/list?league_id=${selectedLeague.id}`);
       const data = await response.json();
+      console.log('🏎️ Team constructors recibidos:', data);
       setTeamConstructorsByLeague(data.team_constructors || []);
     } catch (err) {
       console.error('Error fetching team constructors:', err);
@@ -918,6 +1017,7 @@ export default function MarketPage() {
       fetchPlayers();
       fetchNextRefresh();
     }
+    checkAdminStatus();
   }, [selectedLeague]);
 
   // Effect for timer countdown
@@ -1040,42 +1140,44 @@ export default function MarketPage() {
         {/* Market Tab */}
         <TabsContent value="market" className="space-y-6">
           {/* Admin Action Buttons */}
-          <Card className="p-4">
-            <div className="flex flex-wrap gap-3">
-              <Button
-                variant="outline"
-                onClick={handleFinishAllAuctions}
-                className="flex items-center gap-2"
-              >
-                <Clock className="h-4 w-4" />
-                Finalizar Subastas
-              </Button>
-              <Button
-                variant="outline"
-                onClick={handleUpdateValues}
-                className="flex items-center gap-2"
-              >
-                <TrendingUp className="h-4 w-4" />
-                Actualizar Valores
-              </Button>
-              <Button
-                variant="outline"
-                onClick={handleGenerateFIAOffers}
-                className="flex items-center gap-2"
-              >
-                <Search className="h-4 w-4" />
-                Generar Ofertas FIA
-              </Button>
-              <Button
-                variant="outline"
-                onClick={handleGenerateFIAOffersOwned}
-                className="flex items-center gap-2"
-              >
-                <Search className="h-4 w-4" />
-                Generar Ofertas FIA (Propietarios)
-              </Button>
-            </div>
-          </Card>
+          {isAdmin && (
+            <Card className="p-4">
+              <div className="flex flex-wrap gap-3">
+                <Button
+                  variant="outline"
+                  onClick={handleFinishAllAuctions}
+                  className="flex items-center gap-2"
+                >
+                  <Clock className="h-4 w-4" />
+                  Finalizar Subastas
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={handleUpdateValues}
+                  className="flex items-center gap-2"
+                >
+                  <TrendingUp className="h-4 w-4" />
+                  Actualizar Valores
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={handleGenerateFIAOffers}
+                  className="flex items-center gap-2"
+                >
+                  <Search className="h-4 w-4" />
+                  Generar Ofertas FIA
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={handleGenerateFIAOffersOwned}
+                  className="flex items-center gap-2"
+                >
+                  <Search className="h-4 w-4" />
+                  Generar Ofertas FIA (Propietarios)
+                </Button>
+              </div>
+            </Card>
+          )}
 
           {/* Search and Filter Bar */}
           <Card className="p-4">
@@ -1089,10 +1191,12 @@ export default function MarketPage() {
                 />
               </div>
               <div className="flex gap-2">
-                <Button variant="outline" className="flex items-center gap-2">
-                  <Filter className="h-4 w-4" />
-                  Filtros
-                </Button>
+                {isAdmin && (
+                  <Button variant="outline" className="flex items-center gap-2">
+                    <Filter className="h-4 w-4" />
+                    Filtros
+                  </Button>
+                )}
                 <Button variant="outline" onClick={fetchMarketPilots}>
                   Actualizar
                 </Button>
@@ -1105,13 +1209,16 @@ export default function MarketPage() {
             <Button
               variant="outline"
               onClick={() => {
+                console.log('🖱️ Botón "Todos los Pilotos" clickeado');
+                console.log('🏁 Liga seleccionada:', selectedLeague);
                 setOpenDrivers(true);
                 fetchDrivers();
               }}
               className="flex items-center gap-2"
+              disabled={loadingDrivers}
             >
               <Users className="h-4 w-4" />
-              Todos los Pilotos
+              {loadingDrivers ? 'Cargando...' : 'Todos los Pilotos'}
             </Button>
             <Button
               variant="outline"
@@ -1345,70 +1452,121 @@ export default function MarketPage() {
                       <div className="space-y-4">
                         {myBids.map((bid) => {
                           // Determinar el tipo de elemento para mostrar la información correcta
-                          const isPilot = bid.driver_name || bid.pilot_name;
-                          const isEngineer = bid.engineer_name;
-                          const isTeam = bid.team_name;
+                          const isPilot = bid.type === 'pilot';
+                          const isTrackEngineer = bid.type === 'track_engineer';
+                          const isChiefEngineer = bid.type === 'chief_engineer';
+                          const isTeam = bid.type === 'team_constructor';
                           
-                          const displayName = isPilot || isEngineer || isTeam;
-                          const displayTeam = bid.team || bid.constructor_name;
-                          const displayRole = isPilot ? 'Piloto' : isEngineer ? 'Ingeniero' : 'Equipo';
-                          const imageUrl = bid.image_url || (isPilot ? `/images/${displayName?.toLowerCase().replace(' ', '-')}.png` : '');
+                          const displayName = isPilot ? bid.driver_name : bid.name;
+                          const displayTeam = bid.team;
+                          const displayRole = isPilot ? 'Piloto' : 
+                                            isTrackEngineer ? 'Ing. Pista' : 
+                                            isChiefEngineer ? 'Ing. Jefe' : 'Equipo';
+                          
+                          // Función para obtener nombre corto (10-12 caracteres)
+                          const getShortName = (fullName) => {
+                            if (!fullName) return '??';
+                            const parts = fullName.trim().split(' ');
+                            if (parts.length === 1) return parts[0].substring(0, 12);
+                            const firstName = parts[0];
+                            const lastName = parts.slice(1).join(' ');
+                            const combined = `${firstName} ${lastName}`;
+                            return combined.length <= 12 ? combined : combined.substring(0, 12);
+                          };
+                          
+                          // Determinar la URL de imagen correcta según el tipo
+                          let imageUrl = '';
+                          if (isPilot) {
+                            imageUrl = getImageUrl(bid, 'pilot');
+                          } else if (isTrackEngineer || isChiefEngineer) {
+                            imageUrl = getImageUrl(bid, isTrackEngineer ? 'track_engineer' : 'chief_engineer');
+                          } else if (isTeam) {
+                            imageUrl = getImageUrl(bid, 'team_constructor');
+                          }
+                          
+                          // Obtener color del equipo
+                          const teamColor = getTeamColor(displayTeam);
+                          
+                          // Determinar letra del badge
+                          const badgeLetter = isPilot ? 'P' : 
+                                            isTrackEngineer ? 'T' : 
+                                            isChiefEngineer ? 'C' : 'E';
                           
                           return (
-                            <div key={bid.id} className="flex items-center bg-[#23243a] rounded-2xl p-4 shadow-lg">
-                              <div className="w-14 h-14 rounded-full border-2 border-[#FFD600] mr-4 overflow-hidden">
-                                    <img 
-                                      src={imageUrl} 
+                            <div key={bid.id} className="bg-surface p-6 rounded-lg border border-border">
+                              <div className="flex items-start gap-4">
+                                {/* Badge y Avatar en columna */}
+                                <div className="flex flex-col items-center gap-2 flex-shrink-0">
+                                  <div
+                                    className="flex items-center justify-center font-bold"
+                                    style={{
+                                      width: 32,
+                                      height: 32,
+                                      borderRadius: '50%',
+                                      border: `2px solid ${teamColor.primary}`,
+                                      background: '#000',
+                                      color: teamColor.primary,
+                                      fontSize: 16,
+                                      boxShadow: `0 2px 4px rgba(0,0,0,0.3)`
+                                    }}
+                                  >
+                                    {badgeLetter}
+                                  </div>
+                                  <Avatar className="w-16 h-16 border-2 border-accent-main">
+                                    <AvatarImage 
+                                      src={imageUrl}
                                       alt={displayName}
-                                      className="w-full h-full object-cover"
-                                      onError={(e) => {
-                                        e.target.style.display = 'none';
-                                        e.target.nextSibling.style.display = 'flex';
-                                      }}
                                     />
-                                    <div className="w-full h-full bg-gray-600 flex items-center justify-center text-white font-bold text-lg" style={{display: 'none'}}>
+                                    <AvatarFallback className="bg-surface-elevated text-text-primary font-bold">
                                       {displayName?.substring(0, 2) || '??'}
-                                </div>
-                              </div>
-                              <div className="flex-1">
-                                <p className="text-white font-bold text-lg">{displayName}</p>
-                                <p className="text-[#b0b0b0] text-sm">{displayTeam}</p>
-                                <p className="text-[#4caf50] text-xs">{displayRole}</p>
-                              </div>
-                              <div className="text-right mr-4">
-                                <p className="text-[#FFD600] font-bold">
-                                  Mi puja: €{Number(bid.my_bid).toLocaleString('es-ES')}
-                                </p>
-                                {bid.highest_bid && bid.highest_bid !== bid.my_bid && (
-                                  <p className="text-[#FFD600] text-sm">
-                                    Más alta: €{Number(bid.highest_bid).toLocaleString('es-ES')}
+                                    </AvatarFallback>
+                                  </Avatar>
+                                  {/* Mi puja debajo de la foto */}
+                                  <p className="text-accent-main font-bold text-sm text-center">
+                                    Mi puja: €{Number(bid.my_bid).toLocaleString('es-ES')}
                                   </p>
-                                )}
-                              </div>
-                              <div className="flex flex-col gap-2">
-                                <Button 
-                                  size="sm" 
-                                  variant="outline" 
-                                  onClick={() => {
-                                    setSelectedBidPilot(bid);
-                                    setEditBidValue(String(bid.my_bid || ''));
-                                    setOpenEditBid(true);
-                                  }}
-                                  className="text-xs px-3 py-1"
-                                >
-                                  Editar Puja
-                                </Button>
-                                <Button 
-                                  size="sm" 
-                                  variant="destructive" 
-                                  onClick={() => {
-                                    setSelectedBidPilot(bid);
-                                    setOpenDeleteDialog(true);
-                                  }}
-                                  className="text-xs px-3 py-1"
-                                >
-                                  Retirar Puja
-                                </Button>
+                                </div>
+                                
+                                {/* Información y botones */}
+                                <div className="flex-1 min-w-0 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                                  <div className="min-w-0">
+                                    <h3 className="text-text-primary font-bold text-lg truncate" style={{lineHeight: '1.1'}}>{getShortName(displayName)}</h3>
+                                    <p className="text-text-secondary text-sm truncate">{displayTeam}</p>
+                                    <p className="text-accent-main text-xs mt-1">{displayRole}</p>
+                                    {bid.highest_bid && bid.highest_bid !== bid.my_bid && (
+                                      <p className="text-state-warning text-xs mt-1">
+                                        Más alta: €{Number(bid.highest_bid).toLocaleString('es-ES')}
+                                      </p>
+                                    )}
+                                  </div>
+                                  
+                                  {/* Botones */}
+                                  <div className="flex flex-col gap-2 flex-shrink-0">
+                                    <Button 
+                                      size="sm" 
+                                      variant="outline" 
+                                      onClick={() => {
+                                        setSelectedBidPilot(bid);
+                                        setEditBidValue(String(bid.my_bid || ''));
+                                        setOpenEditBid(true);
+                                      }}
+                                      className="text-xs px-2 py-1 min-w-0"
+                                    >
+                                      <span className="truncate">Editar Puja</span>
+                                    </Button>
+                                    <Button 
+                                      size="sm" 
+                                      variant="destructive" 
+                                      onClick={() => {
+                                        setSelectedBidPilot(bid);
+                                        setOpenDeleteDialog(true);
+                                      }}
+                                      className="text-xs px-2 py-1 min-w-0"
+                                    >
+                                      <span className="truncate">Retirar Puja</span>
+                                    </Button>
+                                  </div>
+                                </div>
                               </div>
                             </div>
                           );
@@ -1436,85 +1594,127 @@ export default function MarketPage() {
                       <div className="space-y-4">
                         {mySales.map((sale) => {
                           // Determinar el tipo de elemento para mostrar la información correcta
-                          const isPilot = sale.driver_name || sale.pilot_name;
-                          const isEngineer = sale.engineer_name;
-                          const isTeam = sale.team_name;
+                          const isPilot = sale.type === 'pilot';
+                          const isTrackEngineer = sale.type === 'track_engineer';
+                          const isChiefEngineer = sale.type === 'chief_engineer';
+                          const isTeam = sale.type === 'team_constructor';
                           
-                          const displayName = isPilot || isEngineer || isTeam;
-                          const displayTeam = sale.team || sale.constructor_name;
-                          const displayRole = isPilot ? 'Piloto' : isEngineer ? 'Ingeniero' : 'Equipo';
-                          const imageUrl = sale.image_url || (isPilot ? `/images/${displayName?.toLowerCase().replace(' ', '-')}.png` : '');
+                          const displayName = isPilot ? sale.driver_name : sale.name;
+                          const displayTeam = sale.team;
+                          const displayRole = isPilot ? 'Piloto' : 
+                                            isTrackEngineer ? 'Ing. Pista' : 
+                                            isChiefEngineer ? 'Ing. Jefe' : 'Equipo';
+                          
+                          // Función para obtener nombre corto (10-12 caracteres)
+                          const getShortName = (fullName) => {
+                            if (!fullName) return '??';
+                            const parts = fullName.trim().split(' ');
+                            if (parts.length === 1) return parts[0].substring(0, 12);
+                            const firstName = parts[0];
+                            const lastName = parts.slice(1).join(' ');
+                            const combined = `${firstName} ${lastName}`;
+                            return combined.length <= 12 ? combined : combined.substring(0, 12);
+                          };
+                          
+                          // Determinar la URL de imagen correcta según el tipo
+                          let imageUrl = '';
+                          if (isPilot) {
+                            imageUrl = getImageUrl(sale, 'pilot');
+                          } else if (isTrackEngineer || isChiefEngineer) {
+                            imageUrl = getImageUrl(sale, isTrackEngineer ? 'track_engineer' : 'chief_engineer');
+                          } else if (isTeam) {
+                            imageUrl = getImageUrl(sale, 'team_constructor');
+                          }
+                          
+                          // Obtener color del equipo
+                          const teamColor = getTeamColor(displayTeam);
+                          
+                          // Determinar letra del badge
+                          const badgeLetter = isPilot ? 'P' : 
+                                            isTrackEngineer ? 'T' : 
+                                            isChiefEngineer ? 'C' : 'E';
                           
                           return (
-                            <div key={sale.id} className="flex items-center bg-[#23243a] rounded-2xl p-4 shadow-lg">
-                              <div className="w-14 h-14 rounded-full border-2 border-[#FFD600] mr-4 overflow-hidden">
-                                    <img 
-                                      src={imageUrl} 
+                            <div key={sale.id} className="bg-surface p-6 rounded-lg border border-border">
+                              <div className="flex items-start gap-4">
+                                {/* Badge y Avatar en columna */}
+                                <div className="flex flex-col items-center gap-2 flex-shrink-0">
+                                  <div
+                                    className="flex items-center justify-center font-bold"
+                                    style={{
+                                      width: 32,
+                                      height: 32,
+                                      borderRadius: '50%',
+                                      border: `2px solid ${teamColor.primary}`,
+                                      background: '#000',
+                                      color: teamColor.primary,
+                                      fontSize: 16,
+                                      boxShadow: `0 2px 4px rgba(0,0,0,0.3)`
+                                    }}
+                                  >
+                                    {badgeLetter}
+                                  </div>
+                                  <Avatar className="w-16 h-16 border-2 border-accent-main">
+                                    <AvatarImage 
+                                      src={imageUrl}
                                       alt={displayName}
-                                      className="w-full h-full object-cover"
-                                      onError={(e) => {
-                                        e.target.style.display = 'none';
-                                        e.target.nextSibling.style.display = 'flex';
-                                      }}
                                     />
-                                    <div className="w-full h-full bg-gray-600 flex items-center justify-center text-white font-bold text-lg" style={{display: 'none'}}>
+                                    <AvatarFallback className="bg-surface-elevated text-text-primary font-bold">
                                       {displayName?.substring(0, 2) || '??'}
+                                    </AvatarFallback>
+                                  </Avatar>
+                                  {/* Valor debajo de la foto */}
+                                  <p className="text-accent-main font-bold text-sm text-center">
+                                    €{Number(sale.venta || sale.price).toLocaleString('es-ES')}
+                                  </p>
+                                </div>
+                                
+                                {/* Información y botón */}
+                                <div className="flex-1 min-w-0 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                                  <div className="min-w-0">
+                                    <h3 className="text-text-primary font-bold text-lg truncate" style={{lineHeight: '1.1'}}>{getShortName(displayName)}</h3>
+                                    <p className="text-text-secondary text-sm truncate">{displayTeam}</p>
+                                    <p className="text-accent-main text-xs mt-1">{displayRole}</p>
+                                  </div>
+                                  
+                                  {/* Botón */}
+                                  <div className="flex-shrink-0">
+                                    {(() => {
+                                      let totalOffers = 0;
+                                      if (sale.league_offer_value) totalOffers++;
+                                      if (sale.offers_count) totalOffers += sale.offers_count;
+                                      
+                                      return totalOffers > 0 ? (
+                                        <Button 
+                                          size="sm" 
+                                          variant="outline"
+                                          onClick={() => {
+                                            setSelectedSalePilot(sale);
+                                            setOpenOffersModal(true);
+                                          }}
+                                          className="flex items-center gap-1 text-xs px-2 py-1 min-w-0"
+                                        >
+                                          <Settings className="h-3 w-3 flex-shrink-0" />
+                                          <span className="truncate">Acciones ({totalOffers})</span>
+                                        </Button>
+                                      ) : (
+                                        <Button 
+                                          size="sm" 
+                                          variant="outline" 
+                                          onClick={() => {
+                                            setSelectedSalePilot(sale);
+                                            setOpenRemoveFromMarketDialog(true);
+                                          }}
+                                          className="flex items-center gap-1 text-xs px-2 py-1 min-w-0"
+                                        >
+                                          <Trash2 className="h-3 w-3 flex-shrink-0" />
+                                          <span className="truncate">Quitar</span>
+                                        </Button>
+                                      );
+                                    })()}
+                                  </div>
                                 </div>
                               </div>
-                              <div className="flex-1">
-                                <p className="text-white font-bold text-lg">{displayName}</p>
-                                <p className="text-[#b0b0b0] text-sm">{displayTeam}</p>
-                                <p className="text-[#4caf50] text-xs">{displayRole}</p>
-                              </div>
-                              <div className="text-right mr-4">
-                                <p className="text-[#FFD600] font-bold">
-                                  €{Number(sale.venta || sale.price).toLocaleString('es-ES')}
-                                </p>
-                                {sale.league_offer_value && (
-                                  <p className="text-[#FFD600] text-sm">
-                                    
-                                  </p>
-                                )}
-                                {sale.league_offer_expires_at && (
-                                  <p className="text-[#b0b0b0] text-xs">
-                                    Expira: {new Date(sale.league_offer_expires_at).toLocaleDateString('es-ES')}
-                                  </p>
-                                )}
-                              </div>
-                              <div className="flex flex-col gap-2">
-                                {/* Calcular número total de ofertas */}
-                                {(() => {
-                                  let totalOffers = 0;
-                                  if (sale.league_offer_value) totalOffers++;
-                                  if (sale.offers_count) totalOffers += sale.offers_count;
-                                  
-                                  return totalOffers > 0 ? (
-                                    <Button 
-                                      size="sm" 
-                                      variant="primary" 
-                                      onClick={() => {
-                                        setSelectedSalePilot(sale);
-                                        setOpenOffersModal(true);
-                                      }}
-                                      className="text-xs px-3 py-1 bg-accent-main hover:bg-accent-hover"
-                                    >
-                                      Acciones ({totalOffers})
-                                    </Button>
-                                  ) : (
-                                    <Button 
-                                      size="sm" 
-                                      variant="outline" 
-                                      onClick={() => {
-                                        setSelectedSalePilot(sale);
-                                        setOpenRemoveFromMarketDialog(true);
-                                      }}
-                                      className="text-xs px-3 py-1"
-                                    >
-                                      Quitar
-                                    </Button>
-                                  );
-                                })()}
-                            </div>
                             </div>
                           );
                         })}
@@ -1657,7 +1857,7 @@ export default function MarketPage() {
                       players={players}
                       onClick={() => {
                         setOpenTrackEngineers(false);
-                        navigate(`/profile/engineer/track/${engineer.id}`);
+                        navigate(`/profile/engineer/track/${engineer.by_league_id}`);
                       }}
                     />
                   );
@@ -1719,7 +1919,7 @@ export default function MarketPage() {
                       players={players}
                       onClick={() => {
                         setOpenChiefEngineers(false);
-                        navigate(`/profile/engineer/chief/${engineer.id}`);
+                        navigate(`/profile/engineer/chief/${engineer.by_league_id}`);
                       }}
                     />
                   );
@@ -1780,7 +1980,7 @@ export default function MarketPage() {
                       players={players}
                       onClick={() => {
                         setOpenTeamConstructors(false);
-                        navigate(`/profile/team/${team.id}`);
+                        navigate(`/profile/team/${team.by_league_id}`);
                       }}
                     />
                   );
@@ -1816,171 +2016,202 @@ export default function MarketPage() {
           Confirmar retirada
         </DialogTitle>
         <DialogContent sx={{ background: '#0a0a0a', p: 3 }}>
-          {selectedSalePilot && (
-            <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', mb: 2 }}>
-              <img
-                src={selectedSalePilot.image_url || (selectedSalePilot.driver_name ? `/images/${selectedSalePilot.driver_name?.toLowerCase().replace(' ', '-')}.png` : 
-                     selectedSalePilot.engineer_name ? `/images/ingenierosdepista/${selectedSalePilot.image_url}` :
-                     selectedSalePilot.constructor_name ? `/images/equipos/${selectedSalePilot.image_url}` : '')} 
-                alt={selectedSalePilot.driver_name || selectedSalePilot.engineer_name || selectedSalePilot.constructor_name}
-                style={{ width: 90, height: 90, borderRadius: '50%', marginBottom: 16, border: '2px solid #FFD600' }}
-              />
-              <Typography sx={{ color: '#fff', fontWeight: 700, fontSize: 15, mb: 1 }}>
-                {selectedSalePilot.driver_name || selectedSalePilot.engineer_name || selectedSalePilot.constructor_name}
-              </Typography>
-              <Typography sx={{ color: '#b0b0b0', fontSize: 13, mb: 2 }}>
-                {selectedSalePilot.team || selectedSalePilot.constructor_name}
-              </Typography>
-              <Typography sx={{ color: '#FFD600', fontWeight: 700, fontSize: 15, mb: 3 }}>
-                ¿Seguro que quieres quitar este elemento del mercado?
-              </Typography>
-              <Box sx={{ display: 'flex', gap: 2, width: '100%' }}>
-                <Button 
-                  variant="outline" 
-                  onClick={() => setOpenRemoveFromMarketDialog(false)}
-                  sx={{ flex: 1, color: '#fff', borderColor: '#666' }}
-                >
-                  Cancelar
-                </Button>
-                <Button 
-                  variant="contained" 
-                  color="error"
-                  onClick={handleRemoveFromMarket}
-                  sx={{ flex: 1 }}
-                >
-                  Quitar
-                </Button>
-              </Box>
-            </Box>
-          )}
-        </DialogContent>
-      </Dialog>
+          {selectedSalePilot && (() => {
+            // Determinar datos según el tipo
+            const isPilot = selectedSalePilot.type === 'pilot';
+            const isTrackEngineer = selectedSalePilot.type === 'track_engineer';
+            const isChiefEngineer = selectedSalePilot.type === 'chief_engineer';
+            const isTeam = selectedSalePilot.type === 'team_constructor';
+            
+            const displayName = isPilot ? selectedSalePilot.driver_name : selectedSalePilot.name;
+            const displayTeam = selectedSalePilot.team;
+            
+            // Determinar la URL de imagen correcta según el tipo
+            let imageUrl = '';
+            if (isPilot) {
+              imageUrl = getImageUrl(selectedSalePilot, 'pilot');
+            } else if (isTrackEngineer || isChiefEngineer) {
+              imageUrl = getImageUrl(selectedSalePilot, isTrackEngineer ? 'track_engineer' : 'chief_engineer');
+            } else if (isTeam) {
+              imageUrl = getImageUrl(selectedSalePilot, 'team_constructor');
+            }
 
-      {/* Modal de ofertas recibidas */}
-      <Dialog open={openOffersModal} onOpenChange={setOpenOffersModal}>
-        <DialogContent className="max-w-sm mx-auto bg-surface border border-border">
-          <DialogHeader className="text-center pb-4">
-            <DialogTitle className="text-text-primary text-h3 font-bold">
-              Ofertas recibidas
-            </DialogTitle>
-          </DialogHeader>
-
-          {selectedSalePilot && (
-            <div className="flex flex-col items-center space-y-4">
-              {/* Imagen del fichaje */}
-              <div className="relative">
+            return (
+              <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', mb: 2 }}>
                 <img
-                  src={selectedSalePilot.image_url || (selectedSalePilot.driver_name ? `/images/${selectedSalePilot.driver_name?.toLowerCase().replace(' ', '-')}.png` : 
-                       selectedSalePilot.engineer_name ? `/images/ingenierosdepista/${selectedSalePilot.image_url}` :
-                       selectedSalePilot.constructor_name ? `/images/equipos/${selectedSalePilot.image_url}` : '')} 
-                  alt={selectedSalePilot.driver_name || selectedSalePilot.engineer_name || selectedSalePilot.constructor_name}
-                  className="w-20 h-20 rounded-full border-2 border-accent-main object-cover"
+                  src={imageUrl} 
+                  alt={displayName}
+                  style={{ width: 90, height: 90, borderRadius: '50%', marginBottom: 16, border: '2px solid #FFD600' }}
                   onError={(e) => {
                     e.target.style.display = 'none';
                     e.target.nextSibling.style.display = 'flex';
                   }}
                 />
-                <div className="w-20 h-20 rounded-full border-2 border-accent-main bg-surface-elevated flex items-center justify-center text-text-primary font-bold text-lg hidden">
-                  {(selectedSalePilot.driver_name || selectedSalePilot.engineer_name || selectedSalePilot.constructor_name)?.substring(0, 2) || '??'}
+                <div style={{ width: 90, height: 90, borderRadius: '50%', marginBottom: 16, border: '2px solid #FFD600', backgroundColor: '#333', display: 'none', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 'bold', fontSize: '18px' }}>
+                  {displayName?.substring(0, 2) || '??'}
                 </div>
-              </div>
+                <Typography sx={{ color: '#fff', fontWeight: 700, fontSize: 15, mb: 1 }}>
+                  {displayName}
+                </Typography>
+                <Typography sx={{ color: '#b0b0b0', fontSize: 13, mb: 2 }}>
+                  {displayTeam}
+                </Typography>
+                         <Typography sx={{ color: '#FFD600', fontWeight: 700, fontSize: 15, mb: 3 }}>
+               ¿Seguro que quieres quitar este elemento del mercado?
+             </Typography>
+             <Box sx={{ display: 'flex', gap: 2, width: '100%' }}>
+               <Button 
+                 variant="outline" 
+                 onClick={() => setOpenRemoveFromMarketDialog(false)}
+                 sx={{ flex: 1, color: '#fff', borderColor: '#666' }}
+               >
+                 Cancelar
+               </Button>
+               <Button 
+                 variant="contained" 
+                 color="error"
+                 onClick={handleRemoveFromMarket}
+                 sx={{ flex: 1 }}
+               >
+                 Quitar
+               </Button>
+             </Box>
+           </Box>
+           );
+         })()}
+        </DialogContent>
+      </Dialog>
 
-              {/* Información del fichaje */}
-              <div className="text-center space-y-2">
-                <h3 className="text-text-primary font-bold text-subtitle">
-                  {selectedSalePilot.driver_name || selectedSalePilot.engineer_name || selectedSalePilot.constructor_name}
-                </h3>
-                <p className="text-text-secondary text-body">
-                  {selectedSalePilot.team || selectedSalePilot.constructor_name}
-                </p>
-                <div className="bg-surface-elevated px-4 py-2 rounded-md">
-                  <p className="text-accent-main font-bold text-body">
-                    Valor: €{Number(selectedSalePilot.venta || selectedSalePilot.price || 0).toLocaleString('es-ES')}
-                  </p>
-                </div>
-              </div>
-              
-              {/* Oferta de LaLiga (si existe) */}
-              {selectedSalePilot.league_offer_value && (
-                <div className="w-full space-y-4 bg-surface-elevated p-4 rounded-lg border border-border">
+      {/* Modal de ofertas recibidas */}
+      <Dialog open={openOffersModal} onOpenChange={setOpenOffersModal}>
+        <DialogContent className="max-w-md mx-auto bg-surface border border-border">
+          <DialogHeader className="text-center pb-4">
+            <Button 
+              onClick={() => setOpenOffersModal(false)} 
+              variant="ghost" 
+              size="icon"
+              className="absolute top-3 right-3 text-text-primary hover:bg-surface-elevated"
+            >
+              <X className="h-4 w-4" />
+            </Button>
+            <DialogTitle className="text-text-primary text-h3 font-bold">
+              Ofertas recibidas
+            </DialogTitle>
+          </DialogHeader>
+
+          {selectedSalePilot && (() => {
+            // Determinar datos según el tipo
+            const isPilot = selectedSalePilot.type === 'pilot';
+            const isTrackEngineer = selectedSalePilot.type === 'track_engineer';
+            const isChiefEngineer = selectedSalePilot.type === 'chief_engineer';
+            const isTeam = selectedSalePilot.type === 'team_constructor';
+            
+            const displayName = isPilot ? selectedSalePilot.driver_name : selectedSalePilot.name;
+            const displayTeam = selectedSalePilot.team;
+            
+            // Determinar la URL de imagen correcta según el tipo
+            let imageUrl = '';
+            if (isPilot) {
+              imageUrl = getImageUrl(selectedSalePilot, 'pilot');
+            } else if (isTrackEngineer || isChiefEngineer) {
+              imageUrl = getImageUrl(selectedSalePilot, isTrackEngineer ? 'track_engineer' : 'chief_engineer');
+            } else if (isTeam) {
+              imageUrl = getImageUrl(selectedSalePilot, 'team_constructor');
+            }
+            
+            const teamColor = getTeamColor(displayTeam);
+            const badgeLetter = isPilot ? 'P' : 
+                              isTrackEngineer ? 'T' : 
+                              isChiefEngineer ? 'C' : 'E';
+
+            return (
+              <div className="flex flex-col items-center space-y-6">
+                {/* Header con imagen estilo TeamPilots */}
+                <div className="flex flex-col items-center gap-3">
+                  <div
+                    className="flex items-center justify-center font-bold"
+                    style={{
+                      width: 40,
+                      height: 40,
+                      borderRadius: '50%',
+                      border: `2px solid ${teamColor.primary}`,
+                      background: '#000',
+                      color: teamColor.primary,
+                      fontSize: 18,
+                      boxShadow: `0 2px 4px rgba(0,0,0,0.3)`
+                    }}
+                  >
+                    {badgeLetter}
+                  </div>
+                  <Avatar className="w-20 h-20 border-2 border-accent-main">
+                    <AvatarImage 
+                      src={imageUrl}
+                      alt={displayName}
+                    />
+                    <AvatarFallback className="bg-surface-elevated text-text-primary font-bold text-lg">
+                      {displayName?.substring(0, 2) || '??'}
+                    </AvatarFallback>
+                  </Avatar>
                   <div className="text-center">
-                    <p className="text-accent-main font-bold text-small mb-1">OFERTA DE LALIGA</p>
-                    <p className="text-text-primary font-bold text-h3">
-                      €{Number(selectedSalePilot.league_offer_value).toLocaleString('es-ES')}
+                    <h3 className="text-text-primary font-bold text-lg">{displayName}</h3>
+                    <p className="text-text-secondary text-sm">{displayTeam}</p>
+                    <p className="text-accent-main font-bold text-sm mt-1">
+                      €{Number(selectedSalePilot.venta || selectedSalePilot.price || 0).toLocaleString('es-ES')}
                     </p>
-                    {selectedSalePilot.league_offer_expires_at && (
-                      <p className="text-text-secondary text-small mt-2">
-                        Expira: {new Date(selectedSalePilot.league_offer_expires_at).toLocaleDateString('es-ES', {
-                          year: 'numeric',
-                          month: 'short',
-                          day: 'numeric',
-                          hour: '2-digit',
-                          minute: '2-digit'
-                        })}
+                  </div>
+                </div>
+                
+                {/* Oferta de la FIA (si existe) */}
+                {selectedSalePilot.league_offer_value && (
+                  <div className="w-full bg-surface-elevated p-4 rounded-lg border border-border">
+                    <div className="text-center mb-4">
+                      <p className="text-accent-main font-bold text-sm mb-2">OFERTA DE LA FIA</p>
+                      <p className="text-text-primary font-bold text-2xl">
+                        €{Number(selectedSalePilot.league_offer_value).toLocaleString('es-ES')}
                       </p>
-                    )}
+                      {selectedSalePilot.league_offer_expires_at && (
+                        <p className="text-text-secondary text-xs mt-2">
+                          Expira: {new Date(selectedSalePilot.league_offer_expires_at).toLocaleDateString('es-ES', {
+                            year: 'numeric',
+                            month: 'short',
+                            day: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit'
+                          })}
+                        </p>
+                      )}
+                    </div>
+                    <div className="flex gap-3">
+                      <Button 
+                        variant="outline" 
+                        onClick={handleRejectLeagueOffer}
+                        className="flex-1 text-text-secondary border-border hover:bg-surface hover:text-text-primary"
+                      >
+                        Rechazar
+                      </Button>
+                      <Button 
+                        variant="primary"
+                        onClick={handleAcceptLeagueOffer}
+                        className="flex-1 bg-state-success hover:bg-state-success hover:bg-opacity-80 text-white"
+                      >
+                        Aceptar
+                      </Button>
+                    </div>
                   </div>
-                  <div className="flex gap-3">
-                    <Button 
-                      variant="outline" 
-                      onClick={handleRejectLeagueOffer}
-                      className="flex-1 text-text-secondary border-border hover:bg-surface hover:text-text-primary"
-                    >
-                      Rechazar
-                    </Button>
-                    <Button 
-                      variant="primary"
-                      onClick={handleAcceptLeagueOffer}
-                      className="flex-1 bg-state-success hover:bg-state-success hover:bg-opacity-80"
-                    >
-                      Aceptar
-                    </Button>
-                  </div>
-                </div>
-              )}
+                )}
 
-              {/* Otras ofertas de jugadores (simuladas por ahora) */}
-              {selectedSalePilot.offers_count > 0 && (
-                <div className="w-full space-y-4 bg-surface-elevated p-4 rounded-lg border border-border">
-                  <div className="text-center">
-                    <p className="text-accent-main font-bold text-small mb-1">OFERTA DE JUGADOR</p>
-                    <p className="text-text-primary font-bold text-h3">
-                      €30.000.000
-                    </p>
-                    <p className="text-text-secondary text-small mt-2">
-                      Tiempo restante: 46:54:57
+                {/* Mensaje si no hay ofertas */}
+                {!selectedSalePilot.league_offer_value && (
+                  <div className="text-center py-8 space-y-2">
+                    <p className="text-text-secondary text-body">No hay ofertas recibidas</p>
+                    <p className="text-text-secondary text-small">
+                      Las ofertas aparecerán aquí cuando la FIA o otros jugadores hagan ofertas
                     </p>
                   </div>
-                  <div className="flex gap-3">
-                    <Button 
-                      variant="outline" 
-                      onClick={() => handleRejectPlayerOffer('offer_1')}
-                      className="flex-1 text-text-secondary border-border hover:bg-surface hover:text-text-primary"
-                    >
-                      Rechazar
-                    </Button>
-                    <Button 
-                      variant="primary"
-                      onClick={() => handleAcceptPlayerOffer('offer_1', 30000000)}
-                      className="flex-1 bg-state-success hover:bg-state-success hover:bg-opacity-80"
-                    >
-                      Aceptar
-                    </Button>
-                  </div>
-                </div>
-              )}
-
-              {/* Mensaje si no hay ofertas */}
-              {(!selectedSalePilot.league_offer_value && (!selectedSalePilot.offers_count || selectedSalePilot.offers_count === 0)) && (
-                <div className="text-center py-8 space-y-2">
-                  <p className="text-text-secondary text-body">No hay ofertas recibidas</p>
-                  <p className="text-text-secondary text-small">
-                    Las ofertas aparecerán aquí cuando otros jugadores pujen
-                  </p>
-                </div>
-              )}
-            </div>
-          )}
+                )}
+              </div>
+            );
+          })()}
         </DialogContent>
       </Dialog>
 

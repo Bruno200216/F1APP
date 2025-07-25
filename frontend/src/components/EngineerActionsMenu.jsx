@@ -157,6 +157,14 @@ export default function EngineerActionsMenu({ engineer, onSell, onAcceptOffer, o
   const hasFIAOffer = engineer.league_offer_value && engineer.league_offer_expires_at && 
     new Date(engineer.league_offer_expires_at) > new Date();
 
+  // Utilidad para evitar rutas duplicadas
+  const getEngineerImageUrl = (image_url) => {
+    if (!image_url) return '';
+    return image_url.startsWith('ingenierosdepista/')
+      ? `/images/${image_url}`
+      : `/images/ingenierosdepista/${image_url}`;
+  };
+
   return (
     <>
       <Button
@@ -165,7 +173,7 @@ export default function EngineerActionsMenu({ engineer, onSell, onAcceptOffer, o
         onClick={handleActionsClick}
         sx={{ fontWeight: 700 }}
       >
-        ACCIONES
+        Acciones
       </Button>
 
       <Menu
@@ -209,7 +217,7 @@ export default function EngineerActionsMenu({ engineer, onSell, onAcceptOffer, o
           {engineer && (
             <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', mb: 2 }}>
               <img
-                src={engineer.image_url ? `/images/${engineer.image_url}` : ''}
+                src={getEngineerImageUrl(engineer.image_url)}
                 alt={engineer.name}
                 style={{ width: 90, height: 90, borderRadius: '50%', marginBottom: 16 }}
               />

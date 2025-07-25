@@ -1,26 +1,22 @@
 import React, { useState, useEffect } from 'react';
-import Button from '@mui/material/Button';
-import Dialog from '@mui/material/Dialog';
-import DialogTitle from '@mui/material/DialogTitle';
-import DialogContent from '@mui/material/DialogContent';
-import DialogActions from '@mui/material/DialogActions';
-import TextField from '@mui/material/TextField';
-import Typography from '@mui/material/Typography';
-import Box from '@mui/material/Box';
-import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
-import Paper from '@mui/material/Paper';
-import EditIcon from '@mui/icons-material/Edit';
-import DeleteIcon from '@mui/icons-material/Delete';
-import ShareIcon from '@mui/icons-material/Share';
-import IconButton from '@mui/material/IconButton';
-import Snackbar from '@mui/material/Snackbar';
-import Alert from '@mui/material/Alert';
 import { useLeague } from '../context/LeagueContext';
 import { useNavigate } from 'react-router-dom';
+
+// UI Components from design.json style
+import { Button } from '../components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
+import { Input } from '../components/ui/input';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../components/ui/dialog';
+
+// Icons
+import { Plus, Edit3, Trash2, Share2, LogOut, Settings } from 'lucide-react';
 
 export default function LeaguesPage() {
   // Context
   const { leagues, setLeagues, selectedLeague, setSelectedLeague } = useLeague();
+  
+  // Admin check state
+  const [isAdmin, setIsAdmin] = useState(false);
 
   // Login/Register states
   const [openLogin, setOpenLogin] = useState(false);
@@ -55,6 +51,28 @@ export default function LeaguesPage() {
   // Share league states
   const [shareSnackbar, setShareSnackbar] = useState(false);
 
+  // Check if current user is admin
+  const checkAdminStatus = async () => {
+    const token = localStorage.getItem('token');
+    const player_id = localStorage.getItem('player_id');
+    if (!token || !player_id) return;
+    
+    try {
+      const response = await fetch(`/api/players/${player_id}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setIsAdmin(data.player?.is_admin || false);
+      }
+    } catch (err) {
+      console.error('Error checking admin status:', err);
+      setIsAdmin(false);
+    }
+  };
+
   // Fetch leagues on mount or after create/join
   const fetchLeagues = async (selectLast = false) => {
     const token = localStorage.getItem('token');
@@ -84,6 +102,7 @@ export default function LeaguesPage() {
 
   useEffect(() => {
     fetchLeagues();
+    checkAdminStatus();
     // eslint-disable-next-line
   }, []);
 
@@ -104,6 +123,7 @@ export default function LeaguesPage() {
       setLoginEmail('');
       setLoginPassword('');
       fetchLeagues();
+      checkAdminStatus();
     } catch (err) {
       setLoginError('Invalid email or password');
     }
@@ -232,6 +252,7 @@ export default function LeaguesPage() {
     try {
       await navigator.clipboard.writeText(league.code);
       setShareSnackbar(true);
+      setTimeout(() => setShareSnackbar(false), 3000);
     } catch (err) {
       // Fallback para navegadores antiguos
       const textArea = document.createElement('textarea');
@@ -241,262 +262,452 @@ export default function LeaguesPage() {
       document.execCommand('copy');
       document.body.removeChild(textArea);
       setShareSnackbar(true);
+      setTimeout(() => setShareSnackbar(false), 3000);
     }
   };
 
   // Añadir función para limpiar ligas al cerrar sesión o cambiar de usuario
   const handleLogout = () => {
     localStorage.removeItem('token');
+    localStorage.removeItem('player_id');
     setLeagues([]);
     setSelectedLeague(null);
+    setIsAdmin(false);
   };
 
   const navigate = useNavigate();
 
   // Render leagues list
   const renderLeagues = () => (
-    <Box sx={{ mt: 2 }}>
-      {leagues.length === 0 && <Typography>No leagues found.</Typography>}
+    <div className="mt-6 space-y-4">
+      {leagues.length === 0 && (
+        <div className="text-center py-8">
+          <p className="text-text-secondary text-body">No leagues found.</p>
+        </div>
+      )}
       {leagues.map((league) => (
-        <Paper
+        <Card
           key={league.id}
-          elevation={selectedLeague && selectedLeague.id === league.id ? 6 : 1}
-          sx={{
-            p: 2,
-            mb: 2,
-            display: 'flex',
-            alignItems: 'center',
-            background: selectedLeague && selectedLeague.id === league.id ? '#e3f2fd' : '#fff',
-            border: selectedLeague && selectedLeague.id === league.id ? '2px solid #1976d2' : '1px solid #ccc',
-            cursor: 'pointer',
-            fontWeight: selectedLeague && selectedLeague.id === league.id ? 'bold' : 'normal',
-          }}
+          className={`cursor-pointer transition-all duration-200 ${
+            selectedLeague && selectedLeague.id === league.id
+              ? 'border-accent-main shadow-glow-accent bg-surface-elevated'
+              : 'border-border hover:border-accent-hover'
+          }`}
           onClick={() => setSelectedLeague(league)}
         >
-          <Box sx={{ flexGrow: 1 }}>
-            <Typography variant="h6">{league.name}</Typography>
-          </Box>
-          <IconButton 
-            onClick={e => { e.stopPropagation(); handleShareLeague(league); }} 
-            color="info"
-            size="small"
-            sx={{ mr: 1 }}
-          >
-            <ShareIcon />
-          </IconButton>
-          <IconButton onClick={e => { e.stopPropagation(); handleEditLeague(league); }} color="primary">
-            <EditIcon />
-          </IconButton>
-          <IconButton onClick={e => { e.stopPropagation(); handleDeleteLeague(league); }} color="error">
-            <DeleteIcon />
-          </IconButton>
-        </Paper>
+          <CardContent className="flex items-center justify-between p-6">
+            <div className="flex-1">
+              <CardTitle className={`text-h3 ${
+                selectedLeague && selectedLeague.id === league.id
+                  ? 'text-accent-main font-bold'
+                  : 'text-text-primary font-semibold'
+              }`}>
+                {league.name}
+              </CardTitle>
+              <p className="text-text-secondary text-small mt-1">
+                Code: {league.code}
+              </p>
+            </div>
+            <div className="flex items-center gap-2 ml-4">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleShareLeague(league);
+                }}
+                className="p-2"
+              >
+                <Share2 className="h-4 w-4" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleEditLeague(league);
+                }}
+                className="p-2"
+              >
+                <Edit3 className="h-4 w-4" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleDeleteLeague(league);
+                }}
+                className="p-2 text-state-error hover:text-state-error"
+              >
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
       ))}
-    </Box>
+    </div>
   );
 
   return (
-    <Box sx={{ padding: 2 }}>
-      <Typography variant="h5" gutterBottom>Leagues Page</Typography>
-      <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
-        <Button variant="contained" color="primary" onClick={() => setOpenLogin(true)}>
-          Sign In
-        </Button>
-        {localStorage.getItem('token') && (
-          <Button variant="outlined" color="secondary" onClick={handleLogout}>
-            Logout
-          </Button>
-        )}
-        <Button
-          variant="contained"
-          color="success"
-          startIcon={<AddCircleOutlineIcon sx={{ fontSize: 32 }} />}
-          sx={{ fontSize: 20, padding: '12px 32px' }}
-          onClick={() => setOpenLeagueModal(true)}
-        >
-          Create or Join League
-        </Button>
-      </Box>
-      <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 2 }}>
-        <Button variant="contained" color="secondary" onClick={() => navigate('/admin-scores')}>
-          Administrar Puntuaciones
-        </Button>
-      </Box>
+    <div className="min-h-screen bg-background p-6">
+      <div className="max-w-4xl mx-auto">
+        {/* Header */}
+        <div className="mb-8">
+          <h1 className="text-h1 font-bold text-text-primary mb-2">Leagues</h1>
+          <p className="text-text-secondary text-body">Manage your fantasy leagues</p>
+        </div>
 
-      {/* Lista de ligas */}
-      {renderLeagues()}
-
-      {/* Share Snackbar */}
-      <Snackbar
-        open={shareSnackbar}
-        autoHideDuration={3000}
-        onClose={() => setShareSnackbar(false)}
-      >
-        <Alert onClose={() => setShareSnackbar(false)} severity="success" sx={{ width: '100%' }}>
-          Invitation link copied to clipboard!
-        </Alert>
-      </Snackbar>
-
-      {/* Modal de opciones para liga */}
-      <Dialog open={openLeagueModal} onClose={() => setOpenLeagueModal(false)}>
-        <DialogTitle>Select an option</DialogTitle>
-        <DialogActions sx={{ flexDirection: 'column', alignItems: 'stretch', p: 2 }}>
-          <Button onClick={() => { setOpenCreateLeague(true); setOpenLeagueModal(false); }} variant="contained" color="primary" fullWidth sx={{ mb: 1 }}>
-            Create League
-          </Button>
-          <Button onClick={() => { setOpenJoinLeague(true); setOpenLeagueModal(false); }} variant="outlined" color="primary" fullWidth>
-            Join League
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      {/* Modal para crear liga */}
-      <Dialog open={openCreateLeague} onClose={() => setOpenCreateLeague(false)}>
-  <DialogTitle>Create League</DialogTitle>
-  <DialogContent>
-    <TextField
-      autoFocus
-      margin="dense"
-      label="League Name"
-      type="text"
-      fullWidth
-      value={leagueName}
-      onChange={e => setLeagueName(e.target.value)}
-    />
-    {leagueError && <Typography color="error">{leagueError}</Typography>}
-    {successMsg && <Typography color="success.main">{successMsg}</Typography>}
-  </DialogContent>
-  <DialogActions>
-    <Button onClick={handleCreateLeague} variant="contained" color="primary">Create</Button>
-    <Button onClick={() => setOpenCreateLeague(false)} color="secondary">Cancel</Button>
-  </DialogActions>
-</Dialog>
-
-      {/* Modal para unirse a liga */}
-      <Dialog open={openJoinLeague} onClose={() => setOpenJoinLeague(false)}>
-        <DialogTitle>Join League</DialogTitle>
-        <DialogContent>
-          <TextField
-            autoFocus
-            margin="dense"
-            label="League Code or Name"
-            type="text"
-            fullWidth
-            value={joinCode}
-            onChange={e => setJoinCode(e.target.value)}
-          />
-          {joinError && <Typography color="error">{joinError}</Typography>}
-          {successMsg && <Typography color="success.main">{successMsg}</Typography>}
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={handleJoinLeague} variant="contained" color="primary">Join</Button>
-          <Button onClick={() => setOpenJoinLeague(false)} color="secondary">Cancel</Button>
-        </DialogActions>
-      </Dialog>
-
-      {/* Edit League Modal */}
-      <Dialog open={openEditModal} onClose={() => setOpenEditModal(false)}>
-        <DialogTitle>Edit League</DialogTitle>
-        <DialogContent>
-          <TextField
-            autoFocus
-            margin="dense"
-            label="League Name"
-            type="text"
-            fullWidth
-            value={editName}
-            onChange={e => setEditName(e.target.value)}
-          />
-          {editError && <Typography color="error">{editError}</Typography>}
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={handleEditLeagueSave} variant="contained" color="primary">Save</Button>
-          <Button onClick={() => setOpenEditModal(false)} color="secondary">Cancel</Button>
-        </DialogActions>
-      </Dialog>
-
-      {/* Delete League Modal */}
-      <Dialog open={openDeleteModal} onClose={() => setOpenDeleteModal(false)}>
-        <DialogTitle>Delete League</DialogTitle>
-        <DialogContent>
-          <Typography>Are you sure you want to delete the league "{deleteLeague?.name}"?</Typography>
-          {deleteError && <Typography color="error">{deleteError}</Typography>}
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={handleDeleteLeagueConfirm} variant="contained" color="error">Delete</Button>
-          <Button onClick={() => setOpenDeleteModal(false)} color="secondary">Cancel</Button>
-        </DialogActions>
-      </Dialog>
-
-      {/* Login Modal */}
-      <Dialog open={openLogin} onClose={() => setOpenLogin(false)}>
-        <DialogTitle>Sign In</DialogTitle>
-        <DialogContent>
-          <TextField
-            autoFocus
-            margin="dense"
-            label="Email"
-            type="email"
-            fullWidth
-            value={loginEmail}
-            onChange={e => setLoginEmail(e.target.value)}
-          />
-          <TextField
-            margin="dense"
-            label="Password"
-            type="password"
-            fullWidth
-            value={loginPassword}
-            onChange={e => setLoginPassword(e.target.value)}
-          />
-          {loginError && <Typography color="error">{loginError}</Typography>}
-        </DialogContent>
-        <DialogActions sx={{ flexDirection: 'column', alignItems: 'stretch' }}>
-          <Button onClick={handleLogin} variant="contained" color="primary" fullWidth>Sign In</Button>
-          <Button onClick={() => { setOpenLogin(false); setOpenRegister(true); }} color="secondary" fullWidth>
-            Register
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      {/* Register Modal */}
-      <Dialog open={openRegister} onClose={() => setOpenRegister(false)}>
-        <DialogTitle>Register</DialogTitle>
-        <DialogContent>
-          <TextField
-            autoFocus
-            margin="dense"
-            label="Name"
-            type="text"
-            fullWidth
-            value={registerName}
-            onChange={e => setRegisterName(e.target.value)}
-          />
-          <TextField
-            margin="dense"
-            label="Email"
-            type="email"
-            fullWidth
-            value={registerEmail}
-            onChange={e => setRegisterEmail(e.target.value)}
-          />
-          <TextField
-            margin="dense"
-            label="Password"
-            type="password"
-            fullWidth
-            value={registerPassword}
-            onChange={e => setRegisterPassword(e.target.value)}
-          />
-          {registerError && <Typography color="error">{registerError}</Typography>}
-        </DialogContent>
-        <DialogActions sx={{ flexDirection: 'column', alignItems: 'stretch' }}>
-          <Button onClick={handleRegister} variant="contained" color="primary" fullWidth>Register</Button>
-          <Button onClick={() => { setOpenRegister(false); setOpenLogin(true); }} color="secondary" fullWidth>
+        {/* Action Buttons */}
+        <div className="flex flex-wrap items-center gap-4 mb-6">
+          <Button 
+            onClick={() => setOpenLogin(true)}
+            className="flex items-center gap-2"
+          >
             Sign In
           </Button>
-        </DialogActions>
-      </Dialog>
-    </Box>
+          
+          {localStorage.getItem('token') && (
+            <Button
+              variant="ghost"
+              onClick={handleLogout}
+              className="flex items-center gap-2"
+            >
+              <LogOut className="h-4 w-4" />
+              Logout
+            </Button>
+          )}
+          
+          <Button
+            onClick={() => setOpenLeagueModal(true)}
+            className="flex items-center gap-2"
+          >
+            <Plus className="h-5 w-5" />
+            Create or Join League
+          </Button>
+          
+          {isAdmin && (
+            <Button
+              variant="ghost"
+              onClick={() => navigate('/admin-scores')}
+              className="flex items-center gap-2 ml-auto"
+            >
+              <Settings className="h-4 w-4" />
+              Admin Scores
+            </Button>
+          )}
+        </div>
+
+        {/* Leagues List */}
+        {renderLeagues()}
+
+        {/* Share Success Message */}
+        {shareSnackbar && (
+          <div className="fixed top-4 right-4 bg-state-success text-white px-4 py-2 rounded-md shadow-lg z-50">
+            Invitation link copied to clipboard!
+          </div>
+        )}
+
+        {/* League Options Modal */}
+        <Dialog open={openLeagueModal} onOpenChange={setOpenLeagueModal}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle className="text-text-primary text-h3 font-bold">Select an option</DialogTitle>
+            </DialogHeader>
+            <div className="flex flex-col gap-3 mt-6">
+              <Button
+                onClick={() => {
+                  setOpenCreateLeague(true);
+                  setOpenLeagueModal(false);
+                }}
+                className="w-full"
+              >
+                Create League
+              </Button>
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  setOpenJoinLeague(true);
+                  setOpenLeagueModal(false);
+                }}
+                className="w-full"
+              >
+                Join League
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* Create League Modal */}
+        <Dialog open={openCreateLeague} onOpenChange={setOpenCreateLeague}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle className="text-text-primary text-h3 font-bold">Create League</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4 mt-6">
+              <div>
+                <label className="block text-text-primary text-small font-medium mb-2">
+                  League Name
+                </label>
+                <Input
+                  type="text"
+                  value={leagueName}
+                  onChange={(e) => setLeagueName(e.target.value)}
+                  placeholder="Enter league name"
+                  className="w-full"
+                />
+              </div>
+              {leagueError && (
+                <p className="text-state-error text-small">{leagueError}</p>
+              )}
+              {successMsg && (
+                <p className="text-state-success text-small">{successMsg}</p>
+              )}
+              <div className="flex gap-3 pt-4">
+                <Button onClick={handleCreateLeague} className="flex-1">
+                  Create
+                </Button>
+                <Button
+                  variant="ghost"
+                  onClick={() => setOpenCreateLeague(false)}
+                  className="flex-1"
+                >
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* Join League Modal */}
+        <Dialog open={openJoinLeague} onOpenChange={setOpenJoinLeague}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle className="text-text-primary text-h3 font-bold">Join League</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4 mt-6">
+              <div>
+                <label className="block text-text-primary text-small font-medium mb-2">
+                  League Code or Name
+                </label>
+                <Input
+                  type="text"
+                  value={joinCode}
+                  onChange={(e) => setJoinCode(e.target.value)}
+                  placeholder="Enter league code"
+                  className="w-full"
+                />
+              </div>
+              {joinError && (
+                <p className="text-state-error text-small">{joinError}</p>
+              )}
+              {successMsg && (
+                <p className="text-state-success text-small">{successMsg}</p>
+              )}
+              <div className="flex gap-3 pt-4">
+                <Button onClick={handleJoinLeague} className="flex-1">
+                  Join
+                </Button>
+                <Button
+                  variant="ghost"
+                  onClick={() => setOpenJoinLeague(false)}
+                  className="flex-1"
+                >
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* Edit League Modal */}
+        <Dialog open={openEditModal} onOpenChange={setOpenEditModal}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle className="text-text-primary text-h3 font-bold">Edit League</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4 mt-6">
+              <div>
+                <label className="block text-text-primary text-small font-medium mb-2">
+                  League Name
+                </label>
+                <Input
+                  type="text"
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                  placeholder="Enter league name"
+                  className="w-full"
+                />
+              </div>
+              {editError && (
+                <p className="text-state-error text-small">{editError}</p>
+              )}
+              <div className="flex gap-3 pt-4">
+                <Button onClick={handleEditLeagueSave} className="flex-1">
+                  Save
+                </Button>
+                <Button
+                  variant="ghost"
+                  onClick={() => setOpenEditModal(false)}
+                  className="flex-1"
+                >
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* Delete League Modal */}
+        <Dialog open={openDeleteModal} onOpenChange={setOpenDeleteModal}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle className="text-text-primary text-h3 font-bold">Delete League</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4 mt-6">
+              <p className="text-text-primary text-body">
+                Are you sure you want to delete the league "{deleteLeague?.name}"?
+              </p>
+              {deleteError && (
+                <p className="text-state-error text-small">{deleteError}</p>
+              )}
+              <div className="flex gap-3 pt-4">
+                <Button
+                  onClick={handleDeleteLeagueConfirm}
+                  className="flex-1 bg-state-error hover:bg-state-error/80"
+                >
+                  Delete
+                </Button>
+                <Button
+                  variant="ghost"
+                  onClick={() => setOpenDeleteModal(false)}
+                  className="flex-1"
+                >
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* Login Modal */}
+        <Dialog open={openLogin} onOpenChange={setOpenLogin}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle className="text-text-primary text-h3 font-bold">Sign In</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4 mt-6">
+              <div>
+                <label className="block text-text-primary text-small font-medium mb-2">
+                  Email
+                </label>
+                <Input
+                  type="email"
+                  value={loginEmail}
+                  onChange={(e) => setLoginEmail(e.target.value)}
+                  placeholder="Enter your email"
+                  className="w-full"
+                />
+              </div>
+              <div>
+                <label className="block text-text-primary text-small font-medium mb-2">
+                  Password
+                </label>
+                <Input
+                  type="password"
+                  value={loginPassword}
+                  onChange={(e) => setLoginPassword(e.target.value)}
+                  placeholder="Enter your password"
+                  className="w-full"
+                />
+              </div>
+              {loginError && (
+                <p className="text-state-error text-small">{loginError}</p>
+              )}
+              <div className="flex flex-col gap-3 pt-4">
+                <Button onClick={handleLogin} className="w-full">
+                  Sign In
+                </Button>
+                <Button
+                  variant="ghost"
+                  onClick={() => {
+                    setOpenLogin(false);
+                    setOpenRegister(true);
+                  }}
+                  className="w-full"
+                >
+                  Register
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* Register Modal */}
+        <Dialog open={openRegister} onOpenChange={setOpenRegister}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle className="text-text-primary text-h3 font-bold">Register</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4 mt-6">
+              <div>
+                <label className="block text-text-primary text-small font-medium mb-2">
+                  Name
+                </label>
+                <Input
+                  type="text"
+                  value={registerName}
+                  onChange={(e) => setRegisterName(e.target.value)}
+                  placeholder="Enter your name"
+                  className="w-full"
+                />
+              </div>
+              <div>
+                <label className="block text-text-primary text-small font-medium mb-2">
+                  Email
+                </label>
+                <Input
+                  type="email"
+                  value={registerEmail}
+                  onChange={(e) => setRegisterEmail(e.target.value)}
+                  placeholder="Enter your email"
+                  className="w-full"
+                />
+              </div>
+              <div>
+                <label className="block text-text-primary text-small font-medium mb-2">
+                  Password
+                </label>
+                <Input
+                  type="password"
+                  value={registerPassword}
+                  onChange={(e) => setRegisterPassword(e.target.value)}
+                  placeholder="Enter your password"
+                  className="w-full"
+                />
+              </div>
+              {registerError && (
+                <p className="text-state-error text-small">{registerError}</p>
+              )}
+              <div className="flex flex-col gap-3 pt-4">
+                <Button onClick={handleRegister} className="w-full">
+                  Register
+                </Button>
+                <Button
+                  variant="ghost"
+                  onClick={() => {
+                    setOpenRegister(false);
+                    setOpenLogin(true);
+                  }}
+                  className="w-full"
+                >
+                  Sign In
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+      </div>
+    </div>
   );
 } 

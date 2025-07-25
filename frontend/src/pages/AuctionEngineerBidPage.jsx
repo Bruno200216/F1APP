@@ -46,21 +46,21 @@ export default function AuctionEngineerBidPage() {
       try {
         // Determinar el endpoint basándose en el tipo
         const endpoint = type === 'track' ? 
-          `/api/trackengineersbyleague?league_id=${selectedLeague?.id}` :
-          `/api/chiefengineersbyleague?league_id=${selectedLeague?.id}`;
+          `/api/trackengineersbyleague?id=${id}&league_id=${selectedLeague?.id}` :
+          `/api/chiefengineersbyleague?id=${id}&league_id=${selectedLeague?.id}`;
         
         let engineerRes = await fetch(endpoint);
         let engineerData = await engineerRes.json();
         
         if (!engineerRes.ok) throw new Error('Ingeniero no encontrado');
         
-        // Buscar el ingeniero específico por ID
-        const engineers = type === 'track' ? engineerData.track_engineers : engineerData.chief_engineers;
-        const foundEngineer = engineers.find(eng => eng.id === parseInt(id));
-        
-        if (!foundEngineer) throw new Error('Ingeniero no encontrado');
-        
-        setEngineer(foundEngineer);
+        // Los datos vienen según el tipo de ingeniero
+        const engineerMainData = type === 'track' ? engineerData.track_engineer : engineerData.chief_engineer;
+        setEngineer({
+          ...engineerMainData,
+          // Agregar datos de la relación por liga para cláusulas, etc.
+          engineer_by_league: engineerData.engineer
+        });
         
         // Intentar obtener subasta existente
         const itemType = type === 'track' ? 'track_engineer' : 'chief_engineer';
@@ -101,13 +101,13 @@ export default function AuctionEngineerBidPage() {
   }, [selectedLeague]);
 
   // Calcular mínimo de puja
-  let minBid = engineer ? engineer.value : 0;
+      let minBid = engineer ? engineer.Value : 0;
   if (auction && auction.bids && auction.bids.length > 0) {
     try {
       const bidsArr = JSON.parse(auction.bids);
       minBid = Math.max(...bidsArr.map(b => b.valor)) + 1;
     } catch {
-      minBid = engineer.value;
+      minBid = engineer.Value;
     }
   }
 
@@ -181,7 +181,7 @@ export default function AuctionEngineerBidPage() {
   );
 
   // Obtener colores del equipo
-  const teamColor = teamColors[engineer.team] || { primary: '#666666', secondary: '#444444' };
+  const teamColor = teamColors[engineer.Team] || { primary: '#666666', secondary: '#444444' };
 
   return (
     <Box sx={{ minHeight: '100vh', background: '#18192a', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', p: 2 }}>
@@ -190,8 +190,8 @@ export default function AuctionEngineerBidPage() {
       </IconButton>
       
       <Avatar
-        src={`/images/ingenierosdepista/${engineer.image_url}`}
-        alt={engineer.name}
+        src={`/images/ingenierosdepista/${engineer.ImageURL}`}
+        alt={engineer.Name}
         sx={{ 
           width: 120, 
           height: 120, 
@@ -202,7 +202,7 @@ export default function AuctionEngineerBidPage() {
       />
       
       <Typography sx={{ color: '#fff', fontWeight: 700, fontSize: 24, mb: 1, textAlign: 'center' }}>
-        {engineer.name}
+        {engineer.Name}
       </Typography>
       
       <Typography sx={{ color: teamColor.primary, fontWeight: 700, fontSize: 18, mb: 3, textAlign: 'center' }}>
@@ -212,11 +212,11 @@ export default function AuctionEngineerBidPage() {
       <Box sx={{ width: '100%', maxWidth: 320, mb: 2 }}>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
           <Typography sx={{ color: '#FFD600', fontWeight: 700, fontSize: 15 }}>VALOR DE MERCADO</Typography>
-          <Typography sx={{ color: '#fff', fontWeight: 700, fontSize: 15 }}>{Number(engineer.value).toLocaleString('es-ES')}</Typography>
+          <Typography sx={{ color: '#fff', fontWeight: 700, fontSize: 15 }}>{Number(engineer.Value).toLocaleString('es-ES')}</Typography>
         </Box>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
           <Typography sx={{ color: '#4CAF50', fontWeight: 700, fontSize: 15 }}>PRECIO SOLICITADO</Typography>
-          <Typography sx={{ color: '#fff', fontWeight: 700, fontSize: 15 }}>{Number(engineer.value).toLocaleString('es-ES')}</Typography>
+          <Typography sx={{ color: '#fff', fontWeight: 700, fontSize: 15 }}>{Number(engineer.Value).toLocaleString('es-ES')}</Typography>
         </Box>
         <Box sx={{ display: 'flex', alignItems: 'center', background: '#23243a', borderRadius: 2, px: 2, py: 1, mb: 2 }}>
           <Typography sx={{ color: '#b0b0b0', fontWeight: 700, mr: 1 }}>€</Typography>
@@ -226,7 +226,7 @@ export default function AuctionEngineerBidPage() {
             onChange={e => setAmount(e.target.value)}
             InputProps={{ disableUnderline: true, style: { color: '#fff', fontWeight: 700, fontSize: 18, background: 'transparent' } }}
             sx={{ flex: 1, input: { textAlign: 'right' } }}
-            placeholder={Number(engineer.value).toLocaleString('es-ES')}
+            placeholder={Number(engineer.Value).toLocaleString('es-ES')}
             type="number"
             inputProps={{ min: minBid }}
           />

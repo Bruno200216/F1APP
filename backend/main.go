@@ -4,11 +4,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"strings"
 	"time"
 
 	"f1-fantasy-app/database"
+	"f1-fantasy-app/migrations"
 	"f1-fantasy-app/models"
 
 	"math/rand"
@@ -326,6 +328,20 @@ func main() {
 		log.Println("No se encontró archivo .env, usando variables de entorno del sistema")
 	}
 	database.Connect()
+
+	// En desarrollo: solo registrar migraciones disponibles (no ejecutar)
+	// En producción: ejecutar todas las migraciones pendientes
+	if os.Getenv("ENVIRONMENT") == "production" {
+		log.Println("[MIGRATIONS] Entorno de producción detectado, ejecutando migraciones...")
+		if err := migrations.RunMigrations(database.GetSQLDB()); err != nil {
+			log.Fatalf("Error ejecutando migraciones: %v", err)
+		}
+	} else {
+		log.Println("[MIGRATIONS] Entorno de desarrollo detectado - migraciones disponibles pero no ejecutadas")
+		migrations.LogAvailableMigrations()
+		log.Println("[MIGRATIONS] Las migraciones se ejecutarán automáticamente en producción")
+	}
+
 	database.Migrate()
 	database.SeedDatabase()
 
@@ -440,6 +456,21 @@ func main() {
 		c.JSON(200, gin.H{"pilots": pilots, "track_engineers": trackEngineerProfiles})
 	})
 
+	// Endpoint para obtener información de un piloto específico por ID
+	router.GET("/api/pilots/:id", func(c *gin.Context) {
+		pilotID := c.Param("id")
+		if pilotID == "" {
+			c.JSON(400, gin.H{"error": "Falta pilot_id"})
+			return
+		}
+		var pilot models.Pilot
+		if err := database.DB.First(&pilot, pilotID).Error; err != nil {
+			c.JSON(404, gin.H{"error": "Piloto no encontrado"})
+			return
+		}
+		c.JSON(200, gin.H{"pilot": pilot})
+	})
+
 	router.POST("/api/pilots", authMiddleware(), func(c *gin.Context) {
 		var req models.Pilot
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -529,13 +560,14 @@ func main() {
 			log.Printf("[CREAR LIGA] PilotosByLeague creados: %d", len(pilotsByLeague))
 		}
 		// Comprobar si ya existe el registro en player_by_league para este usuario y liga
+		userIDUint64 := uint64(userID.(uint))
 		var existing models.PlayerByLeague
-		if err := database.DB.Where("player_id = ? AND league_id = ?", userID, league.ID).First(&existing).Error; err == nil {
-			log.Printf("El usuario %v ya tiene registro en player_by_league para la liga %d", userID, league.ID)
+		if err := database.DB.Where("player_id = ? AND league_id = ?", userIDUint64, league.ID).First(&existing).Error; err == nil {
+			log.Printf("El usuario %d ya tiene registro en player_by_league para la liga %d", userIDUint64, league.ID)
 		} else {
 			// Crear el registro en player_by_league solo para el creador
 			playerByLeague := models.PlayerByLeague{
-				PlayerID:              uint64(userID.(uint)),
+				PlayerID:              userIDUint64,
 				LeagueID:              uint64(league.ID),
 				Money:                 100000000, // 100M
 				TeamValue:             0,
@@ -543,17 +575,18 @@ func main() {
 				OwnedTrackEngineers:   "[]",
 				OwnedChiefEngineers:   "[]",
 				OwnedTeamConstructors: "[]",
+				TotalPoints:           0,
 			}
 			if err := database.DB.Create(&playerByLeague).Error; err != nil {
-				log.Printf("Error creando player_by_league: %v", err)
+				log.Printf("[CREAR LIGA] ERROR CRÍTICO: No se pudo crear player_by_league: %v", err)
+				// Borrar la liga que acabamos de crear ya que no se pudo asociar al usuario
+				database.DB.Delete(&league)
+				c.JSON(500, gin.H{"error": "Error asociando usuario a la liga"})
+				return
 			} else {
-				log.Printf("Registro player_by_league creado para player_id=%d, league_id=%d", playerByLeague.PlayerID, playerByLeague.LeagueID)
+				log.Printf("[CREAR LIGA] ✅ Registro player_by_league creado para player_id=%d, league_id=%d", playerByLeague.PlayerID, playerByLeague.LeagueID)
 			}
 		}
-		// Crear el mercado inicial de la liga (5 pilotos libres aleatorios)
-		// Eliminar subastas antiguas por si acaso
-		database.DB.Where("league_id = ?", league.ID).Delete(&Auction{})
-		refreshMarketForLeague(league.ID)
 		// Poblar ingenieros de pista para el primer GP
 		var gps []models.GrandPrix
 		database.DB.Order("gp_index asc").Find(&gps)
@@ -631,7 +664,16 @@ func main() {
 		// Poblar tabla market_items con todos los elementos disponibles para el mercado
 		log.Printf("[CREAR LIGA] Poblando market_items para liga %d", league.ID)
 
-		// Añadir todos los pilotos
+		// Verificar que se crearon los pilotos exitosamente
+		if len(pilotsByLeague) == 0 {
+			log.Printf("[CREAR LIGA] ERROR: No se crearon PilotsByLeague")
+			database.DB.Delete(&league)
+			c.JSON(500, gin.H{"error": "Error poblando pilotos de la liga"})
+			return
+		}
+
+		// Añadir todos los pilotos al mercado
+		pilotMarketCount := 0
 		for _, pbl := range pilotsByLeague {
 			marketItem := models.MarketItem{
 				LeagueID: league.ID,
@@ -639,12 +681,18 @@ func main() {
 				ItemID:   pbl.ID,
 				IsActive: true,
 			}
-			database.DB.Create(&marketItem)
+			if err := database.DB.Create(&marketItem).Error; err != nil {
+				log.Printf("[CREAR LIGA] Error creando market_item para pilot ID %d: %v", pbl.ID, err)
+			} else {
+				pilotMarketCount++
+			}
 		}
+		log.Printf("[CREAR LIGA] ✅ Market items de pilotos creados: %d/%d", pilotMarketCount, len(pilotsByLeague))
 
 		// Añadir todos los track engineers
 		var allTrackEngineers []models.TrackEngineerByLeague
 		database.DB.Where("league_id = ?", league.ID).Find(&allTrackEngineers)
+		trackEngMarketCount := 0
 		for _, teb := range allTrackEngineers {
 			marketItem := models.MarketItem{
 				LeagueID: league.ID,
@@ -652,12 +700,18 @@ func main() {
 				ItemID:   teb.ID,
 				IsActive: true,
 			}
-			database.DB.Create(&marketItem)
+			if err := database.DB.Create(&marketItem).Error; err != nil {
+				log.Printf("[CREAR LIGA] Error creando market_item para track engineer ID %d: %v", teb.ID, err)
+			} else {
+				trackEngMarketCount++
+			}
 		}
+		log.Printf("[CREAR LIGA] ✅ Market items de track engineers creados: %d/%d", trackEngMarketCount, len(allTrackEngineers))
 
 		// Añadir todos los chief engineers
 		var allChiefEngineers []models.ChiefEngineerByLeague
 		database.DB.Where("league_id = ?", league.ID).Find(&allChiefEngineers)
+		chiefEngMarketCount := 0
 		for _, ceb := range allChiefEngineers {
 			marketItem := models.MarketItem{
 				LeagueID: league.ID,
@@ -665,12 +719,18 @@ func main() {
 				ItemID:   ceb.ID,
 				IsActive: true,
 			}
-			database.DB.Create(&marketItem)
+			if err := database.DB.Create(&marketItem).Error; err != nil {
+				log.Printf("[CREAR LIGA] Error creando market_item para chief engineer ID %d: %v", ceb.ID, err)
+			} else {
+				chiefEngMarketCount++
+			}
 		}
+		log.Printf("[CREAR LIGA] ✅ Market items de chief engineers creados: %d/%d", chiefEngMarketCount, len(allChiefEngineers))
 
 		// Añadir todos los team constructors
 		var allTeamConstructors []models.TeamConstructorByLeague
 		database.DB.Where("league_id = ?", league.ID).Find(&allTeamConstructors)
+		teamConsMarketCount := 0
 		for _, tcb := range allTeamConstructors {
 			marketItem := models.MarketItem{
 				LeagueID: league.ID,
@@ -678,13 +738,28 @@ func main() {
 				ItemID:   tcb.ID,
 				IsActive: true,
 			}
-			database.DB.Create(&marketItem)
+			if err := database.DB.Create(&marketItem).Error; err != nil {
+				log.Printf("[CREAR LIGA] Error creando market_item para team constructor ID %d: %v", tcb.ID, err)
+			} else {
+				teamConsMarketCount++
+			}
 		}
+		log.Printf("[CREAR LIGA] ✅ Market items de team constructors creados: %d/%d", teamConsMarketCount, len(allTeamConstructors))
 
-		log.Printf("[CREAR LIGA] Market_items poblado correctamente")
+		totalMarketItems := pilotMarketCount + trackEngMarketCount + chiefEngMarketCount + teamConsMarketCount
+		log.Printf("[CREAR LIGA] ✅ Total market_items creados: %d", totalMarketItems)
 
 		// Crear el mercado inicial de la liga (8 elementos aleatorios)
-		refreshMarketForLeague(league.ID)
+		log.Printf("[CREAR LIGA] Iniciando refresh del mercado...")
+		if err := refreshMarketForLeague(league.ID); err != nil {
+			log.Printf("[CREAR LIGA] Error refrescando mercado: %v", err)
+			// No es crítico, la liga ya está creada
+		} else {
+			log.Printf("[CREAR LIGA] ✅ Mercado refrescado exitosamente")
+		}
+
+		log.Printf("[CREAR LIGA] 🎉 Liga creada exitosamente - ID=%d, Nombre='%s', Total elementos: %d",
+			league.ID, league.Name, totalMarketItems)
 
 		c.JSON(201, gin.H{"league": league})
 	})
@@ -699,20 +774,169 @@ func main() {
 	// Endpoint para eliminar una liga
 	router.DELETE("/api/leagues/:id", authMiddleware(), func(c *gin.Context) {
 		id := c.Param("id")
-		log.Printf("[BORRAR LIGA] Eliminando registros relacionados con league_id=%s", id)
-		// Borrar subastas
+		userID := c.GetUint("user_id")
+
+		log.Printf("[SALIR/BORRAR LIGA] Usuario %d intentando salir/borrar liga %s", userID, id)
+
+		// Verificar que la liga existe
+		var league models.League
+		if err := database.DB.First(&league, id).Error; err != nil {
+			c.JSON(404, gin.H{"error": "Liga no encontrada"})
+			return
+		}
+
+		// Contar cuántos miembros tiene la liga
+		var memberCount int64
+		database.DB.Model(&models.PlayerByLeague{}).Where("league_id = ?", id).Count(&memberCount)
+
+		log.Printf("[SALIR/BORRAR LIGA] Liga %s tiene %d miembros", id, memberCount)
+
+		// Verificar si el usuario es miembro de la liga
+		var playerInLeague models.PlayerByLeague
+		if err := database.DB.Where("player_id = ? AND league_id = ?", userID, id).First(&playerInLeague).Error; err != nil {
+			c.JSON(403, gin.H{"error": "No eres miembro de esta liga"})
+			return
+		}
+
+		// LÓGICA: Si es el ÚNICO miembro, eliminar liga completa
+		if memberCount == 1 {
+			log.Printf("[BORRAR LIGA COMPLETA] Usuario %d es el único miembro, eliminando liga completa", userID)
+
+			// Borrar en orden correcto para evitar restricciones de clave foránea
+
+			// 1. Borrar subastas
+			database.DB.Where("league_id = ?", id).Delete(&Auction{})
+			log.Printf("[BORRAR LIGA] Subastas eliminadas")
+
+			// 2. Borrar market_items
+			database.DB.Where("league_id = ?", id).Delete(&models.MarketItem{})
+			log.Printf("[BORRAR LIGA] Market items eliminados")
+
+			// 3. Borrar pilotos por liga
+			database.DB.Where("league_id = ?", id).Delete(&models.PilotByLeague{})
+			log.Printf("[BORRAR LIGA] Pilotos por liga eliminados")
+
+			// 4. Borrar track engineers por liga
+			database.DB.Where("league_id = ?", id).Delete(&models.TrackEngineerByLeague{})
+			log.Printf("[BORRAR LIGA] Track engineers por liga eliminados")
+
+			// 5. Borrar chief engineers por liga
+			database.DB.Where("league_id = ?", id).Delete(&models.ChiefEngineerByLeague{})
+			log.Printf("[BORRAR LIGA] Chief engineers por liga eliminados")
+
+			// 6. Borrar team constructors por liga
+			database.DB.Where("league_id = ?", id).Delete(&models.TeamConstructorByLeague{})
+			log.Printf("[BORRAR LIGA] Team constructors por liga eliminados")
+
+			// 7. Borrar player_by_league
+			database.DB.Where("league_id = ?", id).Delete(&models.PlayerByLeague{})
+			log.Printf("[BORRAR LIGA] Players por liga eliminados")
+
+			// 8. Borrar lineups
+			database.DB.Where("league_id = ?", id).Delete(&models.Lineup{})
+			log.Printf("[BORRAR LIGA] Lineups eliminados")
+
+			// Finalmente, borrar la liga
+			if err := database.DB.Delete(&models.League{}, id).Error; err != nil {
+				log.Printf("[BORRAR LIGA] ERROR eliminando liga: %v", err)
+				c.JSON(500, gin.H{"error": "Error eliminando liga"})
+				return
+			}
+			log.Printf("[BORRAR LIGA] Liga %s eliminada correctamente", id)
+			c.JSON(200, gin.H{"message": "Liga eliminada completamente"})
+
+		} else {
+			// LÓGICA: Si hay otros miembros, devolver fichajes al mercado y eliminar relación
+			log.Printf("[SALIR DE LIGA] Usuario %d saliendo de liga con otros miembros", userID)
+
+			// Devolver todos los fichajes del usuario al mercado de la liga
+			leagueIDUint, _ := strconv.ParseUint(id, 10, 32)
+			if err := returnUserItemsToLeague(userID, uint(leagueIDUint)); err != nil {
+				log.Printf("[SALIR DE LIGA] ERROR devolviendo fichajes: %v", err)
+				c.JSON(500, gin.H{"error": "Error devolviendo fichajes al mercado"})
+				return
+			}
+
+			// Eliminar solo la relación del usuario con la liga
+			if err := database.DB.Where("player_id = ? AND league_id = ?", userID, id).Delete(&models.PlayerByLeague{}).Error; err != nil {
+				log.Printf("[SALIR DE LIGA] ERROR eliminando relación: %v", err)
+				c.JSON(500, gin.H{"error": "Error saliendo de la liga"})
+				return
+			}
+
+			// Eliminar lineups del usuario en esta liga
+			database.DB.Where("player_id = ? AND league_id = ?", userID, id).Delete(&models.Lineup{})
+			log.Printf("[SALIR DE LIGA] Lineups del usuario eliminados")
+
+			log.Printf("[SALIR DE LIGA] Usuario %d salió correctamente de liga %s", userID, id)
+			c.JSON(200, gin.H{"message": "Has salido de la liga correctamente"})
+		}
+	})
+
+	// Endpoint para que el creador elimine la liga completa (solo para creadores)
+	router.DELETE("/api/leagues/:id/admin", authMiddleware(), func(c *gin.Context) {
+		id := c.Param("id")
+		userID := c.GetUint("user_id")
+
+		log.Printf("[ADMIN BORRAR LIGA] Usuario %d intentando eliminar liga %s como admin", userID, id)
+
+		// Verificar que la liga existe
+		var league models.League
+		if err := database.DB.First(&league, id).Error; err != nil {
+			c.JSON(404, gin.H{"error": "Liga no encontrada"})
+			return
+		}
+
+		// Verificar que el usuario es el creador de la liga
+		if league.PlayerID != userID {
+			c.JSON(403, gin.H{"error": "Solo el creador de la liga puede eliminarla completamente"})
+			return
+		}
+
+		log.Printf("[ADMIN BORRAR LIGA] Usuario %d es creador, eliminando liga completa", userID)
+
+		// Borrar en orden correcto para evitar restricciones de clave foránea
+
+		// 1. Borrar subastas
 		database.DB.Where("league_id = ?", id).Delete(&Auction{})
-		// Borrar pilotos por liga
+		log.Printf("[ADMIN BORRAR LIGA] Subastas eliminadas")
+
+		// 2. Borrar market_items
+		database.DB.Where("league_id = ?", id).Delete(&models.MarketItem{})
+		log.Printf("[ADMIN BORRAR LIGA] Market items eliminados")
+
+		// 3. Borrar pilotos por liga
 		database.DB.Where("league_id = ?", id).Delete(&models.PilotByLeague{})
-		// Borrar player_by_league
+		log.Printf("[ADMIN BORRAR LIGA] Pilotos por liga eliminados")
+
+		// 4. Borrar track engineers por liga
+		database.DB.Where("league_id = ?", id).Delete(&models.TrackEngineerByLeague{})
+		log.Printf("[ADMIN BORRAR LIGA] Track engineers por liga eliminados")
+
+		// 5. Borrar chief engineers por liga
+		database.DB.Where("league_id = ?", id).Delete(&models.ChiefEngineerByLeague{})
+		log.Printf("[ADMIN BORRAR LIGA] Chief engineers por liga eliminados")
+
+		// 6. Borrar team constructors por liga
+		database.DB.Where("league_id = ?", id).Delete(&models.TeamConstructorByLeague{})
+		log.Printf("[ADMIN BORRAR LIGA] Team constructors por liga eliminados")
+
+		// 7. Borrar player_by_league
 		database.DB.Where("league_id = ?", id).Delete(&models.PlayerByLeague{})
+		log.Printf("[ADMIN BORRAR LIGA] Players por liga eliminados")
+
+		// 8. Borrar lineups
+		database.DB.Where("league_id = ?", id).Delete(&models.Lineup{})
+		log.Printf("[ADMIN BORRAR LIGA] Lineups eliminados")
+
 		// Finalmente, borrar la liga
 		if err := database.DB.Delete(&models.League{}, id).Error; err != nil {
+			log.Printf("[ADMIN BORRAR LIGA] ERROR eliminando liga: %v", err)
 			c.JSON(500, gin.H{"error": "Error eliminando liga"})
 			return
 		}
-		log.Printf("[BORRAR LIGA] Liga %s eliminada correctamente", id)
-		c.JSON(200, gin.H{"message": "Liga eliminada"})
+		log.Printf("[ADMIN BORRAR LIGA] Liga %s eliminada correctamente por admin", id)
+		c.JSON(200, gin.H{"message": "Liga eliminada completamente por el administrador"})
 	})
 
 	// Endpoint para editar el nombre de una liga
@@ -791,34 +1015,110 @@ func main() {
 		}
 		var gps []models.GrandPrix
 		database.DB.Order("date asc").Find(&gps)
-		// Criterios de puntuación según el modo
-		scoring := map[string]interface{}{}
 		nGPS := len(gps)
+		scoring := map[string]interface{}{}
+		pointsArray := make([]int, nGPS)
+		// Cambiar la fuente de datos según el modo
 		switch pilot.Mode {
 		case "practice", "P":
-			scoring["practice_point_finish"] = safeIntArray(pilot.PracticePointFinish, nGPS)
-			scoring["practice_team_battle"] = safeIntArray(pilot.PracticeTeamBattle, nGPS)
-			scoring["practice_red_flag"] = safeIntArray(pilot.PracticeRedFlag, nGPS)
+			var practices []models.PilotPractice
+			database.DB.Where("pilot_id = ?", pilotID).Order("gp_index asc").Find(&practices)
+			for i := 0; i < nGPS; i++ {
+				scoring["finish_position"] = make([]interface{}, nGPS)
+				scoring["expected_position"] = make([]interface{}, nGPS)
+				scoring["delta_position"] = make([]interface{}, nGPS)
+				scoring["points"] = make([]interface{}, nGPS)
+				scoring["caused_red_flag"] = make([]interface{}, nGPS)
+			}
+			for _, p := range practices {
+				idx := int(p.GPIndex) - 1
+				if idx >= 0 && idx < nGPS {
+					scoring["finish_position"].([]interface{})[idx] = p.FinishPosition
+					scoring["expected_position"].([]interface{})[idx] = p.ExpectedPosition
+					scoring["delta_position"].([]interface{})[idx] = p.DeltaPosition
+					scoring["points"].([]interface{})[idx] = p.Points
+					scoring["caused_red_flag"].([]interface{})[idx] = p.CausedRedFlag
+					pointsArray[idx] = p.Points
+				}
+			}
 		case "qualifying", "Q":
-			scoring["qualifying_pass_q1"] = safeIntArray(pilot.QualifyingPassQ1, nGPS)
-			scoring["qualifying_pass_q2"] = safeIntArray(pilot.QualifyingPassQ2, nGPS)
-			scoring["qualifying_position_finish"] = safeIntArray(pilot.QualifyingPositionFinish, nGPS)
-			scoring["qualifying_team_battle"] = safeIntArray(pilot.QualifyingTeamBattle, nGPS)
-			scoring["qualifying_red_flag"] = safeIntArray(pilot.QualifyingRedFlag, nGPS)
+			var qualies []models.PilotQualy
+			database.DB.Where("pilot_id = ?", pilotID).Order("gp_index asc").Find(&qualies)
+			for i := 0; i < nGPS; i++ {
+				scoring["finish_position"] = make([]interface{}, nGPS)
+				scoring["expected_position"] = make([]interface{}, nGPS)
+				scoring["delta_position"] = make([]interface{}, nGPS)
+				scoring["points"] = make([]interface{}, nGPS)
+				scoring["caused_red_flag"] = make([]interface{}, nGPS)
+			}
+			for _, q := range qualies {
+				idx := int(q.GPIndex) - 1
+				if idx >= 0 && idx < nGPS {
+					scoring["finish_position"].([]interface{})[idx] = q.FinishPosition
+					scoring["expected_position"].([]interface{})[idx] = q.ExpectedPosition
+					scoring["delta_position"].([]interface{})[idx] = q.DeltaPosition
+					scoring["points"].([]interface{})[idx] = q.Points
+					scoring["caused_red_flag"].([]interface{})[idx] = q.CausedRedFlag
+					pointsArray[idx] = q.Points
+				}
+			}
 		case "race", "R":
-			scoring["race_points"] = safeIntArray(pilot.RacePoints, nGPS)
-			scoring["race_position"] = safeIntArray(pilot.RacePosition, nGPS)
-			scoring["start_position"] = safeIntArray(pilot.StartPosition, nGPS)
-			scoring["finish_position"] = safeIntArray(pilot.FinishPosition, nGPS)
-			scoring["fastest_lap"] = safeIntArray(pilot.FastestLap, nGPS)
-			scoring["driver_of_the_day"] = safeIntArray(pilot.DriverOfTheDay, nGPS)
-			scoring["safety_car"] = safeIntArray(pilot.SafetyCar, nGPS)
-			scoring["race_team_battle"] = safeIntArray(pilot.RaceTeamBattle, nGPS)
-			scoring["race_red_flag"] = safeIntArray(pilot.RaceRedFlag, nGPS)
+			var races []models.PilotRace
+			database.DB.Where("pilot_id = ?", pilotID).Order("gp_index asc").Find(&races)
+			for i := 0; i < nGPS; i++ {
+				scoring["finish_position"] = make([]interface{}, nGPS)
+				scoring["expected_position"] = make([]interface{}, nGPS)
+				scoring["delta_position"] = make([]interface{}, nGPS)
+				scoring["points"] = make([]interface{}, nGPS)
+				scoring["positions_gained_at_start"] = make([]interface{}, nGPS)
+				scoring["clean_overtakes"] = make([]interface{}, nGPS)
+				scoring["net_positions_lost"] = make([]interface{}, nGPS)
+				scoring["fastest_lap"] = make([]interface{}, nGPS)
+				scoring["caused_vsc"] = make([]interface{}, nGPS)
+				scoring["caused_sc"] = make([]interface{}, nGPS)
+				scoring["caused_red_flag"] = make([]interface{}, nGPS)
+				scoring["dnf_driver_error"] = make([]interface{}, nGPS)
+				scoring["dnf_no_fault"] = make([]interface{}, nGPS)
+			}
+			for _, r := range races {
+				idx := int(r.GPIndex) - 1
+				if idx >= 0 && idx < nGPS {
+					scoring["finish_position"].([]interface{})[idx] = r.FinishPosition
+					scoring["expected_position"].([]interface{})[idx] = r.ExpectedPosition
+					scoring["delta_position"].([]interface{})[idx] = r.DeltaPosition
+					scoring["points"].([]interface{})[idx] = r.Points
+					scoring["positions_gained_at_start"].([]interface{})[idx] = r.PositionsGainedAtStart
+					scoring["clean_overtakes"].([]interface{})[idx] = r.CleanOvertakes
+					scoring["net_positions_lost"].([]interface{})[idx] = r.NetPositionsLost
+					scoring["fastest_lap"].([]interface{})[idx] = r.FastestLap
+					scoring["caused_vsc"].([]interface{})[idx] = r.CausedVSC
+					scoring["caused_sc"].([]interface{})[idx] = r.CausedSC
+					scoring["caused_red_flag"].([]interface{})[idx] = r.CausedRedFlag
+					scoring["dnf_driver_error"].([]interface{})[idx] = r.DNFDriverError
+					scoring["dnf_no_fault"].([]interface{})[idx] = r.DNFNoFault
+					pointsArray[idx] = r.Points
+				}
+			}
 		}
+		// Guardar los puntos en un campo separado para compatibilidad frontend
 		c.JSON(200, gin.H{
-			"pilot":            pilot,
-			"pilot_by_league":  pbl,
+			"pilot": pilot,
+			"pilot_by_league": gin.H{
+				"id":                      pbl.ID,
+				"pilot_id":                pbl.PilotID,
+				"league_id":               pbl.LeagueID,
+				"owner_id":                pbl.OwnerID,
+				"clausulatime":            pbl.Clausulatime,
+				"clausula_value":          pbl.ClausulaValue,
+				"bids":                    pbl.Bids,
+				"venta":                   pbl.Venta,
+				"venta_expires_at":        pbl.VentaExpiresAt,
+				"league_offer_value":      pbl.LeagueOfferValue,
+				"league_offer_expires_at": pbl.LeagueOfferExpiresAt,
+				"created_at":              pbl.CreatedAt,
+				"updated_at":              pbl.UpdatedAt,
+				"points":                  pointsArray,
+			},
 			"grand_prix":       gps,
 			"scoring_criteria": scoring,
 		})
@@ -953,6 +1253,19 @@ func main() {
 		database.DB.Save(&pbl)
 	})
 
+	// Obtener información del jugador
+	router.GET("/api/players/:player_id", authMiddleware(), func(c *gin.Context) {
+		playerID := c.Param("player_id")
+
+		var player models.Player
+		if err := database.DB.First(&player, playerID).Error; err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Player not found"})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{"player": player})
+	})
+
 	// Endpoint para obtener los pilotos de una liga para un usuario concreto
 	router.GET("/api/players/:player_id/drivers", func(c *gin.Context) {
 		playerID := c.Param("player_id")
@@ -989,16 +1302,28 @@ func main() {
 
 	// Endpoint para obtener la plantilla completa de un jugador (pilotos + ingenieros + equipos)
 	router.GET("/api/players/:player_id/team", func(c *gin.Context) {
-		playerID := c.Param("player_id")
-		leagueID := c.Query("league_id")
-		if playerID == "" || leagueID == "" {
+		playerIDStr := c.Param("player_id")
+		leagueIDStr := c.Query("league_id")
+		if playerIDStr == "" || leagueIDStr == "" {
 			c.JSON(400, gin.H{"error": "Faltan parámetros player_id o league_id"})
 			return
 		}
 
-		log.Printf("[TEAM] Obteniendo plantilla para player_id=%s, league_id=%s", playerID, leagueID)
+		// Convertir a enteros para las consultas
+		playerID, err := strconv.ParseUint(playerIDStr, 10, 64)
+		if err != nil {
+			c.JSON(400, gin.H{"error": "player_id inválido"})
+			return
+		}
+		leagueID, err := strconv.ParseUint(leagueIDStr, 10, 64)
+		if err != nil {
+			c.JSON(400, gin.H{"error": "league_id inválido"})
+			return
+		}
 
-		// Obtener PlayerByLeague para acceder a las columnas owned_*
+		log.Printf("[TEAM] Obteniendo plantilla para player_id=%d, league_id=%d", playerID, leagueID)
+
+		// Obtener PlayerByLeague para dinero y team_value
 		var playerLeague models.PlayerByLeague
 		if err := database.DB.Where("player_id = ? AND league_id = ?", playerID, leagueID).First(&playerLeague).Error; err != nil {
 			log.Printf("[TEAM] Error obteniendo PlayerByLeague: %v", err)
@@ -1019,143 +1344,173 @@ func main() {
 			"team_constructors": []map[string]interface{}{},
 		}
 
-		// 1. Obtener pilotos propios - Consultar directamente pilot_by_leagues
+		// 1. Buscar TODOS los pilotos que tengan owner_id = playerID en esta liga
 		var pilotsByLeague []models.PilotByLeague
 		database.DB.Where("league_id = ? AND owner_id = ?", leagueID, playerID).Find(&pilotsByLeague)
-		log.Printf("[TEAM] Pilotos encontrados: %d", len(pilotsByLeague))
+		log.Printf("[TEAM] Pilotos con owner_id=%d encontrados: %d", playerID, len(pilotsByLeague))
 
-		if len(pilotsByLeague) > 0 {
-			var pilots []map[string]interface{}
-			for _, pbl := range pilotsByLeague {
-				var pilot models.Pilot
-				database.DB.First(&pilot, pbl.PilotID)
-				pilots = append(pilots, map[string]interface{}{
-					"id":                 pbl.ID, // Usar pbl.ID (PilotByLeague.id) en lugar de pilot.ID
-					"pilot_by_league_id": pbl.ID,
-					"driver_name":        pilot.DriverName,
-					"team":               pilot.Team,
-					"image_url":          pilot.ImageURL,
-					"mode":               pilot.Mode,
-					"total_points":       pilot.TotalPoints,
-					"value":              pilot.Value,
-					"clausulatime":       pbl.Clausulatime,
-					"clausula_value":     pbl.ClausulaValue,
-					"owner_id":           pbl.OwnerID,
-					"type":               "pilot",
-				})
+		var pilots []map[string]interface{}
+		for _, pbl := range pilotsByLeague {
+			var pilot models.Pilot
+			if err := database.DB.First(&pilot, pbl.PilotID).Error; err != nil {
+				log.Printf("[TEAM] Error obteniendo pilot ID %d: %v", pbl.PilotID, err)
+				continue
 			}
-			result["pilots"] = pilots
-			log.Printf("[TEAM] %d pilotos agregados", len(pilots))
+			pilots = append(pilots, map[string]interface{}{
+				"id":                 pbl.ID, // PilotByLeague.id
+				"pilot_by_league_id": pbl.ID,
+				"pilot_id":           pilot.ID, // Pilot.id para navegación
+				"driver_name":        pilot.DriverName,
+				"team":               pilot.Team,
+				"image_url":          pilot.ImageURL,
+				"mode":               pilot.Mode,
+				"total_points":       pilot.TotalPoints,
+				"value":              pilot.Value,
+				"clausulatime":       pbl.Clausulatime,
+				"clausula_value":     pbl.ClausulaValue,
+				"owner_id":           pbl.OwnerID,
+				"type":               "pilot",
+			})
 		}
+		result["pilots"] = pilots
+		log.Printf("[TEAM] %d pilotos agregados", len(pilots))
 
-		// 2. Obtener track engineers propios - Consultar directamente track_engineer_by_league
+		// 2. Buscar TODOS los track engineers que tengan owner_id = playerID en esta liga
 		var trackEngineersByLeague []models.TrackEngineerByLeague
 		database.DB.Where("league_id = ? AND owner_id = ?", leagueID, playerID).Find(&trackEngineersByLeague)
-		log.Printf("[TEAM] Track Engineers encontrados: %d", len(trackEngineersByLeague))
+		log.Printf("[TEAM] Track Engineers con owner_id=%d encontrados: %d", playerID, len(trackEngineersByLeague))
 
-		if len(trackEngineersByLeague) > 0 {
-			var trackEngineers []map[string]interface{}
-			for _, teb := range trackEngineersByLeague {
-				var te models.TrackEngineer
-				database.DB.First(&te, teb.TrackEngineerID)
-
-				// Buscar piloto relacionado
-				var pilot models.Pilot
-				pilotTeam := ""
-				if err := database.DB.Where("track_engineer_id = ?", te.ID).First(&pilot).Error; err == nil {
-					pilotTeam = pilot.Team
-				}
-
-				// Arreglar ruta de imagen
-				imageURL := te.ImageURL
-				if imageURL != "" && !strings.Contains(imageURL, "ingenierosdepista/") {
-					imageURL = "images/ingenierosdepista/" + strings.TrimPrefix(imageURL, "images/")
-				}
-
-				trackEngineers = append(trackEngineers, map[string]interface{}{
-					"id":                teb.ID, // Usar teb.ID (TrackEngineerByLeague.id)
-					"track_engineer_id": te.ID,  // Usar te.ID (TrackEngineer.id)
-					"name":              te.Name,
-					"image_url":         imageURL,
-					"value":             te.Value,
-					"team":              pilotTeam,
-					"owner_id":          teb.OwnerID,
-					"type":              "track_engineer",
-				})
+		var trackEngineers []map[string]interface{}
+		for _, teb := range trackEngineersByLeague {
+			var te models.TrackEngineer
+			if err := database.DB.First(&te, teb.TrackEngineerID).Error; err != nil {
+				log.Printf("[TEAM] Error obteniendo TrackEngineer ID %d: %v", teb.TrackEngineerID, err)
+				continue
 			}
-			result["track_engineers"] = trackEngineers
-			log.Printf("[TEAM] %d track engineers agregados", len(trackEngineers))
-		}
 
-		// 3. Obtener chief engineers propios - Consultar directamente chief_engineers_by_league
+			// Buscar piloto relacionado
+			var pilot models.Pilot
+			pilotTeam := ""
+			if err := database.DB.Where("track_engineer_id = ?", te.ID).First(&pilot).Error; err == nil {
+				pilotTeam = pilot.Team
+			}
+
+			// Arreglar ruta de imagen
+			imageURL := te.ImageURL
+			if imageURL != "" {
+				// Limpiar cualquier prefijo existente
+				imageURL = strings.TrimPrefix(imageURL, "images/ingenierosdepista/")
+				imageURL = strings.TrimPrefix(imageURL, "images/")
+				imageURL = strings.TrimPrefix(imageURL, "ingenierosdepista/")
+				// Dejar solo el nombre del archivo
+			}
+
+			trackEngineers = append(trackEngineers, map[string]interface{}{
+				"id":                  teb.ID, // TrackEngineerByLeague.id
+				"track_engineer_id":   te.ID,  // TrackEngineer.id
+				"name":                te.Name,
+				"image_url":           imageURL,
+				"value":               te.Value,
+				"team":                pilotTeam,
+				"owner_id":            teb.OwnerID,
+				"type":                "track_engineer",
+				"clausula_value":      teb.ClausulaValue,
+				"clausula_expires_at": teb.ClausulaExpiresAt,
+			})
+		}
+		result["track_engineers"] = trackEngineers
+		log.Printf("[TEAM] %d track engineers agregados", len(trackEngineers))
+
+		// 3. Buscar TODOS los chief engineers que tengan owner_id = playerID en esta liga
 		var chiefEngineersByLeague []models.ChiefEngineerByLeague
 		database.DB.Where("league_id = ? AND owner_id = ?", leagueID, playerID).Find(&chiefEngineersByLeague)
-		log.Printf("[TEAM] Chief Engineers encontrados: %d", len(chiefEngineersByLeague))
+		log.Printf("[TEAM] Chief Engineers con owner_id=%d encontrados: %d", playerID, len(chiefEngineersByLeague))
 
-		if len(chiefEngineersByLeague) > 0 {
-			var chiefEngineers []map[string]interface{}
-			for _, ceb := range chiefEngineersByLeague {
-				var ce models.ChiefEngineer
-				database.DB.First(&ce, ceb.ChiefEngineerID)
-
-				chiefEngineers = append(chiefEngineers, map[string]interface{}{
-					"id":                ceb.ID, // Usar ceb.ID (ChiefEngineerByLeague.id)
-					"chief_engineer_id": ce.ID,  // Usar ce.ID (ChiefEngineer.id)
-					"name":              ce.Name,
-					"image_url":         ce.ImageURL,
-					"value":             ce.Value,
-					"team":              ce.Team,
-					"owner_id":          ceb.OwnerID,
-					"type":              "chief_engineer",
-				})
+		var chiefEngineers []map[string]interface{}
+		for _, ceb := range chiefEngineersByLeague {
+			var ce models.ChiefEngineer
+			if err := database.DB.First(&ce, ceb.ChiefEngineerID).Error; err != nil {
+				log.Printf("[TEAM] Error obteniendo ChiefEngineer ID %d: %v", ceb.ChiefEngineerID, err)
+				continue
 			}
-			result["chief_engineers"] = chiefEngineers
-			log.Printf("[TEAM] %d chief engineers agregados", len(chiefEngineers))
-		}
 
-		// 4. Obtener team constructors propios - Consultar directamente teamconstructor_by_league
+			// Arreglar ruta de imagen para chief engineers
+			imageURL := ce.ImageURL
+			if imageURL != "" {
+				// Limpiar cualquier prefijo existente
+				imageURL = strings.TrimPrefix(imageURL, "images/ingenierosdepista/")
+				imageURL = strings.TrimPrefix(imageURL, "images/")
+				imageURL = strings.TrimPrefix(imageURL, "ingenierosdepista/")
+				// Dejar solo el nombre del archivo
+			}
+
+			chiefEngineers = append(chiefEngineers, map[string]interface{}{
+				"id":                  ceb.ID, // ChiefEngineerByLeague.id
+				"chief_engineer_id":   ce.ID,  // ChiefEngineer.id
+				"name":                ce.Name,
+				"image_url":           imageURL,
+				"value":               ce.Value,
+				"team":                ce.Team,
+				"owner_id":            ceb.OwnerID,
+				"type":                "chief_engineer",
+				"clausula_value":      ceb.ClausulaValue,
+				"clausula_expires_at": ceb.ClausulaExpiresAt,
+			})
+		}
+		result["chief_engineers"] = chiefEngineers
+		log.Printf("[TEAM] %d chief engineers agregados", len(chiefEngineers))
+
+		// 4. Buscar TODOS los team constructors que tengan owner_id = playerID en esta liga
 		var teamConstructorsByLeague []models.TeamConstructorByLeague
 		database.DB.Where("league_id = ? AND owner_id = ?", leagueID, playerID).Find(&teamConstructorsByLeague)
-		log.Printf("[TEAM] Team Constructors encontrados: %d", len(teamConstructorsByLeague))
+		log.Printf("[TEAM] Team Constructors con owner_id=%d encontrados: %d", playerID, len(teamConstructorsByLeague))
 
-		if len(teamConstructorsByLeague) > 0 {
-			var teamConstructors []map[string]interface{}
-			for _, tcb := range teamConstructorsByLeague {
-				log.Printf("[TEAM] Procesando TeamConstructorByLeague ID: %d", tcb.ID)
-				var tc models.TeamConstructor
-				database.DB.First(&tc, tcb.TeamConstructorID)
-				log.Printf("[TEAM] TeamConstructor encontrado: ID=%d, Name=%s", tc.ID, tc.Name)
-
-				// Buscar pilotos del equipo
-				var pilots []models.Pilot
-				database.DB.Where("teamconstructor_id = ? AND mode = ?", tc.ID, "race").Find(&pilots)
-				var pilotNames []string
-				for _, pilot := range pilots {
-					pilotNames = append(pilotNames, pilot.DriverName)
-				}
-
-				teamConstructors = append(teamConstructors, map[string]interface{}{
-					"id":                  tcb.ID, // Usar tcb.ID (TeamConstructorByLeague.id)
-					"team_constructor_id": tc.ID,  // Usar tc.ID (TeamConstructor.id)
-					"name":                tc.Name,
-					"image_url":           tc.ImageURL,
-					"value":               tc.Value,
-					"team":                tc.Name,
-					"pilots":              pilotNames,
-					"pilot_count":         len(pilotNames),
-					"owner_id":            tcb.OwnerID,
-					"type":                "team_constructor",
-				})
+		var teamConstructors []map[string]interface{}
+		for _, tcb := range teamConstructorsByLeague {
+			var tc models.TeamConstructor
+			if err := database.DB.First(&tc, tcb.TeamConstructorID).Error; err != nil {
+				log.Printf("[TEAM] Error obteniendo TeamConstructor ID %d: %v", tcb.TeamConstructorID, err)
+				continue
 			}
-			result["team_constructors"] = teamConstructors
-			log.Printf("[TEAM] %d team constructors agregados", len(teamConstructors))
+
+			// Arreglar ruta de imagen para team constructors
+			imageURL := tc.ImageURL
+			if imageURL != "" {
+				// Limpiar cualquier prefijo existente
+				imageURL = strings.TrimPrefix(imageURL, "images/equipos/")
+				imageURL = strings.TrimPrefix(imageURL, "images/")
+				imageURL = strings.TrimPrefix(imageURL, "equipos/")
+				// Dejar solo el nombre del archivo
+			}
+
+			// Buscar pilotos del equipo
+			var pilots []models.Pilot
+			database.DB.Where("teamconstructor_id = ? AND mode = ?", tc.ID, "race").Find(&pilots)
+			var pilotNames []string
+			for _, pilot := range pilots {
+				pilotNames = append(pilotNames, pilot.DriverName)
+			}
+
+			teamConstructors = append(teamConstructors, map[string]interface{}{
+				"id":                  tcb.ID, // TeamConstructorByLeague.id
+				"team_constructor_id": tc.ID,  // TeamConstructor.id
+				"name":                tc.Name,
+				"image_url":           imageURL,
+				"value":               tc.Value,
+				"team":                tc.Name,
+				"pilots":              pilotNames,
+				"pilot_count":         len(pilotNames),
+				"owner_id":            tcb.OwnerID,
+				"type":                "team_constructor",
+				"clausula_value":      tcb.ClausulaValue,
+				"clausula_expires_at": tcb.ClausulaExpiresAt,
+			})
 		}
+		result["team_constructors"] = teamConstructors
+		log.Printf("[TEAM] %d team constructors agregados", len(teamConstructors))
 
 		log.Printf("[TEAM] Plantilla completa enviada: %d pilotos, %d track eng, %d chief eng, %d equipos",
-			len(result["pilots"].([]map[string]interface{})),
-			len(result["track_engineers"].([]map[string]interface{})),
-			len(result["chief_engineers"].([]map[string]interface{})),
-			len(result["team_constructors"].([]map[string]interface{})))
+			len(pilots), len(trackEngineers), len(chiefEngineers), len(teamConstructors))
 
 		c.JSON(200, gin.H{"team": result})
 	})
@@ -1643,6 +1998,14 @@ func main() {
 				log.Printf("[REFRESH-AND-FINISH] Track Engineer encontrado: ID=%d, TrackEngineerID=%d, OwnerID actual=%d", teb.ID, teb.TrackEngineerID, teb.OwnerID)
 
 				teb.OwnerID = maxBid.PlayerID
+				// --- CLAUSULA ---
+				if teb.ClausulaValue == nil || float64(maxBid.Valor) > *teb.ClausulaValue {
+					clausula := float64(maxBid.Valor)
+					teb.ClausulaValue = &clausula
+				}
+				clausulaExpira := auction.EndTime.Add(14 * 24 * time.Hour)
+				teb.ClausulaExpiresAt = &clausulaExpira
+				// --- FIN CLAUSULA ---
 				database.DB.Save(&teb)
 				log.Printf("[REFRESH-AND-FINISH] Track Engineer owner actualizado a: %d", maxBid.PlayerID)
 
@@ -1686,6 +2049,14 @@ func main() {
 				log.Printf("[REFRESH-AND-FINISH] Chief Engineer encontrado: ID=%d, ChiefEngineerID=%d, OwnerID actual=%d", ceb.ID, ceb.ChiefEngineerID, ceb.OwnerID)
 
 				ceb.OwnerID = maxBid.PlayerID
+				// --- CLAUSULA ---
+				if ceb.ClausulaValue == nil || float64(maxBid.Valor) > *ceb.ClausulaValue {
+					clausula := float64(maxBid.Valor)
+					ceb.ClausulaValue = &clausula
+				}
+				clausulaExpira := auction.EndTime.Add(14 * 24 * time.Hour)
+				ceb.ClausulaExpiresAt = &clausulaExpira
+				// --- FIN CLAUSULA ---
 				database.DB.Save(&ceb)
 				log.Printf("[REFRESH-AND-FINISH] Chief Engineer owner actualizado a: %d", maxBid.PlayerID)
 
@@ -1729,6 +2100,14 @@ func main() {
 				log.Printf("[REFRESH-AND-FINISH] Team Constructor encontrado: ID=%d, TeamConstructorID=%d, OwnerID actual=%d", tcb.ID, tcb.TeamConstructorID, tcb.OwnerID)
 
 				tcb.OwnerID = maxBid.PlayerID
+				// --- CLAUSULA ---
+				if tcb.ClausulaValue == nil || float64(maxBid.Valor) > *tcb.ClausulaValue {
+					clausula := float64(maxBid.Valor)
+					tcb.ClausulaValue = &clausula
+				}
+				clausulaExpira := auction.EndTime.Add(14 * 24 * time.Hour)
+				tcb.ClausulaExpiresAt = &clausulaExpira
+				// --- FIN CLAUSULA ---
 				database.DB.Save(&tcb)
 				log.Printf("[REFRESH-AND-FINISH] Team Constructor owner actualizado a: %d", maxBid.PlayerID)
 
@@ -2255,6 +2634,7 @@ func main() {
 			OwnedTrackEngineers:   "[]",
 			OwnedChiefEngineers:   "[]",
 			OwnedTeamConstructors: "[]",
+			TotalPoints:           0,
 		}
 		if err := database.DB.Create(&playerByLeague).Error; err != nil {
 			log.Printf("Error creando player_by_league al unirse: %v", err)
@@ -2328,15 +2708,29 @@ func main() {
 			c.JSON(401, gin.H{"error": "No autenticado"})
 			return
 		}
+		// Convertir userID a uint64 para que coincida con el tipo PlayerID en PlayerByLeague
+		userIDUint64 := uint64(userID.(uint))
+		log.Printf("[MY-LEAGUES] Buscando ligas para player_id=%d (tipo: uint64)", userIDUint64)
+
 		var playerLeagues []models.PlayerByLeague
-		database.DB.Where("player_id = ?", userID).Find(&playerLeagues)
+		database.DB.Where("player_id = ?", userIDUint64).Find(&playerLeagues)
+		log.Printf("[MY-LEAGUES] PlayerByLeague registros encontrados: %d", len(playerLeagues))
 		var leagueIDs []uint
 		for _, pl := range playerLeagues {
 			leagueIDs = append(leagueIDs, uint(pl.LeagueID))
+			log.Printf("[MY-LEAGUES] Procesando PlayerByLeague: ID=%d, PlayerID=%d, LeagueID=%d", pl.ID, pl.PlayerID, pl.LeagueID)
 		}
+		log.Printf("[MY-LEAGUES] League IDs a buscar: %v", leagueIDs)
+
 		var leagues []models.League
 		if len(leagueIDs) > 0 {
 			database.DB.Where("id IN ?", leagueIDs).Find(&leagues)
+			log.Printf("[MY-LEAGUES] Ligas encontradas: %d", len(leagues))
+			for _, league := range leagues {
+				log.Printf("[MY-LEAGUES] Liga: ID=%d, Name=%s, Code=%s", league.ID, league.Name, league.Code)
+			}
+		} else {
+			log.Printf("[MY-LEAGUES] No hay league IDs para buscar")
 		}
 		c.JSON(200, gin.H{"leagues": leagues})
 	})
@@ -2373,16 +2767,18 @@ func main() {
 		c.JSON(200, gin.H{"leagues": result})
 	})
 
-	// Endpoint para clasificación de una liga
+	// Endpoint para clasificación de una liga (usando totalpoints)
 	router.GET("/api/leagues/:id/classification", func(c *gin.Context) {
 		leagueID := c.Param("id")
 		if leagueID == "" {
 			c.JSON(400, gin.H{"error": "Falta league_id"})
 			return
 		}
+
 		var playerLeagues []models.PlayerByLeague
 		database.DB.Where("league_id = ?", leagueID).Find(&playerLeagues)
 		var result []map[string]interface{}
+
 		for _, pl := range playerLeagues {
 			// Cast de PlayerID a uint para buscar correctamente
 			playerID := uint(pl.PlayerID)
@@ -2390,10 +2786,12 @@ func main() {
 			if err := database.DB.First(&player, playerID).Error; err != nil {
 				continue
 			}
+
+			// Usar directamente la columna totalpoints
 			item := map[string]interface{}{
 				"player_id": pl.PlayerID,
 				"name":      player.Name,
-				"points":    player.TotalPoints,
+				"points":    pl.TotalPoints,
 				"money":     pl.Money,
 			}
 			result = append(result, item)
@@ -2448,7 +2846,7 @@ func main() {
 		c.JSON(200, gin.H{"pilots": result})
 	})
 
-	// Endpoint para poner a la venta un piloto (guardar precio de venta)
+	// Endpoint para poner a la venta un piloto (guardar precio de venta) o quitarlo del mercado
 	router.POST("/api/pilotbyleague/sell", authMiddleware(), func(c *gin.Context) {
 		fmt.Println("[LOG] Entrando en /api/pilotbyleague/sell")
 		userIDRaw, ok := c.Get("user_id")
@@ -2489,6 +2887,26 @@ func main() {
 			c.JSON(401, gin.H{"error": "No autorizado"})
 			return
 		}
+
+		// Si venta es -1, quitar del mercado
+		if req.Venta == -1 {
+			fmt.Println("[LOG] Solicitud de quitar piloto del mercado")
+			pbl.Venta = nil
+			pbl.VentaExpiresAt = nil
+			pbl.LeagueOfferValue = nil
+			pbl.LeagueOfferExpiresAt = nil
+
+			if err := database.DB.Save(&pbl).Error; err != nil {
+				fmt.Println("[LOG] Error al quitar piloto del mercado:", err)
+				c.JSON(500, gin.H{"error": "Error al quitar del mercado"})
+				return
+			}
+			fmt.Println("[LOG] Piloto retirado del mercado correctamente:", pbl.ID, "por usuario:", userID)
+			c.JSON(200, gin.H{"message": "Piloto retirado del mercado"})
+			return
+		}
+
+		// Si venta es positiva, poner a la venta
 		now := time.Now()
 		expires := now.Add(72 * time.Hour)
 		pbl.Venta = &req.Venta
@@ -2500,7 +2918,7 @@ func main() {
 			return
 		}
 		fmt.Println("[LOG] Piloto puesto en venta correctamente:", pbl.ID, "por usuario:", userID)
-		c.JSON(200, gin.H{"success": true})
+		c.JSON(200, gin.H{"message": "Piloto puesto a la venta"})
 		// Guardar histórico de venta directa (sin oferta FIA por ahora)
 		errHist := database.DB.Exec(`INSERT INTO pilot_value_history (pilot_id, pilot_by_league_id, league_id, player_id, valor_pagado, fecha, tipo, counterparty_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, pbl.PilotID, pbl.ID, pbl.LeagueID, userID, req.Venta, time.Now(), "venta", 0).Error
 		if errHist != nil {
@@ -2610,7 +3028,7 @@ func main() {
 		c.JSON(200, gin.H{"success": true})
 	})
 
-	// Endpoint para vender track engineer
+	// Endpoint para vender track engineer o quitarlo del mercado
 	router.POST("/api/trackengineerbyleague/sell", authMiddleware(), func(c *gin.Context) {
 		var req struct {
 			TrackEngineerByLeagueID uint `json:"track_engineer_by_league_id"`
@@ -2633,6 +3051,22 @@ func main() {
 			return
 		}
 
+		// Si venta es -1, quitar del mercado
+		if req.Venta == -1 {
+			teb.Venta = nil
+			teb.VentaExpiresAt = nil
+			teb.LeagueOfferValue = nil
+			teb.LeagueOfferExpiresAt = nil
+
+			if err := database.DB.Save(&teb).Error; err != nil {
+				c.JSON(500, gin.H{"error": "Error al quitar del mercado"})
+				return
+			}
+			c.JSON(200, gin.H{"message": "Ingeniero de pista retirado del mercado"})
+			return
+		}
+
+		// Si venta es positiva, poner a la venta
 		now := time.Now()
 		expires := now.Add(72 * time.Hour)
 		teb.Venta = &req.Venta
@@ -2726,7 +3160,7 @@ func main() {
 		c.JSON(200, gin.H{"message": "Oferta de la FIA rechazada"})
 	})
 
-	// Endpoint para vender chief engineer
+	// Endpoint para vender chief engineer o quitarlo del mercado
 	router.POST("/api/chiefengineerbyleague/sell", authMiddleware(), func(c *gin.Context) {
 		var req struct {
 			ChiefEngineerByLeagueID uint `json:"chief_engineer_by_league_id"`
@@ -2749,6 +3183,22 @@ func main() {
 			return
 		}
 
+		// Si venta es -1, quitar del mercado
+		if req.Venta == -1 {
+			ceb.Venta = nil
+			ceb.VentaExpiresAt = nil
+			ceb.LeagueOfferValue = nil
+			ceb.LeagueOfferExpiresAt = nil
+
+			if err := database.DB.Save(&ceb).Error; err != nil {
+				c.JSON(500, gin.H{"error": "Error al quitar del mercado"})
+				return
+			}
+			c.JSON(200, gin.H{"message": "Ingeniero jefe retirado del mercado"})
+			return
+		}
+
+		// Si venta es positiva, poner a la venta
 		now := time.Now()
 		expires := now.Add(72 * time.Hour)
 		ceb.Venta = &req.Venta
@@ -2856,7 +3306,7 @@ func main() {
 		c.JSON(200, gin.H{"success": true})
 	})
 
-	// Endpoint para vender team constructor
+	// Endpoint para vender team constructor o quitarlo del mercado
 	router.POST("/api/teamconstructorbyleague/sell", authMiddleware(), func(c *gin.Context) {
 		var req struct {
 			TeamConstructorByLeagueID uint `json:"team_constructor_by_league_id"`
@@ -2879,6 +3329,22 @@ func main() {
 			return
 		}
 
+		// Si venta es -1, quitar del mercado
+		if req.Venta == -1 {
+			tcb.Venta = nil
+			tcb.VentaExpiresAt = nil
+			tcb.LeagueOfferValue = nil
+			tcb.LeagueOfferExpiresAt = nil
+
+			if err := database.DB.Save(&tcb).Error; err != nil {
+				c.JSON(500, gin.H{"error": "Error al quitar del mercado"})
+				return
+			}
+			c.JSON(200, gin.H{"message": "Equipo constructor retirado del mercado"})
+			return
+		}
+
+		// Si venta es positiva, poner a la venta
 		now := time.Now()
 		expires := now.Add(72 * time.Hour)
 		tcb.Venta = &req.Venta
@@ -3433,19 +3899,47 @@ func main() {
 			c.JSON(400, gin.H{"error": "Datos inválidos"})
 			return
 		}
+
+		// Obtener el piloto para saber su modo
+		var pilot models.Pilot
+		if err := database.DB.First(&pilot, req.PilotID).Error; err != nil {
+			c.JSON(404, gin.H{"error": "Piloto no encontrado"})
+			return
+		}
+
+		// Calcular puntos por posición final
+		positionPoints := getPositionPoints(pilot.Mode, req.FinishPosition)
+		originalPoints := req.Points
+		req.Points += positionPoints
+
+		log.Printf("[RACE-POINTS] Piloto %s (Pos: %d): Delta=%d + Position=%d = Total=%d",
+			pilot.DriverName, req.FinishPosition, originalPoints, positionPoints, req.Points)
+
 		// Buscar si ya existe para ese piloto y GP
 		var existing models.PilotRace
 		if err := database.DB.Where("pilot_id = ? AND gp_index = ?", req.PilotID, req.GPIndex).First(&existing).Error; err == nil {
 			req.ID = existing.ID
 			database.DB.Save(&req)
-			c.JSON(200, gin.H{"message": "Puntuación actualizada"})
-			return
+		} else {
+			if err := database.DB.Create(&req).Error; err != nil {
+				c.JSON(500, gin.H{"error": "Error guardando puntuación"})
+				return
+			}
 		}
-		if err := database.DB.Create(&req).Error; err != nil {
-			c.JSON(500, gin.H{"error": "Error guardando puntuación"})
-			return
-		}
-		c.JSON(201, gin.H{"message": "Puntuación creada"})
+
+		// Actualizar puntos de todos los jugadores que tengan este piloto alineado
+		go updatePlayerPointsForPilot(req.PilotID, req.GPIndex, req.Points, "race")
+
+		c.JSON(200, gin.H{
+			"message": "Puntuación guardada y puntos de jugadores actualizados",
+			"points_breakdown": gin.H{
+				"delta_points":    originalPoints,
+				"position_points": positionPoints,
+				"total_points":    req.Points,
+				"position":        req.FinishPosition,
+				"mode":            pilot.Mode,
+			},
+		})
 	})
 
 	// Endpoint para crear o actualizar puntuaciones manuales de qualy
@@ -3455,18 +3949,46 @@ func main() {
 			c.JSON(400, gin.H{"error": "Datos inválidos"})
 			return
 		}
+
+		// Obtener el piloto para saber su modo
+		var pilot models.Pilot
+		if err := database.DB.First(&pilot, req.PilotID).Error; err != nil {
+			c.JSON(404, gin.H{"error": "Piloto no encontrado"})
+			return
+		}
+
+		// Calcular puntos por posición final
+		positionPoints := getPositionPoints(pilot.Mode, req.FinishPosition)
+		originalPoints := req.Points
+		req.Points += positionPoints
+
+		log.Printf("[QUALY-POINTS] Piloto %s (Pos: %d): Delta=%d + Position=%d = Total=%d",
+			pilot.DriverName, req.FinishPosition, originalPoints, positionPoints, req.Points)
+
 		var existing models.PilotQualy
 		if err := database.DB.Where("pilot_id = ? AND gp_index = ?", req.PilotID, req.GPIndex).First(&existing).Error; err == nil {
 			req.ID = existing.ID
 			database.DB.Save(&req)
-			c.JSON(200, gin.H{"message": "Puntuación actualizada"})
-			return
+		} else {
+			if err := database.DB.Create(&req).Error; err != nil {
+				c.JSON(500, gin.H{"error": "Error guardando puntuación"})
+				return
+			}
 		}
-		if err := database.DB.Create(&req).Error; err != nil {
-			c.JSON(500, gin.H{"error": "Error guardando puntuación"})
-			return
-		}
-		c.JSON(201, gin.H{"message": "Puntuación creada"})
+
+		// Actualizar puntos de todos los jugadores que tengan este piloto alineado
+		go updatePlayerPointsForPilot(req.PilotID, req.GPIndex, req.Points, "qualy")
+
+		c.JSON(200, gin.H{
+			"message": "Puntuación guardada y puntos de jugadores actualizados",
+			"points_breakdown": gin.H{
+				"delta_points":    originalPoints,
+				"position_points": positionPoints,
+				"total_points":    req.Points,
+				"position":        req.FinishPosition,
+				"mode":            pilot.Mode,
+			},
+		})
 	})
 
 	// Endpoint para crear o actualizar puntuaciones manuales de práctica
@@ -3476,18 +3998,46 @@ func main() {
 			c.JSON(400, gin.H{"error": "Datos inválidos"})
 			return
 		}
+
+		// Obtener el piloto para saber su modo
+		var pilot models.Pilot
+		if err := database.DB.First(&pilot, req.PilotID).Error; err != nil {
+			c.JSON(404, gin.H{"error": "Piloto no encontrado"})
+			return
+		}
+
+		// Calcular puntos por posición final
+		positionPoints := getPositionPoints(pilot.Mode, req.FinishPosition)
+		originalPoints := req.Points
+		req.Points += positionPoints
+
+		log.Printf("[PRACTICE-POINTS] Piloto %s (Pos: %d): Delta=%d + Position=%d = Total=%d",
+			pilot.DriverName, req.FinishPosition, originalPoints, positionPoints, req.Points)
+
 		var existing models.PilotPractice
 		if err := database.DB.Where("pilot_id = ? AND gp_index = ?", req.PilotID, req.GPIndex).First(&existing).Error; err == nil {
 			req.ID = existing.ID
 			database.DB.Save(&req)
-			c.JSON(200, gin.H{"message": "Puntuación actualizada"})
-			return
+		} else {
+			if err := database.DB.Create(&req).Error; err != nil {
+				c.JSON(500, gin.H{"error": "Error guardando puntuación"})
+				return
+			}
 		}
-		if err := database.DB.Create(&req).Error; err != nil {
-			c.JSON(500, gin.H{"error": "Error guardando puntuación"})
-			return
-		}
-		c.JSON(201, gin.H{"message": "Puntuación creada"})
+
+		// Actualizar puntos de todos los jugadores que tengan este piloto alineado
+		go updatePlayerPointsForPilot(req.PilotID, req.GPIndex, req.Points, "practice")
+
+		c.JSON(200, gin.H{
+			"message": "Puntuación guardada y puntos de jugadores actualizados",
+			"points_breakdown": gin.H{
+				"delta_points":    originalPoints,
+				"position_points": positionPoints,
+				"total_points":    req.Points,
+				"position":        req.FinishPosition,
+				"mode":            pilot.Mode,
+			},
+		})
 	})
 
 	// Endpoint para obtener la lista de GPs para el formulario
@@ -3497,10 +4047,637 @@ func main() {
 		c.JSON(200, gin.H{"gps": gps})
 	})
 
+	// Endpoint para obtener puntos actuales de un piloto en un GP específico
+	router.GET("/api/pilot-points", func(c *gin.Context) {
+		pilotID := c.Query("pilot_id")
+		gpIndex := c.Query("gp_index")
+
+		if pilotID == "" || gpIndex == "" {
+			c.JSON(400, gin.H{"error": "Faltan parámetros pilot_id o gp_index"})
+			return
+		}
+
+		log.Printf("[PILOT-POINTS] Buscando puntos para pilot_id=%s, gp_index=%s", pilotID, gpIndex)
+
+		// Obtener el piloto para saber su modo
+		var pilot models.Pilot
+		if err := database.DB.First(&pilot, pilotID).Error; err != nil {
+			log.Printf("[PILOT-POINTS] Error: Piloto no encontrado con ID %s", pilotID)
+			c.JSON(404, gin.H{"error": "Piloto no encontrado"})
+			return
+		}
+
+		log.Printf("[PILOT-POINTS] Piloto encontrado: %s (ID: %d, Mode: %s)", pilot.DriverName, pilot.ID, pilot.Mode)
+
+		var points int = 0
+		var finishPosition int = 0
+		var table string
+
+		// Determinar la tabla según el modo del piloto
+		switch pilot.Mode {
+		case "race", "R":
+			table = "pilot_races"
+		case "qualy", "Q":
+			table = "pilot_qualies"
+		case "practice", "P":
+			table = "pilot_practices"
+		default:
+			log.Printf("[PILOT-POINTS] Error: Modo de piloto inválido: %s", pilot.Mode)
+			c.JSON(400, gin.H{"error": "Modo de piloto inválido"})
+			return
+		}
+
+		log.Printf("[PILOT-POINTS] Buscando en tabla: %s", table)
+
+		// Obtener puntos de la tabla correspondiente
+		var result map[string]interface{}
+		if err := database.DB.Table(table).Where("pilot_id = ? AND gp_index = ?", pilotID, gpIndex).Take(&result).Error; err != nil {
+			log.Printf("[PILOT-POINTS] No se encontraron puntos en %s para pilot_id=%s, gp_index=%s: %v", table, pilotID, gpIndex, err)
+		} else {
+			log.Printf("[PILOT-POINTS] Resultado encontrado: %+v", result)
+
+			// Manejar diferentes tipos de datos para el campo points (puntos base)
+			pointsRaw := result["points"]
+			if pointsRaw == nil {
+				log.Printf("[PILOT-POINTS] Campo points es NULL")
+				points = 0
+			} else if pointsVal, ok := pointsRaw.(float64); ok {
+				points = int(pointsVal)
+				log.Printf("[PILOT-POINTS] Puntos base extraídos (float64): %d", points)
+			} else if pointsVal, ok := pointsRaw.(int); ok {
+				points = pointsVal
+				log.Printf("[PILOT-POINTS] Puntos base extraídos (int): %d", points)
+			} else if pointsVal, ok := pointsRaw.(int64); ok {
+				points = int(pointsVal)
+				log.Printf("[PILOT-POINTS] Puntos base extraídos (int64): %d", points)
+			} else {
+				log.Printf("[PILOT-POINTS] Tipo de datos no manejado para points: %T, valor: %v", pointsRaw, pointsRaw)
+				points = 0
+			}
+
+			// Obtener posición final para calcular puntos por posición
+			finishPosRaw := result["finish_position"]
+			if finishPosRaw != nil {
+				if finishPosVal, ok := finishPosRaw.(float64); ok {
+					finishPosition = int(finishPosVal)
+				} else if finishPosVal, ok := finishPosRaw.(int); ok {
+					finishPosition = finishPosVal
+				} else if finishPosVal, ok := finishPosRaw.(int64); ok {
+					finishPosition = int(finishPosVal)
+				}
+			}
+
+			// Agregar puntos por posición final
+			positionPoints := getPositionPoints(pilot.Mode, finishPosition)
+			points += positionPoints
+
+			log.Printf("[PILOT-POINTS] Pos: %d, Puntos por posición: %d", finishPosition, positionPoints)
+		}
+
+		log.Printf("[PILOT-POINTS] Devolviendo puntos totales: %d", points)
+		c.JSON(200, gin.H{"points": points})
+	})
+
+	// Endpoint para obtener todos los datos de un piloto en pilot_practices
+	router.GET("/api/pilot-practice-data", func(c *gin.Context) {
+		pilotID := c.Query("pilot_id")
+		gpIndex := c.Query("gp_index")
+
+		if pilotID == "" {
+			c.JSON(400, gin.H{"error": "Falta parámetro pilot_id"})
+			return
+		}
+
+		log.Printf("[PILOT-PRACTICE-DATA] Buscando datos para pilot_id=%s, gp_index=%s", pilotID, gpIndex)
+
+		// Obtener el piloto para verificar que existe
+		var pilot models.Pilot
+		if err := database.DB.First(&pilot, pilotID).Error; err != nil {
+			log.Printf("[PILOT-PRACTICE-DATA] Error: Piloto no encontrado con ID %s", pilotID)
+			c.JSON(404, gin.H{"error": "Piloto no encontrado"})
+			return
+		}
+
+		log.Printf("[PILOT-PRACTICE-DATA] Piloto encontrado: %s (ID: %d, Mode: %s)", pilot.DriverName, pilot.ID, pilot.Mode)
+
+		// Construir la consulta
+		query := database.DB.Table("pilot_practices").Where("pilot_id = ?", pilotID)
+		if gpIndex != "" {
+			query = query.Where("gp_index = ?", gpIndex)
+		}
+
+		// Obtener todos los registros
+		var results []map[string]interface{}
+		if err := query.Find(&results).Error; err != nil {
+			log.Printf("[PILOT-PRACTICE-DATA] Error consultando pilot_practices: %v", err)
+			c.JSON(500, gin.H{"error": "Error consultando base de datos"})
+			return
+		}
+
+		log.Printf("[PILOT-PRACTICE-DATA] Encontrados %d registros", len(results))
+
+		// Procesar los resultados para mostrar mejor los datos
+		var processedResults []map[string]interface{}
+		for _, result := range results {
+			processed := make(map[string]interface{})
+
+			// Copiar todos los campos
+			for key, value := range result {
+				processed[key] = value
+			}
+
+			// Calcular puntos esperados por posición para comparar
+			if finishPos, ok := result["finish_position"].(float64); ok && finishPos > 0 {
+				expectedPoints := getPositionPoints(pilot.Mode, int(finishPos))
+				processed["expected_position_points"] = expectedPoints
+
+				// Verificar si los puntos guardados coinciden con los esperados
+				if savedPoints, ok := result["points"].(float64); ok {
+					processed["points_match_expected"] = int(savedPoints) == expectedPoints
+					processed["points_difference"] = int(savedPoints) - expectedPoints
+				}
+			}
+
+			processedResults = append(processedResults, processed)
+		}
+
+		c.JSON(200, gin.H{
+			"pilot": gin.H{
+				"id":   pilot.ID,
+				"name": pilot.DriverName,
+				"mode": pilot.Mode,
+			},
+			"total_records": len(processedResults),
+			"data":          processedResults,
+		})
+	})
+
+	// Endpoint para corregir puntos de un piloto específico
+	router.POST("/api/fix-pilot-points", func(c *gin.Context) {
+		var req struct {
+			PilotID uint   `json:"pilot_id"`
+			GPIndex uint64 `json:"gp_index"`
+			Mode    string `json:"mode"`
+		}
+
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(400, gin.H{"error": "Datos inválidos"})
+			return
+		}
+
+		log.Printf("[FIX-POINTS] Corrigiendo puntos para pilot_id=%d, gp_index=%d, mode=%s", req.PilotID, req.GPIndex, req.Mode)
+
+		// Obtener el piloto
+		var pilot models.Pilot
+		if err := database.DB.First(&pilot, req.PilotID).Error; err != nil {
+			c.JSON(404, gin.H{"error": "Piloto no encontrado"})
+			return
+		}
+
+		// Determinar tabla
+		var table string
+		switch req.Mode {
+		case "race":
+			table = "pilot_races"
+		case "qualy":
+			table = "pilot_qualies"
+		case "practice":
+			table = "pilot_practices"
+		default:
+			c.JSON(400, gin.H{"error": "Modo inválido"})
+			return
+		}
+
+		// Obtener datos actuales
+		var result map[string]interface{}
+		if err := database.DB.Table(table).Where("pilot_id = ? AND gp_index = ?", req.PilotID, req.GPIndex).Take(&result).Error; err != nil {
+			c.JSON(404, gin.H{"error": "Datos no encontrados"})
+			return
+		}
+
+		// Extraer datos
+		finishPosition := 0
+		deltaPosition := 0
+
+		if finishPosRaw := result["finish_position"]; finishPosRaw != nil {
+			if finishPosVal, ok := finishPosRaw.(float64); ok {
+				finishPosition = int(finishPosVal)
+			}
+		}
+
+		if deltaPosRaw := result["delta_position"]; deltaPosRaw != nil {
+			if deltaPosVal, ok := deltaPosRaw.(float64); ok {
+				deltaPosition = int(deltaPosVal)
+			}
+		}
+
+		// Calcular puntos correctos
+		positionPoints := getPositionPoints(pilot.Mode, finishPosition)
+		correctTotalPoints := deltaPosition + positionPoints
+
+		log.Printf("[FIX-POINTS] Posición: %d, Delta: %d, Puntos por posición: %d, Total correcto: %d",
+			finishPosition, deltaPosition, positionPoints, correctTotalPoints)
+
+		// Actualizar puntos en la base de datos
+		if err := database.DB.Table(table).Where("pilot_id = ? AND gp_index = ?", req.PilotID, req.GPIndex).
+			Update("points", correctTotalPoints).Error; err != nil {
+			c.JSON(500, gin.H{"error": "Error actualizando puntos"})
+			return
+		}
+
+		// Actualizar puntos de jugadores
+		go updatePlayerPointsForPilot(req.PilotID, req.GPIndex, correctTotalPoints, req.Mode)
+
+		c.JSON(200, gin.H{
+			"message": "Puntos corregidos",
+			"details": gin.H{
+				"pilot_id":             req.PilotID,
+				"gp_index":             req.GPIndex,
+				"mode":                 req.Mode,
+				"finish_position":      finishPosition,
+				"delta_position":       deltaPosition,
+				"position_points":      positionPoints,
+				"correct_total_points": correctTotalPoints,
+			},
+		})
+	})
+
+	// Endpoint para corregir automáticamente todos los puntos incorrectos
+	router.POST("/api/fix-all-pilot-points", func(c *gin.Context) {
+		log.Printf("[FIX-ALL-POINTS] Iniciando corrección automática de todos los puntos")
+
+		// Corregir pilot_practices
+		var practiceResults []map[string]interface{}
+		if err := database.DB.Table("pilot_practices").Find(&practiceResults).Error; err != nil {
+			c.JSON(500, gin.H{"error": "Error consultando pilot_practices"})
+			return
+		}
+
+		corrections := []map[string]interface{}{}
+
+		for _, result := range practiceResults {
+			pilotID := uint(result["pilot_id"].(float64))
+			gpIndex := uint(result["gp_index"].(float64))
+			finishPosition := int(result["finish_position"].(float64))
+			deltaPosition := int(result["delta_position"].(float64))
+			currentPoints := int(result["points"].(float64))
+
+			// Obtener el piloto
+			var pilot models.Pilot
+			if err := database.DB.First(&pilot, pilotID).Error; err != nil {
+				continue
+			}
+
+			// Calcular puntos correctos
+			positionPoints := getPositionPoints(pilot.Mode, finishPosition)
+			correctTotalPoints := deltaPosition + positionPoints
+
+			// Si los puntos son incorrectos, corregir
+			if currentPoints != correctTotalPoints {
+				log.Printf("[FIX-ALL-POINTS] Corrigiendo pilot_id=%d, gp_index=%d: %d → %d",
+					pilotID, gpIndex, currentPoints, correctTotalPoints)
+
+				// Actualizar en la base de datos
+				if err := database.DB.Table("pilot_practices").
+					Where("pilot_id = ? AND gp_index = ?", pilotID, gpIndex).
+					Update("points", correctTotalPoints).Error; err != nil {
+					log.Printf("[FIX-ALL-POINTS] Error actualizando pilot_id=%d: %v", pilotID, err)
+					continue
+				}
+
+				// Actualizar puntos de jugadores
+				go updatePlayerPointsForPilot(pilotID, uint64(gpIndex), correctTotalPoints, "practice")
+
+				corrections = append(corrections, map[string]interface{}{
+					"pilot_id":        pilotID,
+					"pilot_name":      pilot.DriverName,
+					"gp_index":        gpIndex,
+					"mode":            "practice",
+					"finish_position": finishPosition,
+					"delta_position":  deltaPosition,
+					"old_points":      currentPoints,
+					"new_points":      correctTotalPoints,
+					"position_points": positionPoints,
+				})
+			}
+		}
+
+		// Corregir pilot_qualies
+		var qualyResults []map[string]interface{}
+		if err := database.DB.Table("pilot_qualies").Find(&qualyResults).Error; err != nil {
+			c.JSON(500, gin.H{"error": "Error consultando pilot_qualies"})
+			return
+		}
+
+		for _, result := range qualyResults {
+			pilotID := uint(result["pilot_id"].(float64))
+			gpIndex := uint(result["gp_index"].(float64))
+			finishPosition := int(result["finish_position"].(float64))
+			deltaPosition := int(result["delta_position"].(float64))
+			currentPoints := int(result["points"].(float64))
+
+			var pilot models.Pilot
+			if err := database.DB.First(&pilot, pilotID).Error; err != nil {
+				continue
+			}
+
+			positionPoints := getPositionPoints(pilot.Mode, finishPosition)
+			correctTotalPoints := deltaPosition + positionPoints
+
+			if currentPoints != correctTotalPoints {
+				log.Printf("[FIX-ALL-POINTS] Corrigiendo pilot_id=%d, gp_index=%d: %d → %d",
+					pilotID, gpIndex, currentPoints, correctTotalPoints)
+
+				if err := database.DB.Table("pilot_qualies").
+					Where("pilot_id = ? AND gp_index = ?", pilotID, gpIndex).
+					Update("points", correctTotalPoints).Error; err != nil {
+					continue
+				}
+
+				go updatePlayerPointsForPilot(pilotID, uint64(gpIndex), correctTotalPoints, "qualy")
+
+				corrections = append(corrections, map[string]interface{}{
+					"pilot_id":        pilotID,
+					"pilot_name":      pilot.DriverName,
+					"gp_index":        gpIndex,
+					"mode":            "qualy",
+					"finish_position": finishPosition,
+					"delta_position":  deltaPosition,
+					"old_points":      currentPoints,
+					"new_points":      correctTotalPoints,
+					"position_points": positionPoints,
+				})
+			}
+		}
+
+		// Corregir pilot_races
+		var raceResults []map[string]interface{}
+		if err := database.DB.Table("pilot_races").Find(&raceResults).Error; err != nil {
+			c.JSON(500, gin.H{"error": "Error consultando pilot_races"})
+			return
+		}
+
+		for _, result := range raceResults {
+			pilotID := uint(result["pilot_id"].(float64))
+			gpIndex := uint(result["gp_index"].(float64))
+			finishPosition := int(result["finish_position"].(float64))
+			deltaPosition := int(result["delta_position"].(float64))
+			currentPoints := int(result["points"].(float64))
+
+			var pilot models.Pilot
+			if err := database.DB.First(&pilot, pilotID).Error; err != nil {
+				continue
+			}
+
+			positionPoints := getPositionPoints(pilot.Mode, finishPosition)
+			correctTotalPoints := deltaPosition + positionPoints
+
+			if currentPoints != correctTotalPoints {
+				log.Printf("[FIX-ALL-POINTS] Corrigiendo pilot_id=%d, gp_index=%d: %d → %d",
+					pilotID, gpIndex, currentPoints, correctTotalPoints)
+
+				if err := database.DB.Table("pilot_races").
+					Where("pilot_id = ? AND gp_index = ?", pilotID, gpIndex).
+					Update("points", correctTotalPoints).Error; err != nil {
+					continue
+				}
+
+				go updatePlayerPointsForPilot(pilotID, uint64(gpIndex), correctTotalPoints, "race")
+
+				corrections = append(corrections, map[string]interface{}{
+					"pilot_id":        pilotID,
+					"pilot_name":      pilot.DriverName,
+					"gp_index":        gpIndex,
+					"mode":            "race",
+					"finish_position": finishPosition,
+					"delta_position":  deltaPosition,
+					"old_points":      currentPoints,
+					"new_points":      correctTotalPoints,
+					"position_points": positionPoints,
+				})
+			}
+		}
+
+		c.JSON(200, gin.H{
+			"message":           "Corrección automática completada",
+			"total_corrections": len(corrections),
+			"corrections":       corrections,
+		})
+	})
+
+	// Endpoint para obtener puntos actuales de un team constructor en un GP específico
+	router.GET("/api/team-constructor-points", func(c *gin.Context) {
+		teamConstructorID := c.Query("team_constructor_id")
+		gpIndex := c.Query("gp_index")
+
+		if teamConstructorID == "" || gpIndex == "" {
+			c.JSON(400, gin.H{"error": "Faltan parámetros team_constructor_id o gp_index"})
+			return
+		}
+
+		// Obtener el team constructor
+		var teamConstructor models.TeamConstructorByLeague
+		if err := database.DB.First(&teamConstructor, teamConstructorID).Error; err != nil {
+			c.JSON(404, gin.H{"error": "Team constructor no encontrado"})
+			return
+		}
+
+		// Obtener puntos de la tabla team_constructors
+		var result map[string]interface{}
+		points := 0
+		if err := database.DB.Table("team_constructors").Where("id = ? AND gp_index = ?", teamConstructor.TeamConstructorID, gpIndex).Take(&result).Error; err == nil {
+			if pointsVal, ok := result["total_points"].(float64); ok {
+				points = int(pointsVal)
+			}
+		}
+
+		c.JSON(200, gin.H{"points": points})
+	})
+
+	// Endpoint para obtener puntos actuales de un chief engineer en un GP específico
+	router.GET("/api/chief-engineer-points", func(c *gin.Context) {
+		chiefEngineerID := c.Query("chief_engineer_id")
+		gpIndex := c.Query("gp_index")
+
+		if chiefEngineerID == "" || gpIndex == "" {
+			c.JSON(400, gin.H{"error": "Faltan parámetros chief_engineer_id o gp_index"})
+			return
+		}
+
+		// Obtener el chief engineer
+		var chiefEngineer models.ChiefEngineerByLeague
+		if err := database.DB.First(&chiefEngineer, chiefEngineerID).Error; err != nil {
+			c.JSON(404, gin.H{"error": "Chief engineer no encontrado"})
+			return
+		}
+
+		// Obtener puntos de la tabla chief_engineers
+		var result map[string]interface{}
+		points := 0
+		if err := database.DB.Table("chief_engineers").Where("id = ? AND gp_index = ?", chiefEngineer.ChiefEngineerID, gpIndex).Take(&result).Error; err == nil {
+			if pointsVal, ok := result["total_points"].(float64); ok {
+				points = int(pointsVal)
+			}
+		}
+
+		c.JSON(200, gin.H{"points": points})
+	})
+
+	// Endpoint para obtener puntos actuales de un track engineer en un GP específico
+	router.GET("/api/track-engineer-points", func(c *gin.Context) {
+		trackEngineerID := c.Query("track_engineer_id")
+		gpIndex := c.Query("gp_index")
+
+		if trackEngineerID == "" || gpIndex == "" {
+			c.JSON(400, gin.H{"error": "Faltan parámetros track_engineer_id o gp_index"})
+			return
+		}
+
+		// Obtener el track engineer
+		var trackEngineer models.TrackEngineerByLeague
+		if err := database.DB.First(&trackEngineer, trackEngineerID).Error; err != nil {
+			c.JSON(404, gin.H{"error": "Track engineer no encontrado"})
+			return
+		}
+
+		// Obtener puntos de la tabla track_engineers
+		var result map[string]interface{}
+		points := 0
+		if err := database.DB.Table("track_engineers").Where("id = ? AND gp_index = ?", trackEngineer.TrackEngineerID, gpIndex).Take(&result).Error; err == nil {
+			if pointsVal, ok := result["total_points"].(float64); ok {
+				points = int(pointsVal)
+			}
+		}
+
+		c.JSON(200, gin.H{"points": points})
+	})
+
+	// Endpoint de prueba para verificar datos en pilot_races
+	router.GET("/api/debug/pilot-races", func(c *gin.Context) {
+		pilotID := c.Query("pilot_id")
+		gpIndex := c.Query("gp_index")
+
+		if pilotID == "" || gpIndex == "" {
+			c.JSON(400, gin.H{"error": "Faltan parámetros pilot_id o gp_index"})
+			return
+		}
+
+		log.Printf("[DEBUG] Buscando en pilot_races para pilot_id=%s, gp_index=%s", pilotID, gpIndex)
+
+		// Buscar en pilot_races
+		var raceResults []map[string]interface{}
+		database.DB.Table("pilot_races").Where("pilot_id = ? AND gp_index = ?", pilotID, gpIndex).Find(&raceResults)
+
+		// Buscar en pilot_qualies
+		var qualyResults []map[string]interface{}
+		database.DB.Table("pilot_qualies").Where("pilot_id = ? AND gp_index = ?", pilotID, gpIndex).Find(&qualyResults)
+
+		// Buscar en pilot_practices
+		var practiceResults []map[string]interface{}
+		database.DB.Table("pilot_practices").Where("pilot_id = ? AND gp_index = ?", pilotID, gpIndex).Find(&practiceResults)
+
+		log.Printf("[DEBUG] Resultados encontrados - Race: %d, Qualy: %d, Practice: %d",
+			len(raceResults), len(qualyResults), len(practiceResults))
+
+		c.JSON(200, gin.H{
+			"pilot_id":         pilotID,
+			"gp_index":         gpIndex,
+			"race_results":     raceResults,
+			"qualy_results":    qualyResults,
+			"practice_results": practiceResults,
+		})
+	})
+
+	// DEBUG: Endpoint para verificar el estado completo de una liga
+	router.GET("/api/debug/league/:id", func(c *gin.Context) {
+		leagueID := c.Param("id")
+
+		// Obtener la liga
+		var league models.League
+		if err := database.DB.First(&league, leagueID).Error; err != nil {
+			c.JSON(404, gin.H{"error": "Liga no encontrada"})
+			return
+		}
+
+		// Obtener PlayerByLeague registros
+		var playersByLeague []models.PlayerByLeague
+		database.DB.Where("league_id = ?", leagueID).Find(&playersByLeague)
+
+		// Obtener MarketItems
+		var marketItems []models.MarketItem
+		database.DB.Where("league_id = ?", leagueID).Find(&marketItems)
+
+		// Contar por tipo
+		marketStats := map[string]int{
+			"pilot":            0,
+			"track_engineer":   0,
+			"chief_engineer":   0,
+			"team_constructor": 0,
+			"total":            len(marketItems),
+			"active":           0,
+			"in_market":        0,
+		}
+
+		for _, item := range marketItems {
+			marketStats[item.ItemType]++
+			if item.IsActive {
+				marketStats["active"]++
+			}
+			if item.IsInMarket {
+				marketStats["in_market"]++
+			}
+		}
+
+		// Obtener información de los players
+		var playersInfo []gin.H
+		for _, pbl := range playersByLeague {
+			var player models.Player
+			if err := database.DB.First(&player, pbl.PlayerID).Error; err == nil {
+				playersInfo = append(playersInfo, gin.H{
+					"player_id":    pbl.PlayerID,
+					"player_name":  player.Name,
+					"player_email": player.Email,
+					"money":        pbl.Money,
+					"team_value":   pbl.TeamValue,
+				})
+			}
+		}
+
+		// Sample de market items
+		var marketSample []gin.H
+		limit := 5
+		if len(marketItems) < limit {
+			limit = len(marketItems)
+		}
+		for i := 0; i < limit; i++ {
+			marketSample = append(marketSample, gin.H{
+				"id":           marketItems[i].ID,
+				"item_type":    marketItems[i].ItemType,
+				"item_id":      marketItems[i].ItemID,
+				"is_active":    marketItems[i].IsActive,
+				"is_in_market": marketItems[i].IsInMarket,
+			})
+		}
+
+		c.JSON(200, gin.H{
+			"league": gin.H{
+				"id":         league.ID,
+				"name":       league.Name,
+				"code":       league.Code,
+				"player_id":  league.PlayerID,
+				"created_at": league.CreatedAt,
+			},
+			"players_count":       len(playersByLeague),
+			"players":             playersInfo,
+			"market_stats":        marketStats,
+			"market_items_sample": marketSample,
+		})
+	})
+
 	// Endpoint para guardar posiciones esperadas manualmente
 	router.POST("/api/admin/expected-positions", func(c *gin.Context) {
 		var req struct {
-			GPIndex   uint   `json:"gp_index"`
+			GPIndex   uint64 `json:"gp_index"`
 			Mode      string `json:"mode"`
 			Positions []struct {
 				PilotID          uint `json:"pilot_id"`
@@ -3508,9 +4685,11 @@ func main() {
 			} `json:"positions"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil {
+			log.Printf("[EXPECTED-POSITIONS] Error ShouldBindJSON: %v", err)
 			c.JSON(400, gin.H{"error": "Datos inválidos"})
 			return
 		}
+		log.Printf("[EXPECTED-POSITIONS] Request recibido: gp_index=%d, mode=%s, positions=%+v", req.GPIndex, req.Mode, req.Positions)
 		var table string
 		switch req.Mode {
 		case "race":
@@ -3524,15 +4703,37 @@ func main() {
 			return
 		}
 		for _, pos := range req.Positions {
+			log.Printf("[EXPECTED-POSITIONS] Procesando pilot_id=%d, gp_index=%d, expected_position=%d en tabla=%s", pos.PilotID, req.GPIndex, pos.ExpectedPosition, table)
+
 			// Buscar si ya existe
 			var count int64
-			database.DB.Table(table).Where("pilot_id = ? AND gp_index = ?", pos.PilotID, req.GPIndex).Count(&count)
+			err := database.DB.Table(table).Where("pilot_id = ? AND gp_index = ?", pos.PilotID, req.GPIndex).Count(&count).Error
+			if err != nil {
+				log.Printf("[EXPECTED-POSITIONS] Error contando registros: %v", err)
+				c.JSON(500, gin.H{"error": "Error en base de datos"})
+				return
+			}
+
+			log.Printf("[EXPECTED-POSITIONS] Registros encontrados: %d", count)
+
 			if count > 0 {
 				// Actualizar
-				database.DB.Table(table).Where("pilot_id = ? AND gp_index = ?", pos.PilotID, req.GPIndex).Update("expected_position", pos.ExpectedPosition)
+				err = database.DB.Table(table).Where("pilot_id = ? AND gp_index = ?", pos.PilotID, req.GPIndex).Update("expected_position", pos.ExpectedPosition).Error
+				if err != nil {
+					log.Printf("[EXPECTED-POSITIONS] Error actualizando: %v", err)
+					c.JSON(500, gin.H{"error": "Error actualizando registro"})
+					return
+				}
+				log.Printf("[EXPECTED-POSITIONS] Registro actualizado exitosamente")
 			} else {
 				// Crear
-				database.DB.Exec("INSERT INTO "+table+" (pilot_id, gp_index, expected_position) VALUES (?, ?, ?)", pos.PilotID, req.GPIndex, pos.ExpectedPosition)
+				err = database.DB.Exec("INSERT INTO "+table+" (pilot_id, gp_index, expected_position) VALUES (?, ?, ?)", pos.PilotID, req.GPIndex, pos.ExpectedPosition).Error
+				if err != nil {
+					log.Printf("[EXPECTED-POSITIONS] Error creando: %v", err)
+					c.JSON(500, gin.H{"error": "Error creando registro"})
+					return
+				}
+				log.Printf("[EXPECTED-POSITIONS] Registro creado exitosamente")
 			}
 		}
 		c.JSON(200, gin.H{"message": "Posiciones esperadas guardadas"})
@@ -3584,6 +4785,265 @@ func main() {
 		c.JSON(200, gin.H{"result": result})
 	})
 
+	// Endpoint para obtener posiciones esperadas de equipos para un GP
+	router.GET("/api/admin/team-expected-positions", func(c *gin.Context) {
+		gpIndex := c.Query("gp_index")
+		if gpIndex == "" {
+			c.JSON(400, gin.H{"error": "Falta gp_index"})
+			return
+		}
+
+		var teamConstructors []models.TeamConstructor
+		database.DB.Where("gp_index = ?", gpIndex).Find(&teamConstructors)
+
+		var positions []map[string]interface{}
+		for _, tc := range teamConstructors {
+			// Buscar si ya existe un registro en team_races
+			var teamRace models.TeamRace
+			database.DB.Where("teamconstructor_id = ? AND gp_index = ?", tc.ID, gpIndex).First(&teamRace)
+
+			positions = append(positions, map[string]interface{}{
+				"team":                 tc.Name,
+				"expected_position":    teamRace.ExpectedPosition,
+				"teamconstructor_id":   tc.ID,
+				"teamconstructor_name": tc.Name,
+			})
+		}
+
+		c.JSON(200, gin.H{"positions": positions})
+	})
+
+	// Endpoint para guardar posiciones esperadas de equipos
+	router.POST("/api/admin/team-expected-positions", func(c *gin.Context) {
+		var req struct {
+			GPIndex   uint64 `json:"gp_index"`
+			Positions []struct {
+				Team             string  `json:"team"`
+				ExpectedPosition float64 `json:"expected_position"`
+			} `json:"positions"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil {
+			log.Printf("[TEAM-EXPECTED-POSITIONS] Error ShouldBindJSON: %v", err)
+			c.JSON(400, gin.H{"error": "Datos inválidos"})
+			return
+		}
+
+		log.Printf("[TEAM-EXPECTED-POSITIONS] Request recibido: gp_index=%d, positions=%+v", req.GPIndex, req.Positions)
+
+		for _, pos := range req.Positions {
+			// Buscar el team constructor por nombre
+			var teamConstructor models.TeamConstructor
+			if err := database.DB.Where("name = ? AND gp_index = ?", pos.Team, req.GPIndex).First(&teamConstructor).Error; err != nil {
+				log.Printf("[TEAM-EXPECTED-POSITIONS] Error encontrando team constructor %s: %v", pos.Team, err)
+				continue
+			}
+
+			// Buscar si ya existe un registro en team_races
+			var teamRace models.TeamRace
+			result := database.DB.Where("teamconstructor_id = ? AND gp_index = ?", teamConstructor.ID, req.GPIndex).First(&teamRace)
+
+			if result.Error != nil {
+				// Crear nuevo registro
+				teamRace = models.TeamRace{
+					TeamConstructorID: teamConstructor.ID,
+					GPIndex:           req.GPIndex,
+					ExpectedPosition:  &pos.ExpectedPosition,
+				}
+				database.DB.Create(&teamRace)
+			} else {
+				// Actualizar registro existente
+				teamRace.ExpectedPosition = &pos.ExpectedPosition
+				database.DB.Save(&teamRace)
+			}
+		}
+
+		c.JSON(200, gin.H{"message": "Posiciones esperadas de equipos guardadas"})
+	})
+
+	// Endpoint para obtener posiciones finales de equipos para un GP
+	router.GET("/api/admin/team-finish-positions", func(c *gin.Context) {
+		gpIndex := c.Query("gp_index")
+		if gpIndex == "" {
+			c.JSON(400, gin.H{"error": "Falta gp_index"})
+			return
+		}
+
+		var teamConstructors []models.TeamConstructor
+		database.DB.Where("gp_index = ?", gpIndex).Find(&teamConstructors)
+
+		var positions []map[string]interface{}
+		for _, tc := range teamConstructors {
+			// Buscar si ya existe un registro en team_races
+			var teamRace models.TeamRace
+			database.DB.Where("teamconstructor_id = ? AND gp_index = ?", tc.ID, gpIndex).First(&teamRace)
+
+			positions = append(positions, map[string]interface{}{
+				"team":                 tc.Name,
+				"finish_position":      teamRace.FinishPosition,
+				"teamconstructor_id":   tc.ID,
+				"teamconstructor_name": tc.Name,
+			})
+		}
+
+		c.JSON(200, gin.H{"positions": positions})
+	})
+
+	// Endpoint para guardar posiciones finales de equipos
+	router.POST("/api/admin/team-finish-positions", func(c *gin.Context) {
+		var req struct {
+			GPIndex   uint64 `json:"gp_index"`
+			Positions []struct {
+				Team           string  `json:"team"`
+				FinishPosition float64 `json:"finish_position"`
+			} `json:"positions"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil {
+			log.Printf("[TEAM-FINISH-POSITIONS] Error ShouldBindJSON: %v", err)
+			c.JSON(400, gin.H{"error": "Datos inválidos"})
+			return
+		}
+
+		log.Printf("[TEAM-FINISH-POSITIONS] Request recibido: gp_index=%d, positions=%+v", req.GPIndex, req.Positions)
+
+		for _, pos := range req.Positions {
+			// Buscar el team constructor por nombre
+			var teamConstructor models.TeamConstructor
+			if err := database.DB.Where("name = ? AND gp_index = ?", pos.Team, req.GPIndex).First(&teamConstructor).Error; err != nil {
+				log.Printf("[TEAM-FINISH-POSITIONS] Error encontrando team constructor %s: %v", pos.Team, err)
+				continue
+			}
+
+			// Buscar si ya existe un registro en team_races
+			var teamRace models.TeamRace
+			result := database.DB.Where("teamconstructor_id = ? AND gp_index = ?", teamConstructor.ID, req.GPIndex).First(&teamRace)
+
+			if result.Error != nil {
+				// Crear nuevo registro
+				finishPos := int(pos.FinishPosition)
+				teamRace = models.TeamRace{
+					TeamConstructorID: teamConstructor.ID,
+					GPIndex:           req.GPIndex,
+					FinishPosition:    &finishPos,
+				}
+				database.DB.Create(&teamRace)
+			} else {
+				// Actualizar registro existente
+				finishPos := int(pos.FinishPosition)
+				teamRace.FinishPosition = &finishPos
+				database.DB.Save(&teamRace)
+			}
+		}
+
+		c.JSON(200, gin.H{"message": "Posiciones finales de equipos guardadas"})
+	})
+
+	// Endpoint para obtener team constructors de un GP
+	router.GET("/api/admin/team-constructors", func(c *gin.Context) {
+		gpIndex := c.Query("gp_index")
+		if gpIndex == "" {
+			c.JSON(400, gin.H{"error": "Falta gp_index"})
+			return
+		}
+
+		var teamConstructors []models.TeamConstructor
+		database.DB.Where("gp_index = ?", gpIndex).Find(&teamConstructors)
+
+		var result []map[string]interface{}
+		for _, tc := range teamConstructors {
+			result = append(result, map[string]interface{}{
+				"id":        tc.ID,
+				"name":      tc.Name,
+				"value":     tc.Value,
+				"image_url": tc.ImageURL,
+			})
+		}
+
+		c.JSON(200, gin.H{"team_constructors": result})
+	})
+
+	// Endpoint para obtener resultados de sesión de un equipo
+	router.GET("/api/admin/team-session-result", func(c *gin.Context) {
+		gpIndex := c.Query("gp_index")
+		team := c.Query("team")
+
+		if gpIndex == "" || team == "" {
+			c.JSON(400, gin.H{"error": "Faltan parámetros gp_index o team"})
+			return
+		}
+
+		// Buscar el team constructor por nombre
+		var teamConstructor models.TeamConstructor
+		if err := database.DB.Where("name = ? AND gp_index = ?", team, gpIndex).First(&teamConstructor).Error; err != nil {
+			c.JSON(404, gin.H{"error": "Team constructor no encontrado"})
+			return
+		}
+
+		// Buscar el registro en team_races
+		var teamRace models.TeamRace
+		if err := database.DB.Where("teamconstructor_id = ? AND gp_index = ?", teamConstructor.ID, gpIndex).First(&teamRace).Error; err != nil {
+			c.JSON(200, gin.H{"result": nil})
+			return
+		}
+
+		c.JSON(200, gin.H{"result": teamRace})
+	})
+
+	// Endpoint para guardar resultados de sesión de un equipo
+	router.POST("/api/admin/team-session-result", func(c *gin.Context) {
+		var req struct {
+			GPIndex          uint64   `json:"gp_index"`
+			Team             string   `json:"team"`
+			ExpectedPosition float64  `json:"expected_position"`
+			FinishPosition   int      `json:"finish_position"`
+			DeltaPosition    int      `json:"delta_position"`
+			PitstopTime      *float64 `json:"pitstop_time"`
+			Points           int      `json:"points"`
+		}
+
+		if err := c.ShouldBindJSON(&req); err != nil {
+			log.Printf("[TEAM-SESSION-RESULT] Error ShouldBindJSON: %v", err)
+			c.JSON(400, gin.H{"error": "Datos inválidos"})
+			return
+		}
+
+		log.Printf("[TEAM-SESSION-RESULT] Request recibido: %+v", req)
+
+		// Buscar el team constructor por nombre
+		var teamConstructor models.TeamConstructor
+		if err := database.DB.Where("name = ? AND gp_index = ?", req.Team, req.GPIndex).First(&teamConstructor).Error; err != nil {
+			c.JSON(404, gin.H{"error": "Team constructor no encontrado"})
+			return
+		}
+
+		// Buscar si ya existe un registro en team_races
+		var teamRace models.TeamRace
+		result := database.DB.Where("teamconstructor_id = ? AND gp_index = ?", teamConstructor.ID, req.GPIndex).First(&teamRace)
+
+		if result.Error != nil {
+			// Crear nuevo registro
+			teamRace = models.TeamRace{
+				TeamConstructorID: teamConstructor.ID,
+				GPIndex:           req.GPIndex,
+				ExpectedPosition:  &req.ExpectedPosition,
+				FinishPosition:    &req.FinishPosition,
+				DeltaPosition:     &req.DeltaPosition,
+				PitstopTime:       req.PitstopTime,
+				Points:            req.Points,
+			}
+			database.DB.Create(&teamRace)
+		} else {
+			// Actualizar registro existente
+			teamRace.ExpectedPosition = &req.ExpectedPosition
+			teamRace.FinishPosition = &req.FinishPosition
+			teamRace.DeltaPosition = &req.DeltaPosition
+			teamRace.PitstopTime = req.PitstopTime
+			teamRace.Points = req.Points
+			database.DB.Save(&teamRace)
+		}
+
+		c.JSON(200, gin.H{"message": "Resultados del equipo guardados"})
+	})
+
 	// Endpoint para guardar los resultados de sesión de un piloto en un GP y modo
 	router.POST("/api/admin/session-result", func(c *gin.Context) {
 		var body map[string]interface{}
@@ -3593,6 +5053,7 @@ func main() {
 			return
 		}
 		log.Printf("[SESSION-RESULT] Body recibido: %+v", body)
+
 		// Extraer campos fijos
 		gpIndex, ok1 := body["gp_index"].(float64)
 		mode, ok2 := body["mode"].(string)
@@ -3602,6 +5063,60 @@ func main() {
 			c.JSON(400, gin.H{"error": "Datos inválidos"})
 			return
 		}
+
+		// Obtener el piloto para saber su modo
+		var pilot models.Pilot
+		if err := database.DB.First(&pilot, uint(pilotID)).Error; err != nil {
+			c.JSON(404, gin.H{"error": "Piloto no encontrado"})
+			return
+		}
+
+		// Extraer posición final y puntos delta con mejor manejo de tipos
+		finishPosition := 0
+		if fp, ok := body["finish_position"].(float64); ok {
+			finishPosition = int(fp)
+		} else if fp, ok := body["finish_position"].(int); ok {
+			finishPosition = fp
+		} else if fp, ok := body["finish_position"].(string); ok {
+			if fp != "" && fp != "null" {
+				if fpInt, err := strconv.Atoi(fp); err == nil {
+					finishPosition = fpInt
+				}
+			}
+		}
+
+		// Los puntos se calculan automáticamente basados en expected_position y finish_position
+
+		// Calcular el delta real sin multiplicadores: expected_position - actual_position
+		expectedPosition := 0
+		if ep, ok := body["expected_position"].(float64); ok {
+			expectedPosition = int(ep)
+		} else if ep, ok := body["expected_position"].(int); ok {
+			expectedPosition = ep
+		} else if ep, ok := body["expected_position"].(string); ok {
+			if ep != "" && ep != "null" {
+				if epInt, err := strconv.Atoi(ep); err == nil {
+					expectedPosition = epInt
+				}
+			}
+		}
+
+		// Calcular delta real sin multiplicadores
+		realDelta := expectedPosition - finishPosition
+		log.Printf("[SESSION-RESULT] Delta real sin multiplicadores: %d (esperada: %d - final: %d)", realDelta, expectedPosition, finishPosition)
+
+		// Calcular puntos por posición final
+		positionPoints := getPositionPoints(pilot.Mode, finishPosition)
+		totalPoints := realDelta + positionPoints
+
+		log.Printf("[SESSION-RESULT] Piloto %s (Mode: %s, Pos: %d): Delta=%d + Position=%d = Total=%d",
+			pilot.DriverName, pilot.Mode, finishPosition, realDelta, positionPoints, totalPoints)
+		log.Printf("[SESSION-RESULT] Valores extraídos - finishPosition: %v, expectedPosition: %v, realDelta: %v, positionPoints: %v",
+			finishPosition, expectedPosition, realDelta, positionPoints)
+
+		// Actualizar el campo points con el total
+		body["points"] = totalPoints
+
 		var table string
 		switch mode {
 		case "race":
@@ -3615,78 +5130,186 @@ func main() {
 			c.JSON(400, gin.H{"error": "Modo inválido"})
 			return
 		}
+
 		// Quitar gp_index, mode, pilot_id
 		delete(body, "gp_index")
 		delete(body, "mode")
 		delete(body, "pilot_id")
-		// Poner 0 por defecto en campos numéricos vacíos
-		for k, v := range body {
-			if v == nil || v == "" {
-				body[k] = 0
+
+		// Filtrar campos según la tabla para evitar errores de columnas inexistentes
+		filteredBody := make(map[string]interface{})
+
+		switch mode {
+		case "race":
+			// PilotRace tiene todas las columnas
+			allowedFields := map[string]bool{
+				"start_position": true, "finish_position": true, "expected_position": true,
+				"delta_position": true, "points": true, "positions_gained_at_start": true,
+				"clean_overtakes": true, "net_positions_lost": true, "fastest_lap": true,
+				"caused_vsc": true, "caused_sc": true, "caused_red_flag": true,
+				"dnf_driver_error": true, "dnf_no_fault": true,
+			}
+			for k, v := range body {
+				if allowedFields[k] {
+					if v == nil || v == "" || v == "null" {
+						// Para campos booleanos, usar false
+						if k == "caused_red_flag" || k == "fastest_lap" || k == "caused_vsc" || k == "caused_sc" || k == "dnf_driver_error" || k == "dnf_no_fault" {
+							filteredBody[k] = false
+						} else {
+							filteredBody[k] = 0
+						}
+					} else {
+						filteredBody[k] = v
+					}
+				}
+			}
+		case "qualy":
+			// PilotQualy tiene columnas limitadas
+			allowedFields := map[string]bool{
+				"start_position": true, "finish_position": true, "expected_position": true,
+				"delta_position": true, "points": true, "caused_red_flag": true,
+			}
+			for k, v := range body {
+				if allowedFields[k] {
+					if v == nil || v == "" || v == "null" {
+						// Para campos booleanos, usar false
+						if k == "caused_red_flag" {
+							filteredBody[k] = false
+						} else {
+							filteredBody[k] = 0
+						}
+					} else {
+						filteredBody[k] = v
+					}
+				}
+			}
+		case "practice":
+			// PilotPractice tiene columnas limitadas
+			allowedFields := map[string]bool{
+				"start_position": true, "finish_position": true, "expected_position": true,
+				"delta_position": true, "points": true, "caused_red_flag": true,
+			}
+			for k, v := range body {
+				if allowedFields[k] {
+					if v == nil || v == "" || v == "null" {
+						// Para campos booleanos, usar false
+						if k == "caused_red_flag" {
+							filteredBody[k] = false
+						} else {
+							filteredBody[k] = 0
+						}
+					} else {
+						filteredBody[k] = v
+					}
+				}
 			}
 		}
+
+		body = filteredBody
+
 		log.Printf("[SESSION-RESULT] Body para guardar: %+v", body)
+
 		// Buscar si ya existe
 		var count int64
-		database.DB.Table(table).Where("pilot_id = ? AND gp_index = ?", uint(pilotID), uint(gpIndex)).Count(&count)
+		database.DB.Table(table).Where("pilot_id = ? AND gp_index = ?", uint(pilotID), uint64(gpIndex)).Count(&count)
 		if count > 0 {
-			log.Printf("[SESSION-RESULT] Actualizando fila existente para pilot_id=%v, gp_index=%v", uint(pilotID), uint(gpIndex))
-			database.DB.Table(table).Where("pilot_id = ? AND gp_index = ?", uint(pilotID), uint(gpIndex)).Updates(body)
+			log.Printf("[SESSION-RESULT] Actualizando fila existente para pilot_id=%v, gp_index=%v", uint(pilotID), uint64(gpIndex))
+			database.DB.Table(table).Where("pilot_id = ? AND gp_index = ?", uint(pilotID), uint64(gpIndex)).Updates(body)
 		} else {
-			log.Printf("[SESSION-RESULT] Creando nueva fila para pilot_id=%v, gp_index=%v", uint(pilotID), uint(gpIndex))
+			log.Printf("[SESSION-RESULT] Creando nueva fila para pilot_id=%v, gp_index=%v", uint(pilotID), uint64(gpIndex))
 			body["pilot_id"] = uint(pilotID)
-			body["gp_index"] = uint(gpIndex)
+			body["gp_index"] = uint64(gpIndex)
 			database.DB.Table(table).Create(body)
 		}
-		c.JSON(200, gin.H{"message": "Resultado guardado"})
+
+		// Actualizar puntos de todos los jugadores que tengan este piloto alineado
+		go updatePlayerPointsForPilot(uint(pilotID), uint64(gpIndex), totalPoints, mode)
+
+		c.JSON(200, gin.H{
+			"message": "Resultado guardado y puntos de jugadores actualizados",
+			"points_breakdown": gin.H{
+				"delta_points":    realDelta,
+				"position_points": positionPoints,
+				"total_points":    totalPoints,
+				"position":        finishPosition,
+				"mode":            pilot.Mode,
+				"pilot_name":      pilot.DriverName,
+			},
+		})
 	})
 
-	// Endpoint para obtener los ingenieros de pista por liga
-	router.GET("/api/trackengineersbyleague", func(c *gin.Context) {
+	// Endpoint para obtener todos los track engineers de una liga
+	router.GET("/api/trackengineersbyleague/list", func(c *gin.Context) {
 		leagueID := c.Query("league_id")
-		log.Printf("[TRACKENG] league_id recibido: %v", leagueID)
 		if leagueID == "" {
 			c.JSON(400, gin.H{"error": "Falta league_id"})
 			return
 		}
 		var trackEngineersByLeague []models.TrackEngineerByLeague
 		if err := database.DB.Where("league_id = ?", leagueID).Find(&trackEngineersByLeague).Error; err != nil {
-			log.Printf("[TRACKENG] Error obteniendo ingenieros: %v", err)
-			c.JSON(500, gin.H{"error": "Error obteniendo ingenieros de pista"})
+			c.JSON(500, gin.H{"error": "Error obteniendo track engineers"})
 			return
 		}
-		log.Printf("[TRACKENG] Encontrados %d ingenieros para league_id=%v", len(trackEngineersByLeague), leagueID)
 		var result []map[string]interface{}
 		for _, teb := range trackEngineersByLeague {
-			var te models.TrackEngineer
-			database.DB.First(&te, teb.TrackEngineerID)
-			var pilot models.Pilot
-			dbPilot := database.DB.Where("track_engineer_id = ?", te.ID).First(&pilot)
+			var trackEngineer models.TrackEngineer
+			database.DB.First(&trackEngineer, teb.TrackEngineerID)
 			item := map[string]interface{}{
-				"id":                teb.ID,
-				"track_engineer_id": teb.TrackEngineerID,
-				"name":              te.Name,
-				"image_url":         te.ImageURL,
-				"value":             te.Value,
-				"owner_id":          teb.OwnerID,
-				"venta":             teb.Venta,
-				"league_id":         teb.LeagueID,
-				"type":              "track_engineer", // Añadir tipo para identificación
-			}
-			if dbPilot.Error == nil {
-				item["pilot_id"] = pilot.ID
-				item["driver_name"] = pilot.DriverName
-				item["team"] = pilot.Team
-			} else {
-				item["team"] = "Sin equipo" // Valor por defecto
+				"id":                  trackEngineer.ID,
+				"by_league_id":        teb.ID,
+				"name":                trackEngineer.Name,
+				"team":                trackEngineer.Team,
+				"image_url":           trackEngineer.ImageURL,
+				"value":               trackEngineer.Value,
+				"total_points":        trackEngineer.TotalPoints,
+				"clausula_expires_at": teb.ClausulaExpiresAt,
+				"clausula_value":      teb.ClausulaValue,
+				"owner_id":            teb.OwnerID,
 			}
 			result = append(result, item)
 		}
 		c.JSON(200, gin.H{"track_engineers": result})
 	})
 
-	// Endpoint para obtener los ingenieros jefe por liga
-	router.GET("/api/chiefengineersbyleague", func(c *gin.Context) {
+	// Endpoint para perfil de track engineer by league
+	router.GET("/api/trackengineersbyleague", func(c *gin.Context) {
+		id := c.Query("id")
+		leagueID := c.Query("league_id")
+		log.Printf("[TRACK-ENG-PROFILE] id=%s leagueID=%s", id, leagueID)
+		if id == "" || leagueID == "" {
+			c.JSON(400, gin.H{"error": "Faltan parámetros id o league_id"})
+			return
+		}
+		var teb models.TrackEngineerByLeague
+		if err := database.DB.First(&teb, id).Error; err != nil {
+			log.Printf("[TRACK-ENG-PROFILE] No se encontró TrackEngineerByLeague id=%s", id)
+			c.JSON(404, gin.H{"error": "TrackEngineerByLeague no encontrado"})
+			return
+		}
+		log.Printf("[TRACK-ENG-PROFILE] teb: %+v", teb)
+		var te models.TrackEngineer
+		if err := database.DB.First(&te, teb.TrackEngineerID).Error; err != nil {
+			log.Printf("[TRACK-ENG-PROFILE] No se encontró TrackEngineer id=%d", teb.TrackEngineerID)
+			c.JSON(404, gin.H{"error": "TrackEngineer no encontrado"})
+			return
+		}
+		log.Printf("[TRACK-ENG-PROFILE] te: %+v", te)
+		// Buscar pilotos asignados a este track engineer
+		var pilots []models.Pilot
+		database.DB.Where("track_engineer_id = ?", te.ID).Find(&pilots)
+		log.Printf("[TRACK-ENG-PROFILE] pilots: %+v", pilots)
+		// Responder con todos los datos relevantes
+		var resp = gin.H{
+			"engineer":       teb,
+			"track_engineer": te,
+			"pilots":         pilots,
+		}
+		log.Printf("[TRACK-ENG-PROFILE] RESPUESTA FINAL: %+v", resp)
+		c.JSON(200, resp)
+	})
+
+	// Endpoint para obtener todos los chief engineers de una liga
+	router.GET("/api/chiefengineersbyleague/list", func(c *gin.Context) {
 		leagueID := c.Query("league_id")
 		if leagueID == "" {
 			c.JSON(400, gin.H{"error": "Falta league_id"})
@@ -3694,28 +5317,60 @@ func main() {
 		}
 		var chiefEngineersByLeague []models.ChiefEngineerByLeague
 		if err := database.DB.Where("league_id = ?", leagueID).Find(&chiefEngineersByLeague).Error; err != nil {
-			c.JSON(500, gin.H{"error": "Error obteniendo ingenieros jefe"})
+			c.JSON(500, gin.H{"error": "Error obteniendo chief engineers"})
 			return
 		}
 		var result []map[string]interface{}
 		for _, ceb := range chiefEngineersByLeague {
-			var ce models.ChiefEngineer
-			database.DB.First(&ce, ceb.ChiefEngineerID)
+			var chiefEngineer models.ChiefEngineer
+			database.DB.First(&chiefEngineer, ceb.ChiefEngineerID)
 			item := map[string]interface{}{
-				"id":                ceb.ID,
-				"chief_engineer_id": ceb.ChiefEngineerID,
-				"name":              ce.Name,
-				"image_url":         ce.ImageURL,
-				"value":             ce.Value,
-				"team":              ce.Team,
-				"owner_id":          ceb.OwnerID,
+				"id":                  chiefEngineer.ID,
+				"by_league_id":        ceb.ID,
+				"name":                chiefEngineer.Name,
+				"team":                chiefEngineer.Team,
+				"image_url":           chiefEngineer.ImageURL,
+				"value":               chiefEngineer.Value,
+				"total_points":        chiefEngineer.TotalPoints,
+				"clausula_expires_at": ceb.ClausulaExpiresAt,
+				"clausula_value":      ceb.ClausulaValue,
+				"owner_id":            ceb.OwnerID,
 			}
 			result = append(result, item)
 		}
 		c.JSON(200, gin.H{"chief_engineers": result})
 	})
 
-	router.GET("/api/teamconstructorsbyleague", func(c *gin.Context) {
+	// Endpoint para perfil de chief engineer by league
+	router.GET("/api/chiefengineersbyleague", func(c *gin.Context) {
+		id := c.Query("id")
+		leagueID := c.Query("league_id")
+		if id == "" || leagueID == "" {
+			c.JSON(400, gin.H{"error": "Faltan parámetros id o league_id"})
+			return
+		}
+		var ceb models.ChiefEngineerByLeague
+		if err := database.DB.First(&ceb, id).Error; err != nil {
+			c.JSON(404, gin.H{"error": "ChiefEngineerByLeague no encontrado"})
+			return
+		}
+		var ce models.ChiefEngineer
+		if err := database.DB.First(&ce, ceb.ChiefEngineerID).Error; err != nil {
+			c.JSON(404, gin.H{"error": "ChiefEngineer no encontrado"})
+			return
+		}
+		// Buscar pilotos asignados a este chief engineer
+		var pilots []models.Pilot
+		database.DB.Where("chief_engineer_id = ?", ce.ID).Find(&pilots)
+		c.JSON(200, gin.H{
+			"engineer":       ceb,
+			"chief_engineer": ce,
+			"pilots":         pilots,
+		})
+	})
+
+	// Endpoint para obtener todos los team constructors de una liga
+	router.GET("/api/teamconstructorsbyleague/list", func(c *gin.Context) {
 		leagueID := c.Query("league_id")
 		if leagueID == "" {
 			c.JSON(400, gin.H{"error": "Falta league_id"})
@@ -3723,38 +5378,603 @@ func main() {
 		}
 		var teamConstructorsByLeague []models.TeamConstructorByLeague
 		if err := database.DB.Where("league_id = ?", leagueID).Find(&teamConstructorsByLeague).Error; err != nil {
-			c.JSON(500, gin.H{"error": "Error obteniendo equipos"})
+			c.JSON(500, gin.H{"error": "Error obteniendo team constructors"})
 			return
 		}
 		var result []map[string]interface{}
 		for _, tcb := range teamConstructorsByLeague {
-			var tc models.TeamConstructor
-			database.DB.First(&tc, tcb.TeamConstructorID)
-
-			// Buscar pilotos relacionados con este equipo
-			var pilots []models.Pilot
-			database.DB.Where("teamconstructor_id = ? AND mode = ?", tc.ID, "race").Find(&pilots)
-
-			var pilotNames []string
-			for _, pilot := range pilots {
-				pilotNames = append(pilotNames, pilot.DriverName)
-			}
-
+			var teamConstructor models.TeamConstructor
+			database.DB.First(&teamConstructor, tcb.TeamConstructorID)
 			item := map[string]interface{}{
-				"id":                  tcb.ID,
-				"team_constructor_id": tcb.TeamConstructorID,
-				"name":                tc.Name,
-				"image_url":           tc.ImageURL,
-				"value":               tc.Value,
+				"id":                  teamConstructor.ID,
+				"by_league_id":        tcb.ID,
+				"name":                teamConstructor.Name,
+				"image_url":           teamConstructor.ImageURL,
+				"value":               teamConstructor.Value,
+				"clausula_expires_at": tcb.ClausulaExpiresAt,
+				"clausula_value":      tcb.ClausulaValue,
 				"owner_id":            tcb.OwnerID,
-				"venta":               tcb.Venta,
-				"league_id":           tcb.LeagueID,
-				"pilots":              pilotNames,
-				"pilot_count":         len(pilotNames),
 			}
 			result = append(result, item)
 		}
 		c.JSON(200, gin.H{"team_constructors": result})
+	})
+
+	// Endpoint para perfil de team constructor by league
+	router.GET("/api/teamconstructorsbyleague", func(c *gin.Context) {
+		id := c.Query("id")
+		// leagueID := c.Query("league_id") // Para futuras validaciones
+		if id == "" {
+			c.JSON(400, gin.H{"error": "Falta parámetro id"})
+			return
+		}
+		var tcb models.TeamConstructorByLeague
+		if err := database.DB.First(&tcb, id).Error; err != nil {
+			c.JSON(404, gin.H{"error": "TeamConstructorByLeague no encontrado"})
+			return
+		}
+		var tc models.TeamConstructor
+		if err := database.DB.First(&tc, tcb.TeamConstructorID).Error; err != nil {
+			c.JSON(404, gin.H{"error": "TeamConstructor no encontrado"})
+			return
+		}
+		// Buscar pilotos asignados a este team constructor
+		var pilots []models.Pilot
+		database.DB.Where("teamconstructor_id = ?", tc.ID).Find(&pilots)
+		c.JSON(200, gin.H{
+			"team":             tcb,
+			"team_constructor": tc,
+			"pilots":           pilots,
+		})
+	})
+
+	// Endpoint para obtener los puntos de una alineación específica
+	router.GET("/api/lineup/points", authMiddleware(), func(c *gin.Context) {
+		playerID := c.Query("player_id")
+		leagueID := c.Query("league_id")
+		gpIndex := c.Query("gp_index")
+
+		if playerID == "" || leagueID == "" || gpIndex == "" {
+			c.JSON(400, gin.H{"error": "Faltan parámetros player_id, league_id o gp_index"})
+			return
+		}
+
+		playerIDUint, err := strconv.ParseUint(playerID, 10, 64)
+		if err != nil {
+			c.JSON(400, gin.H{"error": "player_id inválido"})
+			return
+		}
+
+		leagueIDUint, err := strconv.ParseUint(leagueID, 10, 64)
+		if err != nil {
+			c.JSON(400, gin.H{"error": "league_id inválido"})
+			return
+		}
+
+		gpIndexUint, err := strconv.ParseUint(gpIndex, 10, 64)
+		if err != nil {
+			c.JSON(400, gin.H{"error": "gp_index inválido"})
+			return
+		}
+
+		var lineup models.Lineup
+		if err := database.DB.Where("player_id = ? AND league_id = ? AND gp_index = ?", playerIDUint, leagueIDUint, gpIndexUint).First(&lineup).Error; err != nil {
+			c.JSON(404, gin.H{"error": "Alineación no encontrada"})
+			return
+		}
+
+		c.JSON(200, gin.H{
+			"lineup_points": lineup.LineupPoints,
+		})
+	})
+
+	// Endpoints para alineaciones (lineups)
+	router.GET("/api/lineup/current", authMiddleware(), func(c *gin.Context) {
+		userID := c.GetUint("user_id")
+		leagueIDStr := c.Query("league_id")
+
+		if leagueIDStr == "" {
+			c.JSON(400, gin.H{"error": "league_id is required"})
+			return
+		}
+
+		leagueID, err := strconv.ParseUint(leagueIDStr, 10, 32)
+		if err != nil {
+			c.JSON(400, gin.H{"error": "Invalid league_id"})
+			return
+		}
+
+		// Obtener el GP index actual basado en start_date
+		// Primero intentar obtener el GP que ha empezado más recientemente (start_date <= now)
+		var currentGP models.GrandPrix
+		if err := database.DB.Where("start_date <= ?", time.Now()).Order("start_date DESC").First(&currentGP).Error; err != nil {
+			// Si no hay ningún GP que haya empezado, buscar el próximo
+			if err := database.DB.Where("start_date > ?", time.Now()).Order("start_date ASC").First(&currentGP).Error; err != nil {
+				c.JSON(404, gin.H{"error": "No Grand Prix found"})
+				return
+			}
+		}
+
+		// Buscar alineación existente
+		var lineup models.Lineup
+		if err := database.DB.Where("player_id = ? AND league_id = ? AND gp_index = ?", userID, leagueID, currentGP.GPIndex).First(&lineup).Error; err != nil {
+			// Si no existe, devolver alineación vacía
+			c.JSON(200, gin.H{
+				"lineup": gin.H{
+					"race_pilots":         []uint{},
+					"qualifying_pilots":   []uint{},
+					"practice_pilots":     []uint{},
+					"team_constructor_id": nil,
+					"chief_engineer_id":   nil,
+					"track_engineers":     []uint{},
+				},
+				"gp_index": currentGP.GPIndex,
+				"gp_name":  currentGP.Name,
+			})
+			return
+		}
+
+		// Parsear los arrays de IDs
+		var racePilots, qualifyingPilots, practicePilots, trackEngineers []uint
+
+		if len(lineup.RacePilots) > 0 {
+			json.Unmarshal(lineup.RacePilots, &racePilots)
+		}
+		if len(lineup.QualifyingPilots) > 0 {
+			json.Unmarshal(lineup.QualifyingPilots, &qualifyingPilots)
+		}
+		if len(lineup.PracticePilots) > 0 {
+			json.Unmarshal(lineup.PracticePilots, &practicePilots)
+		}
+		if len(lineup.TrackEngineers) > 0 {
+			json.Unmarshal(lineup.TrackEngineers, &trackEngineers)
+		}
+
+		c.JSON(200, gin.H{
+			"lineup": gin.H{
+				"race_pilots":         racePilots,
+				"qualifying_pilots":   qualifyingPilots,
+				"practice_pilots":     practicePilots,
+				"team_constructor_id": lineup.TeamConstructorID,
+				"chief_engineer_id":   lineup.ChiefEngineerID,
+				"track_engineers":     trackEngineers,
+			},
+			"gp_index": currentGP.GPIndex,
+			"gp_name":  currentGP.Name,
+		})
+	})
+
+	router.POST("/api/lineup/save", authMiddleware(), func(c *gin.Context) {
+		userID := c.GetUint("user_id")
+
+		var req struct {
+			LeagueID          uint   `json:"league_id"`
+			RacePilots        []uint `json:"race_pilots"`
+			QualifyingPilots  []uint `json:"qualifying_pilots"`
+			PracticePilots    []uint `json:"practice_pilots"`
+			TeamConstructorID *uint  `json:"team_constructor_id"`
+			ChiefEngineerID   *uint  `json:"chief_engineer_id"`
+			TrackEngineers    []uint `json:"track_engineers"`
+		}
+
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(400, gin.H{"error": "Invalid request"})
+			return
+		}
+
+		// Obtener el GP index actual basado en start_date
+		// Primero intentar obtener el GP que ha empezado más recientemente (start_date <= now)
+		var currentGP models.GrandPrix
+		if err := database.DB.Where("start_date <= ?", time.Now()).Order("start_date DESC").First(&currentGP).Error; err != nil {
+			// Si no hay ningún GP que haya empezado, buscar el próximo
+			if err := database.DB.Where("start_date > ?", time.Now()).Order("start_date ASC").First(&currentGP).Error; err != nil {
+				c.JSON(404, gin.H{"error": "No Grand Prix found"})
+				return
+			}
+		}
+
+		// Buscar alineación existente
+		var lineup models.Lineup
+		exists := database.DB.Where("player_id = ? AND league_id = ? AND gp_index = ?", userID, req.LeagueID, currentGP.GPIndex).First(&lineup).Error == nil
+
+		// Convertir arrays de IDs a JSON
+		racePilotsJSON, _ := json.Marshal(req.RacePilots)
+		qualifyingPilotsJSON, _ := json.Marshal(req.QualifyingPilots)
+		practicePilotsJSON, _ := json.Marshal(req.PracticePilots)
+		trackEngineersJSON, _ := json.Marshal(req.TrackEngineers)
+
+		if exists {
+			// Actualizar alineación existente
+			lineup.RacePilots = racePilotsJSON
+			lineup.QualifyingPilots = qualifyingPilotsJSON
+			lineup.PracticePilots = practicePilotsJSON
+			lineup.TeamConstructorID = req.TeamConstructorID
+			lineup.ChiefEngineerID = req.ChiefEngineerID
+			lineup.TrackEngineers = trackEngineersJSON
+
+			if err := database.DB.Save(&lineup).Error; err != nil {
+				c.JSON(500, gin.H{"error": "Error updating lineup"})
+				return
+			}
+		} else {
+			// Crear nueva alineación
+			lineup = models.Lineup{
+				PlayerID:          userID,
+				LeagueID:          req.LeagueID,
+				GPIndex:           currentGP.GPIndex,
+				RacePilots:        racePilotsJSON,
+				QualifyingPilots:  qualifyingPilotsJSON,
+				PracticePilots:    practicePilotsJSON,
+				TeamConstructorID: req.TeamConstructorID,
+				ChiefEngineerID:   req.ChiefEngineerID,
+				TrackEngineers:    trackEngineersJSON,
+			}
+
+			if err := database.DB.Create(&lineup).Error; err != nil {
+				c.JSON(500, gin.H{"error": "Error creating lineup"})
+				return
+			}
+		}
+
+		c.JSON(200, gin.H{"message": "Lineup saved successfully", "gp_index": currentGP.GPIndex})
+	})
+
+	// Endpoint para calcular puntos de Track Engineers después de guardar resultados de piloto
+	router.POST("/api/admin/calculate-track-engineer-points", func(c *gin.Context) {
+		var req struct {
+			GPIndex  uint64 `json:"gp_index"`
+			Mode     string `json:"mode"`
+			PilotID  uint   `json:"pilot_id"`
+			LeagueID uint   `json:"league_id"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil {
+			log.Printf("[TRACK-ENG-POINTS] Error ShouldBindJSON: %v", err)
+			c.JSON(400, gin.H{"error": "Datos inválidos"})
+			return
+		}
+
+		log.Printf("[TRACK-ENG-POINTS] Calculando puntos para piloto=%d, gp=%d, mode=%s, league=%d", req.PilotID, req.GPIndex, req.Mode, req.LeagueID)
+
+		// 1. Obtener el track engineer asignado a este piloto
+		var trackEngineer models.TrackEngineer
+		if err := database.DB.Where("pilot_id = ?", req.PilotID).First(&trackEngineer).Error; err != nil {
+			log.Printf("[TRACK-ENG-POINTS] No hay track engineer asignado al piloto %d: %v", req.PilotID, err)
+			c.JSON(200, gin.H{"message": "No hay track engineer asignado"})
+			return
+		}
+
+		log.Printf("[TRACK-ENG-POINTS] Track Engineer encontrado: ID=%d, Name=%s", trackEngineer.ID, trackEngineer.Name)
+
+		// 2. Buscar todas las alineaciones de esta liga y GP que incluyan este track engineer
+		var lineups []models.Lineup
+		database.DB.Where("league_id = ? AND gp_index = ?", req.LeagueID, req.GPIndex).Find(&lineups)
+
+		log.Printf("[TRACK-ENG-POINTS] Alineaciones encontradas: %d", len(lineups))
+
+		pointsCalculated := false
+		for _, lineup := range lineups {
+			// 3. Verificar si este track engineer está en la alineación
+			var trackEngineers []uint
+			if len(lineup.TrackEngineers) > 0 {
+				json.Unmarshal(lineup.TrackEngineers, &trackEngineers)
+			}
+
+			// Buscar el TrackEngineerByLeague correspondiente
+			var trackEngineerByLeague models.TrackEngineerByLeague
+			found := false
+			for _, teID := range trackEngineers {
+				if err := database.DB.First(&trackEngineerByLeague, teID).Error; err == nil {
+					if trackEngineerByLeague.TrackEngineerID == trackEngineer.ID {
+						found = true
+						break
+					}
+				}
+			}
+
+			if !found {
+				continue
+			}
+
+			// 4. Verificar si el piloto también está en la alineación
+			var pilots []uint
+			switch req.Mode {
+			case "race":
+				if len(lineup.RacePilots) > 0 {
+					json.Unmarshal(lineup.RacePilots, &pilots)
+				}
+			case "qualy":
+				if len(lineup.QualifyingPilots) > 0 {
+					json.Unmarshal(lineup.QualifyingPilots, &pilots)
+				}
+			case "practice":
+				if len(lineup.PracticePilots) > 0 {
+					json.Unmarshal(lineup.PracticePilots, &pilots)
+				}
+			}
+
+			// Buscar el piloto en la alineación
+			var pilotByLeague models.PilotByLeague
+			pilotInLineup := false
+			for _, pID := range pilots {
+				if err := database.DB.First(&pilotByLeague, pID).Error; err == nil {
+					if pilotByLeague.PilotID == req.PilotID {
+						pilotInLineup = true
+						break
+					}
+				}
+			}
+
+			if !pilotInLineup {
+				continue
+			}
+
+			log.Printf("[TRACK-ENG-POINTS] ✅ Track Engineer %d y Piloto %d están ambos en la alineación del jugador %d", trackEngineer.ID, req.PilotID, lineup.PlayerID)
+
+			// 5. Obtener los puntos del piloto antes del multiplicador
+			var table string
+			switch req.Mode {
+			case "race":
+				table = "pilot_races"
+			case "qualy":
+				table = "pilot_qualies"
+			case "practice":
+				table = "pilot_practices"
+			}
+
+			var pilotResult map[string]interface{}
+			database.DB.Table(table).Where("pilot_id = ? AND gp_index = ?", req.PilotID, req.GPIndex).Take(&pilotResult)
+
+			if pilotResult == nil {
+				continue
+			}
+
+			basePoints := 0
+			if points, ok := pilotResult["points"].(float64); ok {
+				basePoints = int(points)
+			}
+
+			// Obtener posición final para comparar con compañero
+			finishPos := 0
+			if fin, ok := pilotResult["finish_position"].(float64); ok {
+				finishPos = int(fin)
+			}
+
+			// Buscar compañero de equipo y calcular multiplicador
+			var pilotInfo models.Pilot
+			database.DB.First(&pilotInfo, req.PilotID)
+
+			var teammate models.Pilot
+			modeCode := map[string]string{"race": "R", "qualy": "Q", "practice": "P"}[req.Mode]
+			database.DB.Where("team = ? AND mode = ? AND id != ?", pilotInfo.Team, modeCode, req.PilotID).First(&teammate)
+
+			var teammateResult map[string]interface{}
+			database.DB.Table(table).Where("pilot_id = ? AND gp_index = ?", teammate.ID, req.GPIndex).Take(&teammateResult)
+
+			multiplier := 1.2 // Default
+			if teammateResult != nil {
+				if teammateFinish, ok := teammateResult["finish_position"].(float64); ok {
+					if finishPos > 0 && finishPos < int(teammateFinish) {
+						multiplier = 1.5
+					}
+				}
+			}
+
+			// Calcular puntos del Track Engineer como la diferencia
+			finalPoints := int(float64(basePoints) * multiplier)
+			trackEngineerPoints := finalPoints - basePoints
+
+			log.Printf("[TRACK-ENG-POINTS] Piloto: %d pts base → %d pts final (×%.1f) | Track Engineer: %d pts", basePoints, finalPoints, multiplier, trackEngineerPoints)
+
+			pointsCalculated = true
+		}
+
+		if pointsCalculated {
+			c.JSON(200, gin.H{"message": "Puntos de Track Engineer calculados correctamente"})
+		} else {
+			c.JSON(200, gin.H{"message": "Track Engineer no aplicable en ninguna alineación"})
+		}
+	})
+
+	// Endpoint para actualizar puntos de alineaciones (solo administradores)
+	router.POST("/api/admin/update-lineup-points", authMiddleware(), func(c *gin.Context) {
+		// Verificar que el usuario sea administrador
+		userIDRaw, ok := c.Get("user_id")
+		if !ok {
+			c.JSON(401, gin.H{"error": "No autenticado"})
+			return
+		}
+		userID, ok := userIDRaw.(uint)
+		if !ok {
+			c.JSON(401, gin.H{"error": "No autenticado (tipo user_id incorrecto)"})
+			return
+		}
+
+		// Verificar si es administrador
+		var player models.Player
+		if err := database.DB.First(&player, userID).Error; err != nil {
+			c.JSON(404, gin.H{"error": "Usuario no encontrado"})
+			return
+		}
+		if !player.IsAdmin {
+			c.JSON(403, gin.H{"error": "Acceso denegado. Solo administradores."})
+			return
+		}
+
+		var req struct {
+			LeagueID uint `json:"league_id"`
+			GPIndex  uint `json:"gp_index"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(400, gin.H{"error": "Datos inválidos"})
+			return
+		}
+
+		log.Printf("[UPDATE-LINEUP-POINTS] Iniciando actualización para league_id=%d, gp_index=%d", req.LeagueID, req.GPIndex)
+
+		// Obtener todas las alineaciones de esta liga y GP
+		var lineups []models.Lineup
+		if err := database.DB.Where("league_id = ? AND gp_index = ?", req.LeagueID, req.GPIndex).Find(&lineups).Error; err != nil {
+			c.JSON(500, gin.H{"error": "Error obteniendo alineaciones"})
+			return
+		}
+
+		log.Printf("[UPDATE-LINEUP-POINTS] Encontradas %d alineaciones", len(lineups))
+
+		// Verificar si ya se han calculado puntos para alguna alineación
+		alreadyCalculatedCount := 0
+		for _, lineup := range lineups {
+			if lineup.LineupPoints > 0 {
+				alreadyCalculatedCount++
+			}
+		}
+
+		if alreadyCalculatedCount > 0 {
+			log.Printf("[UPDATE-LINEUP-POINTS] ADVERTENCIA: %d alineaciones ya tienen puntos calculados", alreadyCalculatedCount)
+			c.JSON(400, gin.H{
+				"error":                    fmt.Sprintf("No se pueden recalcular puntos. %d alineaciones ya tienen puntos calculados (lineup_points > 0). Si necesitas recalcular, primero resetea los puntos a 0.", alreadyCalculatedCount),
+				"already_calculated_count": alreadyCalculatedCount,
+				"total_lineups":            len(lineups),
+				"league_id":                req.LeagueID,
+				"gp_index":                 req.GPIndex,
+			})
+			return
+		}
+
+		updatedCount := 0
+		for _, lineup := range lineups {
+			totalPoints := 0
+
+			// Calcular puntos de pilotos de carrera
+			var racePilots []uint
+			if len(lineup.RacePilots) > 0 {
+				json.Unmarshal(lineup.RacePilots, &racePilots)
+				for _, pilotByLeagueID := range racePilots {
+					points := getPilotPoints(pilotByLeagueID, uint64(req.GPIndex))
+					totalPoints += points
+					log.Printf("[UPDATE-LINEUP-POINTS] Piloto carrera ID %d: %d pts", pilotByLeagueID, points)
+				}
+			}
+
+			// Calcular puntos de pilotos de clasificación
+			var qualifyingPilots []uint
+			if len(lineup.QualifyingPilots) > 0 {
+				json.Unmarshal(lineup.QualifyingPilots, &qualifyingPilots)
+				for _, pilotByLeagueID := range qualifyingPilots {
+					points := getPilotPoints(pilotByLeagueID, uint64(req.GPIndex))
+					totalPoints += points
+					log.Printf("[UPDATE-LINEUP-POINTS] Piloto qualy ID %d: %d pts", pilotByLeagueID, points)
+				}
+			}
+
+			// Calcular puntos de pilotos de práctica
+			var practicePilots []uint
+			if len(lineup.PracticePilots) > 0 {
+				json.Unmarshal(lineup.PracticePilots, &practicePilots)
+				for _, pilotByLeagueID := range practicePilots {
+					points := getPilotPoints(pilotByLeagueID, uint64(req.GPIndex))
+					totalPoints += points
+					log.Printf("[UPDATE-LINEUP-POINTS] Piloto practice ID %d: %d pts", pilotByLeagueID, points)
+				}
+			}
+
+			// Calcular puntos del constructor
+			if lineup.TeamConstructorID != nil {
+				points := getTeamConstructorPoints(*lineup.TeamConstructorID, uint64(req.GPIndex))
+				totalPoints += points
+				log.Printf("[UPDATE-LINEUP-POINTS] Constructor ID %d: %d pts", *lineup.TeamConstructorID, points)
+			}
+
+			// Calcular puntos del chief engineer
+			if lineup.ChiefEngineerID != nil {
+				points := getChiefEngineerPoints(*lineup.ChiefEngineerID, uint64(req.GPIndex))
+				totalPoints += points
+				log.Printf("[UPDATE-LINEUP-POINTS] Chief Engineer ID %d: %d pts", *lineup.ChiefEngineerID, points)
+			}
+
+			// Calcular puntos de track engineers
+			var trackEngineers []uint
+			if len(lineup.TrackEngineers) > 0 {
+				json.Unmarshal(lineup.TrackEngineers, &trackEngineers)
+				for _, trackEngineerByLeagueID := range trackEngineers {
+					points := getTrackEngineerPoints(trackEngineerByLeagueID, uint64(req.GPIndex))
+					totalPoints += points
+					log.Printf("[UPDATE-LINEUP-POINTS] Track Engineer ID %d: %d pts", trackEngineerByLeagueID, points)
+				}
+			}
+
+			// Actualizar los puntos en la alineación
+			lineup.LineupPoints = totalPoints
+			if err := database.DB.Save(&lineup).Error; err != nil {
+				log.Printf("[UPDATE-LINEUP-POINTS] Error guardando alineación %d: %v", lineup.ID, err)
+				continue
+			}
+
+			log.Printf("[UPDATE-LINEUP-POINTS] Alineación %d (jugador %d): %d pts totales", lineup.ID, lineup.PlayerID, totalPoints)
+			updatedCount++
+		}
+
+		c.JSON(200, gin.H{
+			"message":       fmt.Sprintf("Actualizadas %d alineaciones con sus puntos totales", updatedCount),
+			"updated_count": updatedCount,
+			"league_id":     req.LeagueID,
+			"gp_index":      req.GPIndex,
+		})
+	})
+
+	// Endpoint para resetear puntos de alineaciones (solo administradores)
+	router.POST("/api/admin/reset-lineup-points", authMiddleware(), func(c *gin.Context) {
+		// Verificar que el usuario sea administrador
+		userIDRaw, ok := c.Get("user_id")
+		if !ok {
+			c.JSON(401, gin.H{"error": "No autenticado"})
+			return
+		}
+		userID, ok := userIDRaw.(uint)
+		if !ok {
+			c.JSON(401, gin.H{"error": "No autenticado (tipo user_id incorrecto)"})
+			return
+		}
+
+		// Verificar si es administrador
+		var player models.Player
+		if err := database.DB.First(&player, userID).Error; err != nil {
+			c.JSON(404, gin.H{"error": "Usuario no encontrado"})
+			return
+		}
+		if !player.IsAdmin {
+			c.JSON(403, gin.H{"error": "Acceso denegado. Solo administradores."})
+			return
+		}
+
+		var req struct {
+			LeagueID uint `json:"league_id"`
+			GPIndex  uint `json:"gp_index"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(400, gin.H{"error": "Datos inválidos"})
+			return
+		}
+
+		log.Printf("[RESET-LINEUP-POINTS] Reseteando puntos para league_id=%d, gp_index=%d", req.LeagueID, req.GPIndex)
+
+		// Resetear todos los puntos de alineaciones de esta liga y GP
+		result := database.DB.Model(&models.Lineup{}).
+			Where("league_id = ? AND gp_index = ?", req.LeagueID, req.GPIndex).
+			Update("lineup_points", 0)
+
+		if result.Error != nil {
+			c.JSON(500, gin.H{"error": "Error reseteando puntos"})
+			return
+		}
+
+		log.Printf("[RESET-LINEUP-POINTS] Reseteados %d alineaciones", result.RowsAffected)
+
+		c.JSON(200, gin.H{
+			"message":     fmt.Sprintf("Reseteados puntos de %d alineaciones", result.RowsAffected),
+			"reset_count": result.RowsAffected,
+			"league_id":   req.LeagueID,
+			"gp_index":    req.GPIndex,
+		})
 	})
 
 	port := os.Getenv("PORT")
@@ -3772,6 +5992,295 @@ func generateFIAOffer(saleValue float64) float64 {
 	// Generar un valor aleatorio entre 0.9 y 1.1 (90% a 110%)
 	multiplier := 0.9 + rand.Float64()*0.2
 	return saleValue * multiplier
+}
+
+// Función para actualizar puntos de jugadores que tengan un piloto alineado
+func updatePlayerPointsForPilot(pilotID uint, gpIndex uint64, points int, sessionType string) {
+	// Buscar todas las alineaciones que incluyan este piloto en este GP
+	var lineups []models.Lineup
+	database.DB.Where("gp_index = ?", gpIndex).Find(&lineups)
+
+	for _, lineup := range lineups {
+		var pilots []uint
+
+		// Determinar qué array de pilotos revisar según el tipo de sesión
+		switch sessionType {
+		case "race":
+			if len(lineup.RacePilots) > 0 {
+				json.Unmarshal(lineup.RacePilots, &pilots)
+			}
+		case "qualy":
+			if len(lineup.QualifyingPilots) > 0 {
+				json.Unmarshal(lineup.QualifyingPilots, &pilots)
+			}
+		case "practice":
+			if len(lineup.PracticePilots) > 0 {
+				json.Unmarshal(lineup.PracticePilots, &pilots)
+			}
+		}
+
+		// Verificar si el piloto está en esta alineación
+		for _, pilotByLeagueID := range pilots {
+			var pilotByLeague models.PilotByLeague
+			if err := database.DB.First(&pilotByLeague, pilotByLeagueID).Error; err == nil {
+				if pilotByLeague.PilotID == pilotID {
+					// Este jugador tiene el piloto alineado, actualizar sus puntos
+					updatePlayerTotalPoints(lineup.PlayerID, lineup.LeagueID, gpIndex, points)
+					break
+				}
+			}
+		}
+	}
+}
+
+// Función para calcular puntos totales de un jugador en un GP específico
+func calculatePlayerTotalPoints(playerID uint, leagueID uint64, gpIndex uint64) int {
+	// Buscar la alineación del jugador para el GP actual
+	var lineup models.Lineup
+	if err := database.DB.Where("player_id = ? AND league_id = ? AND gp_index = ?", playerID, leagueID, gpIndex).First(&lineup).Error; err != nil {
+		log.Printf("No se encontró alineación para player_id=%d, league_id=%d, gp_index=%d", playerID, leagueID, gpIndex)
+		return 0
+	}
+
+	totalPoints := 0
+
+	// Calcular puntos de pilotos de carrera
+	var racePilots []uint
+	if len(lineup.RacePilots) > 0 {
+		json.Unmarshal(lineup.RacePilots, &racePilots)
+		for _, pilotByLeagueID := range racePilots {
+			points := getPilotPoints(pilotByLeagueID, gpIndex)
+			totalPoints += points
+		}
+	}
+
+	// Calcular puntos de pilotos de clasificación
+	var qualifyingPilots []uint
+	if len(lineup.QualifyingPilots) > 0 {
+		json.Unmarshal(lineup.QualifyingPilots, &qualifyingPilots)
+		for _, pilotByLeagueID := range qualifyingPilots {
+			points := getPilotPoints(pilotByLeagueID, gpIndex)
+			totalPoints += points
+		}
+	}
+
+	// Calcular puntos de pilotos de práctica
+	var practicePilots []uint
+	if len(lineup.PracticePilots) > 0 {
+		json.Unmarshal(lineup.PracticePilots, &practicePilots)
+		for _, pilotByLeagueID := range practicePilots {
+			points := getPilotPoints(pilotByLeagueID, gpIndex)
+			totalPoints += points
+		}
+	}
+
+	// Calcular puntos del constructor
+	if lineup.TeamConstructorID != nil {
+		points := getTeamConstructorPoints(*lineup.TeamConstructorID, gpIndex)
+		totalPoints += points
+	}
+
+	// Calcular puntos del chief engineer
+	if lineup.ChiefEngineerID != nil {
+		points := getChiefEngineerPoints(*lineup.ChiefEngineerID, gpIndex)
+		totalPoints += points
+	}
+
+	// Calcular puntos de track engineers
+	var trackEngineers []uint
+	if len(lineup.TrackEngineers) > 0 {
+		json.Unmarshal(lineup.TrackEngineers, &trackEngineers)
+		for _, trackEngineerByLeagueID := range trackEngineers {
+			points := getTrackEngineerPoints(trackEngineerByLeagueID, gpIndex)
+			totalPoints += points
+		}
+	}
+
+	return totalPoints
+}
+
+// Función auxiliar para obtener puntos de un piloto
+func getPilotPoints(pilotByLeagueID uint, gpIndex uint64) int {
+	var pilotByLeague models.PilotByLeague
+	if err := database.DB.First(&pilotByLeague, pilotByLeagueID).Error; err != nil {
+		return 0
+	}
+
+	var pilot models.Pilot
+	if err := database.DB.First(&pilot, pilotByLeague.PilotID).Error; err != nil {
+		return 0
+	}
+
+	// Determinar la tabla según el modo del piloto
+	var table string
+	switch pilot.Mode {
+	case "race", "R":
+		table = "pilot_races"
+	case "qualy", "Q":
+		table = "pilot_qualies"
+	case "practice", "P":
+		table = "pilot_practices"
+	default:
+		return 0
+	}
+
+	// Obtener puntos de la tabla correspondiente
+	var result map[string]interface{}
+	if err := database.DB.Table(table).Where("pilot_id = ? AND gp_index = ?", pilot.ID, gpIndex).Take(&result).Error; err != nil {
+		return 0
+	}
+
+	points := 0
+	finishPosition := 0
+
+	// Obtener puntos base (delta + bonificaciones)
+	if pointsRaw := result["points"]; pointsRaw != nil {
+		if pointsVal, ok := pointsRaw.(float64); ok {
+			points = int(pointsVal)
+		} else if pointsVal, ok := pointsRaw.(int); ok {
+			points = pointsVal
+		} else if pointsVal, ok := pointsRaw.(int64); ok {
+			points = int(pointsVal)
+		}
+	}
+
+	// Obtener posición final
+	if finishPosRaw := result["finish_position"]; finishPosRaw != nil {
+		if finishPosVal, ok := finishPosRaw.(float64); ok {
+			finishPosition = int(finishPosVal)
+		} else if finishPosVal, ok := finishPosRaw.(int); ok {
+			finishPosition = finishPosVal
+		} else if finishPosVal, ok := finishPosRaw.(int64); ok {
+			finishPosition = int(finishPosVal)
+		}
+	}
+
+	// Los puntos por posición ya están incluidos en el campo Points desde los endpoints
+	// Solo mostrar información para debugging
+	positionPoints := getPositionPoints(pilot.Mode, finishPosition)
+
+	log.Printf("[PILOT-POINTS] Piloto %s (Mode: %s, Pos: %d): Total=%d (incluye posición=%d)",
+		pilot.DriverName, pilot.Mode, finishPosition, points, positionPoints)
+
+	return points
+}
+
+// Función para obtener puntos por posición final
+func getPositionPoints(mode string, position int) int {
+	if position < 1 {
+		return 0
+	}
+
+	switch mode {
+	case "race", "R":
+		// 25, 18, 15, 12, 10, 8, 6, 4, 2, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+		if position <= 10 {
+			racePoints := []int{25, 18, 15, 12, 10, 8, 6, 4, 2, 1}
+			return racePoints[position-1]
+		}
+		return 0 // Posiciones 11+ no dan puntos
+	case "qualy", "Q":
+		// 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+		if position <= 10 {
+			qualyPoints := []int{10, 9, 8, 7, 6, 5, 4, 3, 2, 1}
+			return qualyPoints[position-1]
+		}
+		return 0 // Posiciones 11+ no dan puntos
+	case "practice", "P":
+		// 5, 5, 4, 4, 3, 3, 2, 2, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+		if position <= 10 {
+			practicePoints := []int{5, 5, 4, 4, 3, 3, 2, 2, 1, 1}
+			return practicePoints[position-1]
+		}
+		return 0 // Posiciones 11+ no dan puntos
+	default:
+		return 0
+	}
+}
+
+// Función auxiliar para obtener puntos de un constructor
+func getTeamConstructorPoints(teamConstructorByLeagueID uint, gpIndex uint64) int {
+	var teamConstructorByLeague models.TeamConstructorByLeague
+	if err := database.DB.First(&teamConstructorByLeague, teamConstructorByLeagueID).Error; err != nil {
+		return 0
+	}
+
+	var result map[string]interface{}
+	if err := database.DB.Table("team_constructors").Where("id = ? AND gp_index = ?", teamConstructorByLeague.TeamConstructorID, gpIndex).Take(&result).Error; err != nil {
+		return 0
+	}
+
+	points := 0
+	if pointsRaw := result["total_points"]; pointsRaw != nil {
+		if pointsVal, ok := pointsRaw.(float64); ok {
+			points = int(pointsVal)
+		}
+	}
+
+	return points
+}
+
+// Función auxiliar para obtener puntos de un chief engineer
+func getChiefEngineerPoints(chiefEngineerByLeagueID uint, gpIndex uint64) int {
+	var chiefEngineerByLeague models.ChiefEngineerByLeague
+	if err := database.DB.First(&chiefEngineerByLeague, chiefEngineerByLeagueID).Error; err != nil {
+		return 0
+	}
+
+	var result map[string]interface{}
+	if err := database.DB.Table("chief_engineers").Where("id = ? AND gp_index = ?", chiefEngineerByLeague.ChiefEngineerID, gpIndex).Take(&result).Error; err != nil {
+		return 0
+	}
+
+	points := 0
+	if pointsRaw := result["total_points"]; pointsRaw != nil {
+		if pointsVal, ok := pointsRaw.(float64); ok {
+			points = int(pointsVal)
+		}
+	}
+
+	return points
+}
+
+// Función auxiliar para obtener puntos de un track engineer
+func getTrackEngineerPoints(trackEngineerByLeagueID uint, gpIndex uint64) int {
+	var trackEngineerByLeague models.TrackEngineerByLeague
+	if err := database.DB.First(&trackEngineerByLeague, trackEngineerByLeagueID).Error; err != nil {
+		return 0
+	}
+
+	var result map[string]interface{}
+	if err := database.DB.Table("track_engineers").Where("id = ? AND gp_index = ?", trackEngineerByLeague.TrackEngineerID, gpIndex).Take(&result).Error; err != nil {
+		return 0
+	}
+
+	points := 0
+	if pointsRaw := result["total_points"]; pointsRaw != nil {
+		if pointsVal, ok := pointsRaw.(float64); ok {
+			points = int(pointsVal)
+		}
+	}
+
+	return points
+}
+
+// Función para actualizar puntos totales de un jugador
+func updatePlayerTotalPoints(playerID uint, leagueID uint, gpIndex uint64, pointsToAdd int) {
+	// Obtener el jugador en la liga
+	var playerLeague models.PlayerByLeague
+	if err := database.DB.Where("player_id = ? AND league_id = ?", playerID, leagueID).First(&playerLeague).Error; err != nil {
+		log.Printf("Error obteniendo PlayerByLeague para player_id=%d, league_id=%d: %v", playerID, leagueID, err)
+		return
+	}
+
+	// Sumar los puntos directamente al total
+	playerLeague.TotalPoints += pointsToAdd
+
+	if err := database.DB.Save(&playerLeague).Error; err != nil {
+		log.Printf("Error guardando puntos para player_id=%d, league_id=%d: %v", playerID, leagueID, err)
+	} else {
+		log.Printf("Puntos totales actualizados para player_id=%d, league_id=%d: +%d pts (total: %d)", playerID, leagueID, pointsToAdd, playerLeague.TotalPoints)
+	}
 }
 
 // Función para generar ofertas de la FIA para todos los elementos en venta
@@ -4065,4 +6574,111 @@ func engineerNameFromImageURL(imageURL string) string {
 	name := strings.TrimSuffix(imageURL, ".png")
 	name = strings.ReplaceAll(name, "_", " ")
 	return name
+}
+
+// returnUserItemsToLeague devuelve todos los fichajes de un usuario al mercado de la liga
+func returnUserItemsToLeague(userID uint, leagueID uint) error {
+	log.Printf("[DEVOLVER FICHAJES] Devolviendo fichajes del usuario %d a la liga %d", userID, leagueID)
+
+	// 1. Devolver pilotos del usuario al mercado
+	var pilotByLeagues []models.PilotByLeague
+	if err := database.DB.Where("owner_id = ? AND league_id = ?", userID, leagueID).Find(&pilotByLeagues).Error; err != nil {
+		return fmt.Errorf("error obteniendo pilotos del usuario: %v", err)
+	}
+
+	for _, pbl := range pilotByLeagues {
+		// Resetear el piloto a su estado original
+		updates := map[string]interface{}{
+			"owner_id":                0, // Sin dueño
+			"clausulatime":            nil,
+			"clausula_value":          nil,
+			"bids":                    "[]",
+			"venta":                   nil,
+			"venta_expires_at":        nil,
+			"league_offer_value":      nil,
+			"league_offer_expires_at": nil,
+		}
+
+		if err := database.DB.Model(&models.PilotByLeague{}).Where("id = ?", pbl.ID).Updates(updates).Error; err != nil {
+			return fmt.Errorf("error reseteando piloto %d: %v", pbl.ID, err)
+		}
+		log.Printf("[DEVOLVER FICHAJES] Piloto %d devuelto al mercado", pbl.PilotID)
+	}
+
+	// 2. Devolver track engineers del usuario al mercado
+	var trackEngineerByLeagues []models.TrackEngineerByLeague
+	if err := database.DB.Where("owner_id = ? AND league_id = ?", userID, leagueID).Find(&trackEngineerByLeagues).Error; err != nil {
+		return fmt.Errorf("error obteniendo track engineers del usuario: %v", err)
+	}
+
+	for _, tebl := range trackEngineerByLeagues {
+		// Resetear el track engineer a su estado original
+		updates := map[string]interface{}{
+			"owner_id":                0, // Sin dueño
+			"bids":                    "[]",
+			"venta":                   nil,
+			"venta_expires_at":        nil,
+			"league_offer_value":      nil,
+			"league_offer_expires_at": nil,
+			"clausula_expires_at":     nil,
+			"clausula_value":          nil,
+		}
+
+		if err := database.DB.Model(&models.TrackEngineerByLeague{}).Where("id = ?", tebl.ID).Updates(updates).Error; err != nil {
+			return fmt.Errorf("error reseteando track engineer %d: %v", tebl.ID, err)
+		}
+		log.Printf("[DEVOLVER FICHAJES] Track Engineer %d devuelto al mercado", tebl.TrackEngineerID)
+	}
+
+	// 3. Devolver chief engineers del usuario al mercado
+	var chiefEngineerByLeagues []models.ChiefEngineerByLeague
+	if err := database.DB.Where("owner_id = ? AND league_id = ?", userID, leagueID).Find(&chiefEngineerByLeagues).Error; err != nil {
+		return fmt.Errorf("error obteniendo chief engineers del usuario: %v", err)
+	}
+
+	for _, cebl := range chiefEngineerByLeagues {
+		// Resetear el chief engineer a su estado original
+		updates := map[string]interface{}{
+			"owner_id":                0, // Sin dueño
+			"bids":                    "[]",
+			"venta_expires_at":        nil,
+			"league_offer_value":      nil,
+			"league_offer_expires_at": nil,
+			"clausula_expires_at":     nil,
+			"clausula_value":          nil,
+		}
+
+		if err := database.DB.Model(&models.ChiefEngineerByLeague{}).Where("id = ?", cebl.ID).Updates(updates).Error; err != nil {
+			return fmt.Errorf("error reseteando chief engineer %d: %v", cebl.ID, err)
+		}
+		log.Printf("[DEVOLVER FICHAJES] Chief Engineer %d devuelto al mercado", cebl.ChiefEngineerID)
+	}
+
+	// 4. Devolver team constructors del usuario al mercado
+	var teamConstructorByLeagues []models.TeamConstructorByLeague
+	if err := database.DB.Where("owner_id = ? AND league_id = ?", userID, leagueID).Find(&teamConstructorByLeagues).Error; err != nil {
+		return fmt.Errorf("error obteniendo team constructors del usuario: %v", err)
+	}
+
+	for _, tcbl := range teamConstructorByLeagues {
+		// Resetear el team constructor a su estado original
+		updates := map[string]interface{}{
+			"owner_id":                0, // Sin dueño
+			"bids":                    "[]",
+			"venta":                   nil,
+			"venta_expires_at":        nil,
+			"league_offer_value":      nil,
+			"league_offer_expires_at": nil,
+			"clausula_expires_at":     nil,
+			"clausula_value":          nil,
+		}
+
+		if err := database.DB.Model(&models.TeamConstructorByLeague{}).Where("id = ?", tcbl.ID).Updates(updates).Error; err != nil {
+			return fmt.Errorf("error reseteando team constructor %d: %v", tcbl.ID, err)
+		}
+		log.Printf("[DEVOLVER FICHAJES] Team Constructor %d devuelto al mercado", tcbl.TeamConstructorID)
+	}
+
+	log.Printf("[DEVOLVER FICHAJES] Todos los fichajes del usuario %d devueltos al mercado de la liga %d", userID, leagueID)
+	return nil
 }

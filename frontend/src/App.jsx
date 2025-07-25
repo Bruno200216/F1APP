@@ -19,6 +19,7 @@ import TeamProfilePage from './pages/TeamProfilePage';
 import ProfilePage from './pages/ProfilePage';
 import AdminScoresPage from './pages/AdminScoresPage';
 
+
 const theme = createTheme({
   palette: {
     mode: 'light',
@@ -52,9 +53,12 @@ function App() {
               <Route path="/engineer/:type/:id" element={<EngineerProfilePage />} />
               <Route path="/team/:id" element={<TeamProfilePage />} />
               <Route path="/activity" element={<ActivityPage />} />
+
               <Route path="/join-league" element={<JoinLeaguePage />} />
               <Route path="/profile/:id" element={<ProfilePage />} />
               <Route path="/admin-scores" element={<AdminScoresPage />} />
+              <Route path="/profile/engineer/:type/:id" element={<EngineerProfilePage />} />
+              <Route path="/profile/team/:id" element={<TeamProfilePage />} />
             </Routes>
             <BottomNavBar />
           </div>

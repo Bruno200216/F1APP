@@ -18,7 +18,7 @@ var DB *gorm.DB
 
 // createDatabaseIfNotExists crea la base de datos si no existe
 func createDatabaseIfNotExists() {
-	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/?charset=utf8mb4&parseTime=True&loc=Local",
+	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/?charset=utf8mb4&parseTime=True",
 		os.Getenv("DB_USER"),
 		os.Getenv("DB_PASSWORD"),
 		os.Getenv("DB_HOST"),
@@ -29,6 +29,12 @@ func createDatabaseIfNotExists() {
 		log.Fatal("Error conectando a MySQL para crear la base de datos: ", err)
 	}
 	defer db.Close()
+
+	// Verificar conexión
+	err = db.Ping()
+	if err != nil {
+		log.Fatal("Error haciendo ping a MySQL: ", err)
+	}
 
 	_, err = db.Exec("CREATE DATABASE IF NOT EXISTS " + os.Getenv("DB_NAME") + " CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;")
 	if err != nil {
@@ -45,7 +51,7 @@ func Connect() {
 	fmt.Println("DB_PASSWORD:", os.Getenv("DB_PASSWORD"))
 	fmt.Println("DB_NAME:", os.Getenv("DB_NAME"))
 	createDatabaseIfNotExists()
-	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?charset=utf8mb4&parseTime=True&loc=Local",
+	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?charset=utf8mb4&parseTime=True",
 		os.Getenv("DB_USER"),
 		os.Getenv("DB_PASSWORD"),
 		os.Getenv("DB_HOST"),
@@ -65,6 +71,15 @@ func Connect() {
 	log.Println("Conexión a la base de datos establecida")
 }
 
+// GetSQLDB obtiene la conexión SQL subyacente para migraciones
+func GetSQLDB() *sql.DB {
+	sqlDB, err := DB.DB()
+	if err != nil {
+		log.Fatal("Error obteniendo conexión SQL: ", err)
+	}
+	return sqlDB
+}
+
 // Migrate ejecuta las migraciones de la base de datos
 func Migrate() {
 	err := DB.AutoMigrate(
@@ -82,6 +97,7 @@ func Migrate() {
 		&models.TeamConstructor{},
 		&models.TeamConstructorByLeague{},
 		&models.MarketItem{},
+		&models.Lineup{},
 	)
 	if err != nil {
 		log.Fatal("Error ejecutando migraciones: ", err)

@@ -1,0 +1,19 @@
+# Comandos para hacer push después del login exitoso
+
+# 1. Verificar que estás logueado
+docker info | Select-String "Username"
+
+# 2. Push del backend (ambas versiones)
+docker push bruno200216/f1app-backend:latest
+docker push bruno200216/f1app-backend:v1.0
+
+# 3. Push del frontend (ambas versiones)  
+docker push bruno200216/f1app-frontend:latest
+docker push bruno200216/f1app-frontend:v1.0
+
+# 4. Verificar que las imágenes están en Docker Hub
+# Ve a: https://hub.docker.com/u/bruno200216
+
+# 5. Para usar las imágenes en otro lugar:
+# docker pull bruno200216/f1app-backend:latest
+# docker pull bruno200216/f1app-frontend:latest 

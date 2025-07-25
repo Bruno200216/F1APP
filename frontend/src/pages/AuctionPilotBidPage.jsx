@@ -149,14 +149,43 @@ export default function AuctionPilotBidPage() {
 
   // Render condicional después de los hooks
   if (loading) return (
-    <Box sx={{ minHeight: '100vh', background: '#18192a', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <Typography sx={{ color: '#fff', fontSize: '1.2rem' }}>🏁 Cargando puja...</Typography>
+    <Box sx={{ 
+      minHeight: '100vh', 
+      background: '#080705', 
+      display: 'flex', 
+      alignItems: 'center', 
+      justifyContent: 'center',
+      fontFamily: "'Inter', 'Segoe UI', sans-serif"
+    }}>
+      <Typography sx={{ 
+        color: '#FFFFFF', 
+        fontSize: 20, 
+        fontWeight: 600,
+        fontFamily: "'Inter', 'Segoe UI', sans-serif"
+      }}>
+        🏁 Cargando puja...
+      </Typography>
     </Box>
   );
 
   if (error || !pilot) return (
-    <Box sx={{ minHeight: '100vh', background: '#18192a', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <Alert severity="error">{error || 'Piloto no encontrado'}</Alert>
+    <Box sx={{ 
+      minHeight: '100vh', 
+      background: '#080705', 
+      display: 'flex', 
+      alignItems: 'center', 
+      justifyContent: 'center',
+      fontFamily: "'Inter', 'Segoe UI', sans-serif"
+    }}>
+      <Alert severity="error" sx={{ 
+        background: '#1E1A1E',
+        color: '#FFFFFF',
+        border: '1px solid rgba(255,255,255,0.08)',
+        borderRadius: 2,
+        fontFamily: "'Inter', 'Segoe UI', sans-serif"
+      }}>
+        {error || 'Piloto no encontrado'}
+      </Alert>
     </Box>
   );
 
@@ -164,24 +193,73 @@ export default function AuctionPilotBidPage() {
 
   // Colores para el modo
   const modeColors = {
-    R: '#DC0000', // Rojo
-    Q: '#1976d2', // Azul
-    P: '#43A047', // Verde
+    R: '#EA5455', // Rojo (error state)
+    Q: '#9D4EDD', // Morado (accent main)
+    P: '#28C76F', // Verde (success state)
   };
 
   return (
-    <Box sx={{ minHeight: '100vh', background: '#18192a', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-start', pt: 4 }}>
-      <IconButton onClick={() => navigate(-1)} sx={{ position: 'absolute', top: 24, left: 24, color: '#fff', background: 'rgba(0,0,0,0.2)' }}>
+    <Box sx={{ 
+      minHeight: '100vh', 
+      background: '#080705', 
+      display: 'flex', 
+      flexDirection: 'column', 
+      alignItems: 'center', 
+      justifyContent: 'flex-start', 
+      pt: 4,
+      fontFamily: "'Inter', 'Segoe UI', sans-serif"
+    }}>
+      <IconButton 
+        onClick={() => navigate(-1)} 
+        sx={{ 
+          position: 'absolute', 
+          top: 24, 
+          left: 24, 
+          color: '#FFFFFF', 
+          background: '#1E1A1E',
+          border: '1px solid rgba(255,255,255,0.08)',
+          borderRadius: 2,
+          '&:hover': {
+            background: '#121012'
+          }
+        }}
+      >
         <CloseIcon />
       </IconButton>
-      <Typography variant="h6" sx={{ color: '#fff', fontWeight: 700, mb: 2, mt: 2 }}>
+      
+      <Typography 
+        variant="h6" 
+        sx={{ 
+          color: '#FFFFFF', 
+          fontWeight: 700, 
+          mb: 3, 
+          mt: 2,
+          fontSize: 24,
+          fontFamily: "'Inter', 'Segoe UI', sans-serif"
+        }}
+      >
         Puja por {pilot?.driver_name}
       </Typography>
-      <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', mb: 3, position: 'relative' }}>
+      
+      <Box sx={{ 
+        display: 'flex', 
+        flexDirection: 'column', 
+        alignItems: 'center', 
+        mb: 4, 
+        position: 'relative' 
+      }}>
         <img
           src={pilot?.image_url ? `/images/${pilot.image_url}` : ''}
           alt={pilot?.driver_name}
-          style={{ width: 100, height: 100, borderRadius: '50%', objectFit: 'cover', border: '4px solid #fff', marginBottom: 16 }}
+          style={{ 
+            width: 100, 
+            height: 100, 
+            borderRadius: '50%', 
+            objectFit: 'cover', 
+            border: '4px solid #FFFFFF', 
+            marginBottom: 16,
+            boxShadow: '0 4px 16px rgba(0,0,0,0.35)'
+          }}
         />
         {/* Badge de modo */}
         <Box sx={{
@@ -189,7 +267,7 @@ export default function AuctionPilotBidPage() {
           top: 8,
           right: 'calc(50% - 60px)',
           background: modeColors[pilot?.mode?.toUpperCase()] || '#bbb',
-          color: '#fff',
+          color: '#FFFFFF',
           borderRadius: '50%',
           width: 32,
           height: 32,
@@ -198,65 +276,202 @@ export default function AuctionPilotBidPage() {
           justifyContent: 'center',
           fontWeight: 700,
           fontSize: 18,
-          border: '2px solid #fff',
-          boxShadow: '0 2px 8px rgba(0,0,0,0.15)'
+          border: '2px solid #FFFFFF',
+          boxShadow: '0 4px 16px rgba(0,0,0,0.35)'
         }}>
           {pilot?.mode?.toUpperCase()}
         </Box>
       </Box>
-      <Box sx={{ width: '100%', maxWidth: 320, mb: 2 }}>
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
-          <Typography sx={{ color: '#FFD600', fontWeight: 700, fontSize: 15 }}>VALOR DE MERCADO</Typography>
-          <Typography sx={{ color: '#fff', fontWeight: 700, fontSize: 15 }}>{Number(pilot.value).toLocaleString('es-ES')}</Typography>
+      
+      <Box sx={{ 
+        width: '100%', 
+        maxWidth: 320, 
+        mb: 3,
+        background: '#1E1A1E',
+        borderRadius: 3,
+        padding: 3,
+        border: '1px solid rgba(255,255,255,0.08)',
+        boxShadow: '0 4px 16px rgba(0,0,0,0.35)'
+      }}>
+        <Box sx={{ 
+          display: 'flex', 
+          justifyContent: 'space-between', 
+          alignItems: 'center', 
+          mb: 2 
+        }}>
+          <Typography sx={{ 
+            color: '#C9A9DD', 
+            fontWeight: 600, 
+            fontSize: 14,
+            fontFamily: "'Inter', 'Segoe UI', sans-serif"
+          }}>
+            VALOR DE MERCADO
+          </Typography>
+          <Typography sx={{ 
+            color: '#FFFFFF', 
+            fontWeight: 700, 
+            fontSize: 16,
+            fontFamily: "'Inter', 'Segoe UI', sans-serif"
+          }}>
+            {Number(pilot.value).toLocaleString('es-ES')}
+          </Typography>
         </Box>
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-          <Typography sx={{ color: '#4CAF50', fontWeight: 700, fontSize: 15 }}>PRECIO SOLICITADO</Typography>
-          <Typography sx={{ color: '#fff', fontWeight: 700, fontSize: 15 }}>{Number(pilot.value).toLocaleString('es-ES')}</Typography>
+        
+        <Box sx={{ 
+          display: 'flex', 
+          justifyContent: 'space-between', 
+          alignItems: 'center', 
+          mb: 3 
+        }}>
+          <Typography sx={{ 
+            color: '#C9A9DD', 
+            fontWeight: 600, 
+            fontSize: 14,
+            fontFamily: "'Inter', 'Segoe UI', sans-serif"
+          }}>
+            PRECIO SOLICITADO
+          </Typography>
+          <Typography sx={{ 
+            color: '#FFFFFF', 
+            fontWeight: 700, 
+            fontSize: 16,
+            fontFamily: "'Inter', 'Segoe UI', sans-serif"
+          }}>
+            {Number(pilot.value).toLocaleString('es-ES')}
+          </Typography>
         </Box>
-        <Box sx={{ display: 'flex', alignItems: 'center', background: '#23243a', borderRadius: 2, px: 2, py: 1, mb: 2 }}>
-          <Typography sx={{ color: '#b0b0b0', fontWeight: 700, mr: 1 }}>€</Typography>
+        
+        <Box sx={{ 
+          display: 'flex', 
+          alignItems: 'center', 
+          background: '#121012', 
+          borderRadius: 2, 
+          px: 2, 
+          py: 1.5, 
+          mb: 2,
+          border: '1px solid rgba(255,255,255,0.08)'
+        }}>
+          <Typography sx={{ 
+            color: '#C9A9DD', 
+            fontWeight: 600, 
+            mr: 1,
+            fontFamily: "'Inter', 'Segoe UI', sans-serif"
+          }}>
+            €
+          </Typography>
           <TextField
             variant="standard"
             value={amount}
             onChange={e => setAmount(e.target.value)}
-            InputProps={{ disableUnderline: true, style: { color: '#fff', fontWeight: 700, fontSize: 18, background: 'transparent' } }}
-            sx={{ flex: 1, input: { textAlign: 'right' } }}
+            InputProps={{ 
+              disableUnderline: true, 
+              style: { 
+                color: '#FFFFFF', 
+                fontWeight: 700, 
+                fontSize: 18, 
+                background: 'transparent',
+                fontFamily: "'Inter', 'Segoe UI', sans-serif"
+              } 
+            }}
+            sx={{ 
+              flex: 1, 
+              input: { 
+                textAlign: 'right',
+                fontFamily: "'Inter', 'Segoe UI', sans-serif"
+              } 
+            }}
             placeholder={Number(pilot.value).toLocaleString('es-ES')}
             type="number"
             inputProps={{ min: minBid }}
           />
         </Box>
       </Box>
+      
       <Button
         variant="contained"
         fullWidth
         sx={{
-          background: '#1ed760',
-          color: '#fff',
-          fontWeight: 700,
-          fontSize: 20,
-          borderRadius: 2,
+          background: '#9D4EDD',
+          color: '#FFFFFF',
+          fontWeight: 600,
+          fontSize: 16,
+          borderRadius: 3,
           mt: 2,
-          mb: 2,
+          mb: 3,
           maxWidth: 320,
-          boxShadow: '0 2px 8px rgba(30,215,96,0.15)',
-          '&:hover': { background: '#17b34a' }
+          padding: '12px 20px',
+          boxShadow: '0 0 8px #640160, 0 0 16px #640160',
+          fontFamily: "'Inter', 'Segoe UI', sans-serif",
+          '&:hover': { 
+            background: '#E0AAFF',
+            boxShadow: '0 0 12px #640160, 0 0 20px #640160'
+          },
+          '&:disabled': {
+            background: '#1E1A1E',
+            color: '#C9A9DD',
+            boxShadow: 'none'
+          }
         }}
         onClick={handleBid}
         disabled={submitting || !amount || Number(amount) < minBid}
       >
-        Hacer puja
+        {submitting ? 'Realizando puja...' : 'Hacer puja'}
       </Button>
+      
       {Number(amount) < minBid && (
-        <Typography sx={{ color: '#f44336', fontWeight: 700, fontSize: 15, mt: 1 }}>
+        <Typography sx={{ 
+          color: '#EA5455', 
+          fontWeight: 600, 
+          fontSize: 14, 
+          mt: 1,
+          fontFamily: "'Inter', 'Segoe UI', sans-serif"
+        }}>
           El importe es inferior al mínimo permitido
         </Typography>
       )}
-      <Typography sx={{ color: '#1ed760', fontWeight: 700, fontSize: 16, mt: 2, mb: 1 }}>
-        Tu saldo: {saldoLoading ? <CircularProgress size={18} /> : saldo?.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })}
+      
+      <Typography sx={{ 
+        color: '#28C76F', 
+        fontWeight: 600, 
+        fontSize: 16, 
+        mt: 2, 
+        mb: 1,
+        fontFamily: "'Inter', 'Segoe UI', sans-serif"
+      }}>
+        Tu saldo: {saldoLoading ? <CircularProgress size={18} sx={{ color: '#28C76F' }} /> : saldo?.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })}
       </Typography>
-      {msg && <Alert severity="success" sx={{ mt: 2 }}>{msg}</Alert>}
-      {error && <Alert severity="error" sx={{ mt: 2 }}>{error}</Alert>}
+      
+      {msg && (
+        <Alert 
+          severity="success" 
+          sx={{ 
+            mt: 2,
+            background: '#1E1A1E',
+            color: '#28C76F',
+            border: '1px solid rgba(40, 199, 111, 0.3)',
+            borderRadius: 2,
+            fontFamily: "'Inter', 'Segoe UI', sans-serif"
+          }}
+        >
+          {msg}
+        </Alert>
+      )}
+      
+      {error && (
+        <Alert 
+          severity="error" 
+          sx={{ 
+            mt: 2,
+            background: '#1E1A1E',
+            color: '#EA5455',
+            border: '1px solid rgba(234, 84, 85, 0.3)',
+            borderRadius: 2,
+            fontFamily: "'Inter', 'Segoe UI', sans-serif"
+          }}
+        >
+          {error}
+        </Alert>
+      )}
     </Box>
   );
 } 

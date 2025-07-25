@@ -1,0 +1,61 @@
+services:
+  # Base de datos MySQL
+  database:
+    image: mysql:8.0
+    container_name: f1app-database
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-rootpassword}
+      MYSQL_DATABASE: ${DB_NAME:-f1fantasy}
+      MYSQL_USER: ${DB_USER:-f1user}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-f1password}
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    networks:
+      - f1app-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      timeout: 20s
+      retries: 10
+
+  # Backend API en Go (desde Docker Hub)
+  backend:
+    image: ${DOCKERHUB_USERNAME:-tuusuario}/f1app-backend:latest
+    container_name: f1app-backend
+    restart: unless-stopped
+    environment:
+      DB_HOST: database
+      DB_PORT: 3306
+      DB_USER: ${DB_USER:-f1user}
+      DB_PASSWORD: ${DB_PASSWORD:-f1password}
+      DB_NAME: ${DB_NAME:-f1fantasy}
+      PORT: 8080
+    ports:
+      - "8080:8080"
+    depends_on:
+      database:
+        condition: service_healthy
+    networks:
+      - f1app-network
+
+  # Frontend React (desde Docker Hub)
+  frontend:
+    image: ${DOCKERHUB_USERNAME:-tuusuario}/f1app-frontend:latest
+    container_name: f1app-frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    networks:
+      - f1app-network
+
+volumes:
+  mysql_data:
+
+networks:
+  f1app-network:
+    driver: bridge 

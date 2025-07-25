@@ -1,0 +1,29 @@
+# Git
+.git
+.gitignore
+README.md
+.env
+
+# Archivos de desarrollo
+*.md
+CLAUDE.md
+
+# Node modules (se instalarán en el contenedor)
+node_modules
+npm-debug.log
+
+# Archivos de compilación temporales
+*.exe
+*.log
+
+# SQL files (se manejarán por separado)
+*.sql
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db 

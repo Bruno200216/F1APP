@@ -12,6 +12,7 @@ type Player struct {
 	PasswordHash string    `json:"-" gorm:"not null"`
 	Money        float64   `json:"money" gorm:"default:50000000"`
 	IsActive     bool      `json:"is_active" gorm:"default:true"`
+	IsAdmin      bool      `json:"is_admin" gorm:"default:false;column:is_admin"`
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
 	TotalPoints  int       `json:"total_points" gorm:"default:0"`
@@ -106,6 +107,7 @@ type PlayerByLeague struct {
 	OwnedTrackEngineers   string  `json:"owned_track_engineers" gorm:"type:json;column:owned_track_engineers"`
 	OwnedChiefEngineers   string  `json:"owned_chief_engineers" gorm:"type:json;column:owned_chief_engineers"`
 	OwnedTeamConstructors string  `json:"owned_team_constructors" gorm:"type:json;column:owned_team_constructors"`
+	TotalPoints           int     `json:"totalpoints" gorm:"default:0"`
 }
 
 // Forzar el nombre de la tabla para GORM
@@ -115,12 +117,13 @@ func (PlayerByLeague) TableName() string {
 
 // Modelo para grandes premios (f1_grand_prixes)
 type GrandPrix struct {
-	GPIndex uint      `json:"gp_index" gorm:"primaryKey;column:gp_index"`
-	Name    string    `json:"name"`
-	Date    time.Time `json:"date"`
-	Circuit string    `json:"circuit"`
-	Country string    `json:"country"`
-	Flag    string    `json:"flag"`
+	GPIndex   uint64    `json:"gp_index" gorm:"primaryKey;column:gp_index"`
+	Name      string    `json:"name"`
+	Date      time.Time `json:"date"`
+	StartDate time.Time `json:"start_date" gorm:"column:start_date"`
+	Circuit   string    `json:"circuit"`
+	Country   string    `json:"country"`
+	Flag      string    `json:"flag"`
 }
 
 func (GrandPrix) TableName() string {
@@ -130,9 +133,9 @@ func (GrandPrix) TableName() string {
 // Modelos para puntuaciones desacopladas por sesión
 
 type PilotRace struct {
-	ID                     uint `gorm:"primaryKey"`
-	PilotID                uint `gorm:"not null"`
-	GPIndex                uint `gorm:"not null;column:gp_index"`
+	ID                     uint   `gorm:"primaryKey"`
+	PilotID                uint   `gorm:"not null"`
+	GPIndex                uint64 `gorm:"not null;column:gp_index"`
 	StartPosition          int
 	FinishPosition         int
 	ExpectedPosition       float64
@@ -152,9 +155,9 @@ type PilotRace struct {
 }
 
 type PilotQualy struct {
-	ID               uint `gorm:"primaryKey"`
-	PilotID          uint `gorm:"not null"`
-	GPIndex          uint `gorm:"not null;column:gp_index"`
+	ID               uint   `gorm:"primaryKey"`
+	PilotID          uint   `gorm:"not null"`
+	GPIndex          uint64 `gorm:"not null;column:gp_index"`
 	StartPosition    int
 	FinishPosition   int
 	ExpectedPosition float64
@@ -166,9 +169,9 @@ type PilotQualy struct {
 }
 
 type PilotPractice struct {
-	ID               uint `gorm:"primaryKey"`
-	PilotID          uint `gorm:"not null"`
-	GPIndex          uint `gorm:"not null;column:gp_index"`
+	ID               uint   `gorm:"primaryKey"`
+	PilotID          uint   `gorm:"not null"`
+	GPIndex          uint64 `gorm:"not null;column:gp_index"`
 	StartPosition    int
 	FinishPosition   int
 	ExpectedPosition float64
@@ -186,10 +189,12 @@ type TrackEngineer struct {
 	Name        string    `gorm:"not null"`
 	Value       float64   `gorm:"not null;default:0"`
 	ImageURL    string    `gorm:"not null"`
-	GPIndex     uint      `gorm:"not null"`
+	GPIndex     uint64    `gorm:"not null"`
 	Performance bool      `gorm:"not null;default:false"`
+	Team        string    `gorm:"not null"`
+	TotalPoints int       `gorm:"not null;default:0"`
+	PointsByGP  []byte    `gorm:"type:json"`
 	GrandPrix   GrandPrix `gorm:"foreignKey:GPIndex;references:GPIndex"`
-	// name string // Si quieres puedes añadir el campo name aquí
 }
 
 // Modelo de Ingeniero Jefe
@@ -199,10 +204,12 @@ type ChiefEngineer struct {
 	Name                 string    `gorm:"not null"`
 	Value                float64   `gorm:"not null;default:0"`
 	ImageURL             string    `gorm:"not null"`
-	GPIndex              uint      `gorm:"not null"`
+	GPIndex              uint64    `gorm:"not null"`
 	Team                 string    `gorm:"not null"`
 	TeamExpectedPosition float64   `gorm:"not null;default:0"`
 	TeamFinishPosition   float64   `gorm:"not null;default:0"`
+	TotalPoints          int       `gorm:"not null;default:0"`
+	PointsByGP           []byte    `gorm:"type:json"`
 	GrandPrix            GrandPrix `gorm:"foreignKey:GPIndex;references:GPIndex"`
 }
 
@@ -262,7 +269,7 @@ type TeamConstructor struct {
 	ID           uint      `gorm:"primaryKey"`
 	Name         string    `gorm:"not null"`
 	Value        float64   `gorm:"not null;default:0"`
-	GPIndex      uint      `gorm:"not null"`
+	GPIndex      uint64    `gorm:"not null"`
 	FinishPilots []byte    `gorm:"type:json"`
 	ImageURL     string    `gorm:"not null"`
 	CreatedAt    time.Time `json:"created_at"`
@@ -299,6 +306,28 @@ func (TeamConstructorByLeague) TableName() string {
 	return "teamconstructor_by_league"
 }
 
+// Modelo para carreras de equipos
+type TeamRace struct {
+	ID                uint      `gorm:"primaryKey"`
+	TeamConstructorID uint      `gorm:"not null;column:teamconstructor_id"`
+	GPIndex           uint64    `gorm:"not null;column:gp_index"`
+	FinishPosition    *int      `gorm:"column:finish_position"`
+	ExpectedPosition  *float64  `gorm:"column:expected_position"`
+	DeltaPosition     *int      `gorm:"column:delta_position"`
+	PitstopTime       *float64  `gorm:"column:pitstop_time"`
+	Points            int       `gorm:"default:0"`
+	CreatedAt         time.Time `json:"created_at"`
+	UpdatedAt         time.Time `json:"updated_at"`
+
+	// Relaciones
+	TeamConstructor TeamConstructor `gorm:"foreignKey:TeamConstructorID"`
+	GrandPrix       GrandPrix       `gorm:"foreignKey:GPIndex;references:GPIndex"`
+}
+
+func (TeamRace) TableName() string {
+	return "team_races"
+}
+
 // Modelo para elementos del mercado unificado
 type MarketItem struct {
 	ID         uint   `gorm:"primaryKey"`
@@ -314,4 +343,30 @@ type MarketItem struct {
 
 func (MarketItem) TableName() string {
 	return "market_items"
+}
+
+// Modelo para alineaciones de jugadores
+type Lineup struct {
+	ID                uint      `json:"id" gorm:"primaryKey"`
+	PlayerID          uint      `json:"player_id" gorm:"not null"`
+	LeagueID          uint      `json:"league_id" gorm:"not null"`
+	GPIndex           uint64    `json:"gp_index" gorm:"not null;column:gp_index"`
+	RacePilots        []byte    `json:"race_pilots" gorm:"type:json"`       // Array de pilot_by_league_id
+	QualifyingPilots  []byte    `json:"qualifying_pilots" gorm:"type:json"` // Array de pilot_by_league_id
+	PracticePilots    []byte    `json:"practice_pilots" gorm:"type:json"`   // Array de pilot_by_league_id
+	TeamConstructorID *uint     `json:"team_constructor_id" gorm:"column:team_constructor_id"`
+	ChiefEngineerID   *uint     `json:"chief_engineer_id" gorm:"column:chief_engineer_id"`
+	TrackEngineers    []byte    `json:"track_engineers" gorm:"type:json"` // Array de track_engineer_by_league_id
+	LineupPoints      int       `json:"lineup_points" gorm:"default:0"`   // Puntos totales de la alineación
+	CreatedAt         time.Time `json:"created_at"`
+	UpdatedAt         time.Time `json:"updated_at"`
+
+	// Relaciones
+	Player    Player    `gorm:"foreignKey:PlayerID"`
+	League    League    `gorm:"foreignKey:LeagueID"`
+	GrandPrix GrandPrix `gorm:"foreignKey:GPIndex;references:GPIndex"`
+}
+
+func (Lineup) TableName() string {
+	return "lineups"
 }

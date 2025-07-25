@@ -44,18 +44,19 @@ export default function AuctionTeamBidPage() {
       setLoading(true);
       setError('');
       try {
-        // Obtener equipos de la liga
-        let teamRes = await fetch(`/api/teamconstructorsbyleague?league_id=${selectedLeague?.id}`);
+        // Obtener equipo específico por ID
+        let teamRes = await fetch(`/api/teamconstructorsbyleague?id=${id}&league_id=${selectedLeague?.id}`);
         let teamData = await teamRes.json();
         
         if (!teamRes.ok) throw new Error('Equipo no encontrado');
         
-        // Buscar el equipo específico por ID
-        const foundTeam = teamData.team_constructors.find(team => team.id === parseInt(id));
-        
-        if (!foundTeam) throw new Error('Equipo no encontrado');
-        
-        setTeam(foundTeam);
+        // Los datos vienen según la estructura del backend
+        const teamMainData = teamData.team_constructor;
+        setTeam({
+          ...teamMainData,
+          // Agregar datos de la relación por liga para cláusulas, etc.
+          team_by_league: teamData.team
+        });
         
         // Intentar obtener subasta existente
         let auctionRes = await fetch(`/api/auctions/by-item?item_type=team_constructor&item_id=${id}&league_id=${selectedLeague?.id}`);
@@ -95,13 +96,13 @@ export default function AuctionTeamBidPage() {
   }, [selectedLeague]);
 
   // Calcular mínimo de puja
-  let minBid = team ? team.value : 0;
+      let minBid = team ? team.Value : 0;
   if (auction && auction.bids && auction.bids.length > 0) {
     try {
       const bidsArr = JSON.parse(auction.bids);
       minBid = Math.max(...bidsArr.map(b => b.valor)) + 1;
     } catch {
-      minBid = team.value;
+      minBid = team.Value;
     }
   }
 
@@ -174,7 +175,7 @@ export default function AuctionTeamBidPage() {
   );
 
   // Obtener colores del equipo
-  const teamColor = teamColors[team.name] || { primary: '#666666', secondary: '#444444' };
+  const teamColor = teamColors[team.Name] || { primary: '#666666', secondary: '#444444' };
 
   return (
     <Box sx={{ minHeight: '100vh', background: '#18192a', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', p: 2 }}>
@@ -183,8 +184,8 @@ export default function AuctionTeamBidPage() {
       </IconButton>
       
       <Avatar
-        src={`/images/${team.image_url}`}
-        alt={team.name}
+        src={`/images/equipos/${team.LogoURL}`}
+        alt={team.Name}
         sx={{ 
           width: 120, 
           height: 120, 
@@ -195,27 +196,27 @@ export default function AuctionTeamBidPage() {
       />
       
       <Typography sx={{ color: '#fff', fontWeight: 700, fontSize: 24, mb: 1, textAlign: 'center' }}>
-        {team.name}
+        {team.Name}
       </Typography>
       
       <Typography sx={{ color: teamColor.primary, fontWeight: 700, fontSize: 18, mb: 1, textAlign: 'center' }}>
         EQUIPO CONSTRUCTOR
       </Typography>
 
-      {team.pilots && team.pilots.length > 0 && (
+      {team.Pilots && team.Pilots.length > 0 && (
         <Typography sx={{ color: '#b0b0b0', fontWeight: 700, fontSize: 14, mb: 3, textAlign: 'center' }}>
-          Pilotos: {team.pilots.join(', ')}
+          Pilotos: {team.Pilots.join(', ')}
         </Typography>
       )}
 
       <Box sx={{ width: '100%', maxWidth: 320, mb: 2 }}>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
           <Typography sx={{ color: '#FFD600', fontWeight: 700, fontSize: 15 }}>VALOR DE MERCADO</Typography>
-          <Typography sx={{ color: '#fff', fontWeight: 700, fontSize: 15 }}>{Number(team.value).toLocaleString('es-ES')}</Typography>
+          <Typography sx={{ color: '#fff', fontWeight: 700, fontSize: 15 }}>{Number(team.Value).toLocaleString('es-ES')}</Typography>
         </Box>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
           <Typography sx={{ color: '#4CAF50', fontWeight: 700, fontSize: 15 }}>PRECIO SOLICITADO</Typography>
-          <Typography sx={{ color: '#fff', fontWeight: 700, fontSize: 15 }}>{Number(team.value).toLocaleString('es-ES')}</Typography>
+          <Typography sx={{ color: '#fff', fontWeight: 700, fontSize: 15 }}>{Number(team.Value).toLocaleString('es-ES')}</Typography>
         </Box>
         <Box sx={{ display: 'flex', alignItems: 'center', background: '#23243a', borderRadius: 2, px: 2, py: 1, mb: 2 }}>
           <Typography sx={{ color: '#b0b0b0', fontWeight: 700, mr: 1 }}>€</Typography>
@@ -225,7 +226,7 @@ export default function AuctionTeamBidPage() {
             onChange={e => setAmount(e.target.value)}
             InputProps={{ disableUnderline: true, style: { color: '#fff', fontWeight: 700, fontSize: 18, background: 'transparent' } }}
             sx={{ flex: 1, input: { textAlign: 'right' } }}
-            placeholder={Number(team.value).toLocaleString('es-ES')}
+            placeholder={Number(team.Value).toLocaleString('es-ES')}
             type="number"
             inputProps={{ min: minBid }}
           />

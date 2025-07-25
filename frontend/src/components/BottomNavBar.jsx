@@ -9,7 +9,8 @@ import {
   BarChart3, 
   Users, 
   ShoppingCart, 
-  Bell 
+  Bell,
+  Settings 
 } from 'lucide-react';
 
 const navItems = [
@@ -31,6 +32,7 @@ const navItems = [
     icon: Users,
     path: '/team-pilots'
   },
+ 
   {
     id: 'market',
     label: 'Market',

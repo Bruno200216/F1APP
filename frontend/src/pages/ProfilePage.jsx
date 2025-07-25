@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Card, CardHeader, CardContent, CardTitle } from '../components/ui/card';
 import { Avatar, AvatarImage, AvatarFallback } from '../components/ui/avatar';
@@ -17,6 +17,24 @@ export default function ProfilePage() {
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [selectedGP, setSelectedGP] = useState(0);
+  const gpRefs = useRef([]);
+
+  const handlePrevGP = () => {
+    setSelectedGP((prev) => Math.max(prev - 1, 0));
+    setTimeout(() => {
+      if (gpRefs.current[selectedGP - 1]) {
+        gpRefs.current[selectedGP - 1].scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+      }
+    }, 50);
+  };
+  const handleNextGP = () => {
+    setSelectedGP((prev) => Math.min(prev + 1, (grand_prix || []).length - 1));
+    setTimeout(() => {
+      if (gpRefs.current[selectedGP + 1]) {
+        gpRefs.current[selectedGP + 1].scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+      }
+    }, 50);
+  };
 
   useEffect(() => {
     if (!id || !selectedLeague?.id) return;
@@ -52,8 +70,8 @@ export default function ProfilePage() {
 
   // Calcular días restantes de la cláusula
   let clausulaDias = null;
-  if (pilot_by_league?.clausula) {
-    const expira = new Date(pilot_by_league.clausula);
+  if (pilot_by_league?.clausula_expires_at) {
+    const expira = new Date(pilot_by_league.clausula_expires_at);
     const ahora = new Date();
     const diff = expira - ahora;
     if (diff > 0) {
@@ -114,10 +132,15 @@ export default function ProfilePage() {
                   <Badge variant="success" className="font-bold">
                     {(pilot.value || 0).toLocaleString()} €
                   </Badge>
-                  {clausulaDias && (
+                  {pilot_by_league?.clausula_value && (
                     <Badge variant="error" className="flex items-center gap-1">
                       <Lock className="h-3 w-3" />
-                      <span>{clausulaDias} días</span>
+                      <span>{pilot_by_league.clausula_value?.toLocaleString()} €</span>
+                    </Badge>
+                  )}
+                  {clausulaDias && (
+                    <Badge variant="warning" className="text-xs">
+                      Exp: {clausulaDias} días
                     </Badge>
                   )}
                 </div>
@@ -125,64 +148,60 @@ export default function ProfilePage() {
             </div>
           </CardHeader>
           <CardContent>
-            {/* Grand Prix Selector using Tabs */}
-            <Tabs value={selectedGP.toString()} onValueChange={(value) => setSelectedGP(parseInt(value))}>
-              <div className="mb-4">
-                <h3 className="text-subtitle font-semibold text-text-primary mb-3 text-center">Gran Premio</h3>
-                <TabsList className="grid w-full grid-cols-4 gap-1 bg-surface h-auto p-1">
-                  {(grand_prix || []).slice(0, 8).map((gp, idx) => (
-                    <TabsTrigger 
-                      key={gp.id} 
-                      value={idx.toString()}
-                      className="flex flex-col items-center p-2 h-auto data-[state=active]:bg-surface-elevated data-[state=active]:shadow-sm"
-                      style={{ 
-                        '--active-color': teamColor.primary 
-                      }}
+            {/* Barra de navegación de GPs con flechas SIEMPRE visible */}
+            <div className="mb-4 flex items-center justify-center gap-2">
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={handlePrevGP}
+                disabled={selectedGP === 0}
+                className="text-accent-main hover:bg-surface-elevated"
+                style={{ borderRadius: 12 }}
+              >
+                <ChevronLeft className="w-6 h-6" />
+              </Button>
+              <div className="flex gap-2 overflow-x-auto scrollbar-hide px-2" style={{ maxWidth: 320 }}>
+                {(grand_prix || []).map((gp, idx) => (
+                  <div
+                    key={gp.gp_index || gp.id}
+                    ref={el => gpRefs.current[idx] = el}
+                    onClick={() => setSelectedGP(idx)}
+                    className={
+                      'flex flex-col items-center cursor-pointer p-2 rounded-lg transition-all ' +
+                      (selectedGP === idx
+                        ? 'bg-surface-elevated shadow-card border-2 border-accent-main'
+                        : 'bg-surface hover:bg-surface-elevated border border-border')
+                    }
+                    style={{ minWidth: 64, maxWidth: 80 }}
+                  >
+                    {gp.flag && (
+                      <img
+                        src={`/images/flags/${gp.flag}`}
+                        alt={gp.country}
+                        className="w-8 h-5 mb-1 rounded border border-border"
+                        style={{ boxShadow: selectedGP === idx ? '0 0 8px #9D4EDD' : undefined }}
+                      />
+                    )}
+                    <span
+                      className="text-xs font-semibold text-center"
+                      style={{ color: selectedGP === idx ? '#9D4EDD' : '#C9A9DD', fontWeight: 600 }}
                     >
-                      <div className="flex flex-col items-center">
-                        {gp.flag && (
-                          <img 
-                            src={`/images/flags/${gp.flag}`} 
-                            alt={gp.country} 
-                            className="w-6 h-4 mb-1 rounded-sm border border-border"
-                          />
-                        )}
-                        <span className="text-xs font-medium truncate max-w-full">
-                          {gp.country?.length > 8 ? gp.country.substring(0, 6) + '...' : gp.country}
-                        </span>
-                      </div>
-                    </TabsTrigger>
-                  ))}
-                </TabsList>
-                {/* Show more GPs if there are more than 8 */}
-                {(grand_prix || []).length > 8 && (
-                  <div className="flex flex-wrap gap-1 mt-2 justify-center">
-                    {(grand_prix || []).slice(8).map((gp, idx) => (
-                      <Button
-                        key={gp.id}
-                        variant={selectedGP === idx + 8 ? "primary" : "ghost"}
-                        size="sm"
-                        onClick={() => setSelectedGP(idx + 8)}
-                        className="text-xs px-2 py-1 h-auto flex flex-col items-center gap-1"
-                      >
-                        <div className="flex flex-col items-center">
-                          {gp.flag && (
-                            <img 
-                              src={`/images/flags/${gp.flag}`} 
-                              alt={gp.country} 
-                              className="w-4 h-3 mb-1 rounded-sm border border-border"
-                            />
-                          )}
-                          <span className="text-xs">
-                            {gp.country?.length > 6 ? gp.country.substring(0, 4) + '...' : gp.country}
-                          </span>
-                        </div>
-                      </Button>
-                    ))}
+                      {gp.country?.length > 8 ? gp.country.substring(0, 6) + '...' : gp.country}
+                    </span>
                   </div>
-                )}
+                ))}
               </div>
-            </Tabs>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={handleNextGP}
+                disabled={selectedGP === (grand_prix || []).length - 1}
+                className="text-accent-main hover:bg-surface-elevated"
+                style={{ borderRadius: 12 }}
+              >
+                <ChevronRight className="w-6 h-6" />
+              </Button>
+            </div>
             
             {/* Selected GP Display */}
             <div className="text-center mb-6">
@@ -208,21 +227,74 @@ export default function ProfilePage() {
                 <table className="w-full text-text-primary">
                   <thead>
                     <tr className="border-b border-border bg-surface">
+                      <th className="text-left py-3 px-4 text-small font-semibold text-text-secondary">Cantidad</th>
                       <th className="text-left py-3 px-4 text-small font-semibold text-text-secondary">Criterio</th>
-                      <th className="text-right py-3 px-4 text-small font-semibold text-text-secondary">Valor</th>
+                      <th className="text-right py-3 px-4 text-small font-semibold text-text-secondary">Puntos que da</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {scoring_criteria && Object.entries(scoring_criteria).map(([key, value]) => (
-                      <tr key={key} className="border-b border-border last:border-b-0 hover:bg-surface transition-colors">
-                        <td className="py-3 px-4 text-small">{readableCriteria[key] || key}</td>
-                        <td className="py-3 px-4 text-small text-right font-medium">
-                          {Array.isArray(value) && value !== null
-                            ? (value[selectedGP] !== undefined && value[selectedGP] !== null ? value[selectedGP] : 0)
-                            : 0}
-                        </td>
-                      </tr>
-                    ))}
+                    {(() => {
+                      // Adaptar scoring_criteria si es objeto de arrays (formato antiguo)
+                      let criteriaArr = [];
+                      if (Array.isArray(scoring_criteria) && scoring_criteria[selectedGP]) {
+                        criteriaArr = scoring_criteria[selectedGP];
+                      } else if (scoring_criteria && typeof scoring_criteria === 'object' && !Array.isArray(scoring_criteria)) {
+                        // Transformar a array de objetos {name, value} para el GP seleccionado
+                        criteriaArr = Object.entries(scoring_criteria).map(([key, arr]) => ({
+                          name: key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
+                          value: Array.isArray(arr) && arr[selectedGP] != null ? arr[selectedGP] : 0
+                        }));
+                      }
+                      return criteriaArr.filter(crit => crit && crit.name && !crit.name.toLowerCase().includes('delta')).map((crit, idx) => {
+                        // Lógica de puntos por criterio según las reglas del juego
+                        let points = 0;
+                        const originalKey = Object.keys(scoring_criteria).find(key => 
+                          key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()) === crit.name
+                        );
+                        
+                        if (originalKey) {
+                          switch (originalKey) {
+                            case 'points': points = crit.value || 0; break;
+                            case 'positions_gained_at_start': points = crit.value > 1 ? 3 : 0; break;
+                            case 'clean_overtakes': points = crit.value * 2; break;
+                            case 'net_positions_lost': points = crit.value * -1; break;
+                            case 'fastest_lap': points = crit.value ? 5 : 0; break;
+                            case 'caused_vsc': points = crit.value ? -5 : 0; break;
+                            case 'caused_sc': points = crit.value ? -8 : 0; break;
+                            case 'caused_red_flag': points = crit.value ? -12 : 0; break;
+                            case 'dnf_driver_error': points = crit.value ? -10 : 0; break;
+                            case 'dnf_no_fault': points = crit.value ? -3 : 0; break;
+                            case 'expected_position': points = 0; break;
+                            case 'finish_position': 
+                              // Calcular puntos del delta de posición
+                              const expectedPos = scoring_criteria.expected_position?.[selectedGP];
+                              const finishPos = crit.value;
+                              if (expectedPos && finishPos) {
+                                const delta = expectedPos - finishPos;
+                                const mode = pilot_by_league?.mode?.toLowerCase();
+                                const multiplier = mode === 'r' || mode === 'race' ? 10 : 
+                                                 mode === 'q' || mode === 'qualy' ? 6 : 2;
+                                const cap = mode === 'r' || mode === 'race' ? 50 : 
+                                           mode === 'q' || mode === 'qualy' ? 30 : 10;
+                                let deltaPoints = delta > 0 ? delta * multiplier : delta * (multiplier / 2);
+                                points = Math.max(-cap, Math.min(cap, deltaPoints));
+                              } else {
+                                points = 0;
+                              }
+                              break;
+                            case 'delta_position': points = 0; break;
+                            default: points = 0;
+                          }
+                        }
+                        return (
+                          <tr key={crit.name} className="border-b border-border last:border-b-0 hover:bg-surface transition-colors">
+                            <td className="py-3 px-4 text-small text-center font-medium">{crit.value || 0}</td>
+                            <td className="py-3 px-4 text-small">{crit.name}</td>
+                            <td className="py-3 px-4 text-small text-right font-medium">{points}</td>
+                          </tr>
+                        );
+                      });
+                    })()}
                   </tbody>
                 </table>
               </div>
