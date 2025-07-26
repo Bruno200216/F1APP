@@ -24,7 +24,8 @@ export default function DriverRaceCard({
   showBidActions = false, 
   onEditBid, 
   onDeleteBid, 
-  bidActionsButton 
+  bidActionsButton,
+  hideOwnerInfo = false
 }) {
   const navigate = useNavigate();
   const teamColor = getTeamColor(driver.team);
@@ -132,6 +133,11 @@ export default function DriverRaceCard({
             {typeof driver.num_bids !== 'undefined' && (
               <p className="text-state-warning font-bold text-small mb-1">
                 {driver.num_bids} puja{driver.num_bids !== 1 ? 's' : ''}
+                {driver.my_bid && (
+                  <span className="text-accent-main ml-2">
+                    (Mi puja: €{formatCurrency(driver.my_bid)})
+                  </span>
+                )}
               </p>
             )}
           </div>
@@ -154,12 +160,14 @@ export default function DriverRaceCard({
               </span>
             </div>
             
-            <div className="flex justify-between items-center">
-              <span className="text-text-secondary text-small">Propietario:</span>
-              <span className="text-text-primary text-small font-medium">
-                {getOwnerName(driver.owner_id)}
-              </span>
-            </div>
+            {!hideOwnerInfo && (
+              <div className="flex justify-between items-center">
+                <span className="text-text-secondary text-small">Propietario:</span>
+                <span className="text-text-primary text-small font-medium">
+                  {getOwnerName(driver.owner_id)}
+                </span>
+              </div>
+            )}
 
             {/* My bid */}
             {driver.my_bid && (

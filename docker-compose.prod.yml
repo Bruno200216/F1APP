@@ -14,6 +14,7 @@ services:
     volumes:
       - mysql_data:/var/lib/mysql
       - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - ./database-migration-complete.sql:/docker-entrypoint-initdb.d/database-migration-complete.sql:ro
     networks:
       - f1app-network
     healthcheck:
@@ -23,7 +24,7 @@ services:
 
   # Backend API en Go (desde Docker Hub)
   backend:
-    image: ${DOCKERHUB_USERNAME:-tuusuario}/f1app-backend:latest
+    image: ${DOCKERHUB_USERNAME:-bruno200216}/f1app-backend:latest
     container_name: f1app-backend
     restart: unless-stopped
     environment:
@@ -43,7 +44,7 @@ services:
 
   # Frontend React (desde Docker Hub)
   frontend:
-    image: ${DOCKERHUB_USERNAME:-tuusuario}/f1app-frontend:latest
+    image: ${DOCKERHUB_USERNAME:-bruno200216}/f1app-frontend:latest
     container_name: f1app-frontend
     restart: unless-stopped
     ports:

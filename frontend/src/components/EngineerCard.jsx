@@ -15,7 +15,8 @@ export default function EngineerCard({
   leagueId, 
   onPujar, 
   players = [], 
-  bidActionsButton 
+  bidActionsButton,
+  hideOwnerInfo = false
 }) {
   const navigate = useNavigate();
   const teamColor = getTeamColor(engineer.team);
@@ -56,12 +57,13 @@ export default function EngineerCard({
       onClick={handleClick}
       style={{
         borderColor: teamColor.primary,
-        background: `linear-gradient(135deg, var(--surface-elevated) 0%, var(--surface) 100%)`
+        background: `linear-gradient(135deg, var(--surface-elevated) 0%, var(--surface) 100%)`,
+        boxShadow: `0 4px 16px rgba(0,0,0,0.35), 0 0 0 1px ${teamColor.primary}20`
       }}
     >
       {/* Team color top bar */}
       <div 
-        className="absolute top-0 left-0 right-0 h-1"
+        className="absolute top-0 left-0 right-0 h-2"
         style={{
           background: `linear-gradient(90deg, ${teamColor.primary}, ${teamColor.secondary})`
         }}
@@ -75,41 +77,53 @@ export default function EngineerCard({
 
         {/* Engineer info */}
         <div className="flex items-start space-x-4 mb-4">
-          <Avatar className="w-16 h-16 border-2 shadow-lg" style={{ borderColor: teamColor.primary }}>
+          <Avatar className="w-16 h-16 border-2 shadow-lg" style={{ 
+            borderColor: teamColor.primary,
+            boxShadow: `0 4px 8px rgba(0,0,0,0.3), 0 0 0 1px ${teamColor.primary}40`
+          }}>
             <AvatarImage 
               src={getEngineerImageUrl(engineer.image_url)}
               alt={engineer.name}
             />
-            <AvatarFallback className="text-text-primary font-bold text-lg">
+            <AvatarFallback className="text-text-primary font-bold text-lg" style={{
+              backgroundColor: `${teamColor.primary}20`,
+              color: teamColor.primary
+            }}>
               {engineer.name?.substring(0, 2) || '??'}
             </AvatarFallback>
           </Avatar>
 
           <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 mb-1">
+            <div className="flex items-center gap-2 mb-2">
               <h3 className="font-bold text-text-primary text-lg leading-tight">
                 {engineer.name}
               </h3>
               
               {/* Engineer type indicator */}
               <div 
-                className="w-5 h-5 rounded-full border-2 bg-background flex items-center justify-center text-xs font-bold"
+                className="w-6 h-6 rounded-full border-2 bg-background flex items-center justify-center text-xs font-bold"
                 style={{ 
                   borderColor: teamColor.primary,
-                  color: teamColor.primary
+                  color: teamColor.primary,
+                  boxShadow: `0 2px 4px rgba(0,0,0,0.3)`
                 }}
               >
                 {type === 'chief' ? 'C' : 'T'}
               </div>
             </div>
 
-            {/* Team name */}
-            <p 
-              className="font-semibold text-sm uppercase tracking-wide mb-2"
-              style={{ color: teamColor.primary }}
-            >
-              {engineer.team}
-            </p>
+            {/* Team name - más prominente */}
+            <div className="mb-2">
+              <p 
+                className="font-bold text-base uppercase tracking-wide"
+                style={{ 
+                  color: teamColor.primary,
+                  textShadow: `0 1px 2px rgba(0,0,0,0.3)`
+                }}
+              >
+                {engineer.team}
+              </p>
+            </div>
 
             {/* Engineer type label */}
             <p className="text-text-secondary text-xs font-medium mb-1">
@@ -127,6 +141,11 @@ export default function EngineerCard({
             {typeof engineer.num_bids !== 'undefined' && (
               <p className="text-state-warning font-bold text-small mb-1">
                 {engineer.num_bids} puja{engineer.num_bids !== 1 ? 's' : ''}
+                {engineer.my_bid && (
+                  <span className="text-accent-main ml-2">
+                    (Mi puja: €{formatCurrency(engineer.my_bid)})
+                  </span>
+                )}
               </p>
             )}
           </div>
@@ -149,12 +168,14 @@ export default function EngineerCard({
               </span>
             </div>
             
-            <div className="flex justify-between items-center">
-              <span className="text-text-secondary text-small">Propietario:</span>
-              <span className="text-text-primary text-small font-medium">
-                {getOwnerName(engineer.owner_id)}
-              </span>
-            </div>
+            {!hideOwnerInfo && (
+              <div className="flex justify-between items-center">
+                <span className="text-text-secondary text-small">Propietario:</span>
+                <span className="text-text-primary text-small font-medium">
+                  {getOwnerName(engineer.owner_id)}
+                </span>
+              </div>
+            )}
 
             {/* My bid */}
             {engineer.my_bid && (

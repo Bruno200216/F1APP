@@ -178,7 +178,7 @@ export default function AuctionTeamBidPage() {
   const teamColor = teamColors[team.Name] || { primary: '#666666', secondary: '#444444' };
 
   return (
-    <Box sx={{ minHeight: '100vh', background: '#18192a', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', p: 2 }}>
+    <Box sx={{ minHeight: '100vh', background: '#080705', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', p: 2 }}>
       <IconButton onClick={handleClose} sx={{ position: 'absolute', top: 20, right: 20, color: '#fff' }}>
         <CloseIcon />
       </IconButton>
@@ -190,8 +190,8 @@ export default function AuctionTeamBidPage() {
           width: 120, 
           height: 120, 
           mb: 3,
-          border: `3px solid ${teamColor.primary}`,
-          boxShadow: `0 0 20px ${teamColor.primary}40`
+          border: `3px solid #9D4EDD`,
+          boxShadow: `0 0 20px #9D4EDD40`
         }}
       />
       
@@ -199,27 +199,27 @@ export default function AuctionTeamBidPage() {
         {team.Name}
       </Typography>
       
-      <Typography sx={{ color: teamColor.primary, fontWeight: 700, fontSize: 18, mb: 1, textAlign: 'center' }}>
+      <Typography sx={{ color: '#9D4EDD', fontWeight: 700, fontSize: 18, mb: 1, textAlign: 'center' }}>
         EQUIPO CONSTRUCTOR
       </Typography>
 
       {team.Pilots && team.Pilots.length > 0 && (
-        <Typography sx={{ color: '#b0b0b0', fontWeight: 700, fontSize: 14, mb: 3, textAlign: 'center' }}>
+        <Typography sx={{ color: '#C9A9DD', fontWeight: 700, fontSize: 14, mb: 3, textAlign: 'center' }}>
           Pilotos: {team.Pilots.join(', ')}
         </Typography>
       )}
 
       <Box sx={{ width: '100%', maxWidth: 320, mb: 2 }}>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
-          <Typography sx={{ color: '#FFD600', fontWeight: 700, fontSize: 15 }}>VALOR DE MERCADO</Typography>
+          <Typography sx={{ color: '#E0AAFF', fontWeight: 700, fontSize: 15 }}>VALOR DE MERCADO</Typography>
           <Typography sx={{ color: '#fff', fontWeight: 700, fontSize: 15 }}>{Number(team.Value).toLocaleString('es-ES')}</Typography>
         </Box>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-          <Typography sx={{ color: '#4CAF50', fontWeight: 700, fontSize: 15 }}>PRECIO SOLICITADO</Typography>
+          <Typography sx={{ color: '#28C76F', fontWeight: 700, fontSize: 15 }}>PRECIO SOLICITADO</Typography>
           <Typography sx={{ color: '#fff', fontWeight: 700, fontSize: 15 }}>{Number(team.Value).toLocaleString('es-ES')}</Typography>
         </Box>
-        <Box sx={{ display: 'flex', alignItems: 'center', background: '#23243a', borderRadius: 2, px: 2, py: 1, mb: 2 }}>
-          <Typography sx={{ color: '#b0b0b0', fontWeight: 700, mr: 1 }}>€</Typography>
+        <Box sx={{ display: 'flex', alignItems: 'center', background: '#1E1A1E', borderRadius: 2, px: 2, py: 1, mb: 2, border: '1px solid #9D4EDD' }}>
+          <Typography sx={{ color: '#C9A9DD', fontWeight: 700, mr: 1 }}>€</Typography>
           <TextField
             variant="standard"
             value={amount}
@@ -236,7 +236,7 @@ export default function AuctionTeamBidPage() {
         variant="contained"
         fullWidth
         sx={{
-          background: '#1ed760',
+          background: '#9D4EDD',
           color: '#fff',
           fontWeight: 700,
           fontSize: 20,
@@ -244,8 +244,8 @@ export default function AuctionTeamBidPage() {
           mt: 2,
           mb: 2,
           maxWidth: 320,
-          boxShadow: '0 2px 8px rgba(30,215,96,0.15)',
-          '&:hover': { background: '#17b34a' }
+          boxShadow: '0 2px 8px #9D4EDD40',
+          '&:hover': { background: '#E0AAFF' }
         }}
         onClick={handleBid}
         disabled={submitting || !amount || Number(amount) < minBid}
@@ -253,11 +253,11 @@ export default function AuctionTeamBidPage() {
         HACER PUJA
       </Button>
       {Number(amount) < minBid && (
-        <Typography sx={{ color: '#f44336', fontWeight: 700, fontSize: 15, mt: 1 }}>
+        <Typography sx={{ color: '#EA5455', fontWeight: 700, fontSize: 15, mt: 1 }}>
           El importe es inferior al mínimo permitido
         </Typography>
       )}
-      <Typography sx={{ color: '#1ed760', fontWeight: 700, fontSize: 16, mt: 2, mb: 1 }}>
+      <Typography sx={{ color: '#9D4EDD', fontWeight: 700, fontSize: 16, mt: 2, mb: 1 }}>
         Tu saldo: {saldoLoading ? <CircularProgress size={18} /> : saldo?.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })}
       </Typography>
       {msg && <Alert severity="success" sx={{ mt: 2 }}>{msg}</Alert>}

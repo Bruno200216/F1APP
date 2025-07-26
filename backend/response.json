@@ -1,15 +1,15 @@
 {
     "classification": [
         {
-            "money": 75061295.49,
+            "money": 40000000,
             "name": "Bruno",
             "player_id": 3,
             "points": 0
         },
         {
             "money": 100000000,
-            "name": "Paco ",
-            "player_id": 4,
+            "name": "t",
+            "player_id": 6,
             "points": 0
         }
     ]

@@ -18,6 +18,8 @@ import EngineerProfilePage from './pages/EngineerProfilePage';
 import TeamProfilePage from './pages/TeamProfilePage';
 import ProfilePage from './pages/ProfilePage';
 import AdminScoresPage from './pages/AdminScoresPage';
+import PlayerProfilePage from './pages/PlayerProfilePage';
+import MakeOfferPage from './pages/MakeOfferPage';
 
 
 const theme = createTheme({
@@ -56,9 +58,11 @@ function App() {
 
               <Route path="/join-league" element={<JoinLeaguePage />} />
               <Route path="/profile/:id" element={<ProfilePage />} />
+              <Route path="/player/:playerId" element={<PlayerProfilePage />} />
               <Route path="/admin-scores" element={<AdminScoresPage />} />
               <Route path="/profile/engineer/:type/:id" element={<EngineerProfilePage />} />
               <Route path="/profile/team/:id" element={<TeamProfilePage />} />
+              <Route path="/make-offer" element={<MakeOfferPage />} />
             </Routes>
             <BottomNavBar />
           </div>

@@ -227,7 +227,7 @@ type TrackEngineerByLeague struct {
 	VentaExpiresAt       *time.Time `gorm:"column:venta_expires_at"`
 	LeagueOfferValue     *float64   `gorm:"column:league_offer_value"`
 	LeagueOfferExpiresAt *time.Time `gorm:"column:league_offer_expires_at"`
-	ClausulaExpiresAt    *time.Time `gorm:"column:clausula_expires_at"`
+	Clausulatime         *time.Time `gorm:"column:clausulatime"`
 	ClausulaValue        *float64   `gorm:"column:clausula_value"`
 
 	TrackEngineer TrackEngineer `gorm:"foreignKey:TrackEngineerID"`
@@ -252,7 +252,7 @@ type ChiefEngineerByLeague struct {
 	VentaExpiresAt       *time.Time `gorm:"column:venta_expires_at"`
 	LeagueOfferValue     *float64   `gorm:"column:league_offer_value"`
 	LeagueOfferExpiresAt *time.Time `gorm:"column:league_offer_expires_at"`
-	ClausulaExpiresAt    *time.Time `gorm:"column:clausula_expires_at"`
+	Clausulatime         *time.Time `gorm:"column:clausulatime"`
 	ClausulaValue        *float64   `gorm:"column:clausula_value"`
 
 	ChiefEngineer ChiefEngineer `gorm:"foreignKey:ChiefEngineerID"`
@@ -295,7 +295,7 @@ type TeamConstructorByLeague struct {
 	VentaExpiresAt       *time.Time `gorm:"column:venta_expires_at"`
 	LeagueOfferValue     *float64   `gorm:"column:league_offer_value"`
 	LeagueOfferExpiresAt *time.Time `gorm:"column:league_offer_expires_at"`
-	ClausulaExpiresAt    *time.Time `gorm:"column:clausula_expires_at"`
+	Clausulatime         *time.Time `gorm:"column:clausulatime"`
 	ClausulaValue        *float64   `gorm:"column:clausula_value"`
 
 	TeamConstructor TeamConstructor `gorm:"foreignKey:TeamConstructorID"`

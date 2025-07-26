@@ -14,7 +14,8 @@ export default function TeamCard({
   leagueId, 
   onPujar, 
   players = [], 
-  bidActionsButton 
+  bidActionsButton,
+  hideOwnerInfo = false
 }) {
   const navigate = useNavigate();
   const teamColor = getTeamColor(team.name);
@@ -104,6 +105,11 @@ export default function TeamCard({
             {typeof team.num_bids !== 'undefined' && (
               <p className="text-state-warning font-bold text-small mb-1">
                 {team.num_bids} puja{team.num_bids !== 1 ? 's' : ''}
+                {team.my_bid && (
+                  <span className="text-accent-main ml-2">
+                    (Mi puja: €{formatCurrency(team.my_bid)})
+                  </span>
+                )}
               </p>
             )}
           </div>
@@ -126,12 +132,14 @@ export default function TeamCard({
               </span>
             </div>
             
-            <div className="flex justify-between items-center">
-              <span className="text-text-secondary text-small">Propietario:</span>
-              <span className="text-text-primary text-small font-medium">
-                {getOwnerName(team.owner_id)}
-              </span>
-            </div>
+            {!hideOwnerInfo && (
+              <div className="flex justify-between items-center">
+                <span className="text-text-secondary text-small">Propietario:</span>
+                <span className="text-text-primary text-small font-medium">
+                  {getOwnerName(team.owner_id)}
+                </span>
+              </div>
+            )}
 
             {/* Pilots count */}
             {team.pilots && (

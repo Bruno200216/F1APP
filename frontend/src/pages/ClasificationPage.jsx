@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useLeague } from '../context/LeagueContext';
+import { useNavigate } from 'react-router-dom';
 
 // UI Components from design.json style
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
@@ -9,6 +10,7 @@ import { Trophy, Award, Medal, Crown } from 'lucide-react';
 
 export default function ClasificationPage() {
   const { selectedLeague } = useLeague();
+  const navigate = useNavigate();
   const [classification, setClassification] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -67,6 +69,11 @@ export default function ClasificationPage() {
       default:
         return '';
     }
+  };
+
+  // Handle player click
+  const handlePlayerClick = (player) => {
+    navigate(`/player/${player.player_id}`);
   };
 
   if (!selectedLeague) {
@@ -147,11 +154,12 @@ export default function ClasificationPage() {
               return (
                 <Card
                   key={player.player_id}
-                  className={`transition-all duration-200 ${
+                  className={`transition-all duration-200 cursor-pointer ${
                     isCurrentPlayer
                       ? 'border-accent-main shadow-glow-accent bg-surface-elevated'
                       : 'border-border hover:border-accent-hover'
                   } ${getPositionStyling(position)}`}
+                  onClick={() => handlePlayerClick(player)}
                 >
                   <CardContent className="flex items-center justify-between p-4">
                     {/* Position and Icon */}

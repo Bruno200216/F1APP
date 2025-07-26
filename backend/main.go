@@ -604,7 +604,7 @@ func main() {
 					VentaExpiresAt:       nil,
 					LeagueOfferValue:     nil,
 					LeagueOfferExpiresAt: nil,
-					ClausulaExpiresAt:    nil,
+					Clausulatime:         nil,
 					ClausulaValue:        nil,
 				}
 				if err := database.DB.Create(&teb).Error; err != nil {
@@ -627,7 +627,7 @@ func main() {
 					VentaExpiresAt:       nil,
 					LeagueOfferValue:     nil,
 					LeagueOfferExpiresAt: nil,
-					ClausulaExpiresAt:    nil,
+					Clausulatime:         nil,
 					ClausulaValue:        nil,
 				}
 				if err := database.DB.Create(&ceb).Error; err != nil {
@@ -650,7 +650,7 @@ func main() {
 					VentaExpiresAt:       nil,
 					LeagueOfferValue:     nil,
 					LeagueOfferExpiresAt: nil,
-					ClausulaExpiresAt:    nil,
+					Clausulatime:         nil,
 					ClausulaValue:        nil,
 				}
 				if err := database.DB.Create(&tcb).Error; err != nil {
@@ -1415,7 +1415,7 @@ func main() {
 				"owner_id":            teb.OwnerID,
 				"type":                "track_engineer",
 				"clausula_value":      teb.ClausulaValue,
-				"clausula_expires_at": teb.ClausulaExpiresAt,
+				"clausula_expires_at": teb.Clausulatime,
 			})
 		}
 		result["track_engineers"] = trackEngineers
@@ -1454,7 +1454,7 @@ func main() {
 				"owner_id":            ceb.OwnerID,
 				"type":                "chief_engineer",
 				"clausula_value":      ceb.ClausulaValue,
-				"clausula_expires_at": ceb.ClausulaExpiresAt,
+				"clausula_expires_at": ceb.Clausulatime,
 			})
 		}
 		result["chief_engineers"] = chiefEngineers
@@ -1503,7 +1503,7 @@ func main() {
 				"owner_id":            tcb.OwnerID,
 				"type":                "team_constructor",
 				"clausula_value":      tcb.ClausulaValue,
-				"clausula_expires_at": tcb.ClausulaExpiresAt,
+				"clausula_expires_at": tcb.Clausulatime,
 			})
 		}
 		result["team_constructors"] = teamConstructors
@@ -2004,7 +2004,7 @@ func main() {
 					teb.ClausulaValue = &clausula
 				}
 				clausulaExpira := auction.EndTime.Add(14 * 24 * time.Hour)
-				teb.ClausulaExpiresAt = &clausulaExpira
+				teb.Clausulatime = &clausulaExpira
 				// --- FIN CLAUSULA ---
 				database.DB.Save(&teb)
 				log.Printf("[REFRESH-AND-FINISH] Track Engineer owner actualizado a: %d", maxBid.PlayerID)
@@ -2055,7 +2055,7 @@ func main() {
 					ceb.ClausulaValue = &clausula
 				}
 				clausulaExpira := auction.EndTime.Add(14 * 24 * time.Hour)
-				ceb.ClausulaExpiresAt = &clausulaExpira
+				ceb.Clausulatime = &clausulaExpira
 				// --- FIN CLAUSULA ---
 				database.DB.Save(&ceb)
 				log.Printf("[REFRESH-AND-FINISH] Chief Engineer owner actualizado a: %d", maxBid.PlayerID)
@@ -2106,7 +2106,7 @@ func main() {
 					tcb.ClausulaValue = &clausula
 				}
 				clausulaExpira := auction.EndTime.Add(14 * 24 * time.Hour)
-				tcb.ClausulaExpiresAt = &clausulaExpira
+				tcb.Clausulatime = &clausulaExpira
 				// --- FIN CLAUSULA ---
 				database.DB.Save(&tcb)
 				log.Printf("[REFRESH-AND-FINISH] Team Constructor owner actualizado a: %d", maxBid.PlayerID)
@@ -2311,7 +2311,7 @@ func main() {
 			}
 
 			// Calcular días restantes
-			daysLeft := int(teb.ClausulaExpiresAt.Sub(time.Now()).Hours() / 24)
+			daysLeft := int(teb.Clausulatime.Sub(time.Now()).Hours() / 24)
 			if daysLeft < 0 {
 				daysLeft = 0
 			}
@@ -2323,7 +2323,7 @@ func main() {
 				"team":                te.Name, // Track engineers no tienen equipo específico
 				"image_url":           te.ImageURL,
 				"clausula_value":      teb.ClausulaValue,
-				"clausula_expires_at": teb.ClausulaExpiresAt,
+				"clausula_expires_at": teb.Clausulatime,
 				"days_left":           daysLeft,
 			}
 			result = append(result, item)
@@ -2340,7 +2340,7 @@ func main() {
 			}
 
 			// Calcular días restantes
-			daysLeft := int(ceb.ClausulaExpiresAt.Sub(time.Now()).Hours() / 24)
+			daysLeft := int(ceb.Clausulatime.Sub(time.Now()).Hours() / 24)
 			if daysLeft < 0 {
 				daysLeft = 0
 			}
@@ -2352,7 +2352,7 @@ func main() {
 				"team":                ce.Team,
 				"image_url":           ce.ImageURL,
 				"clausula_value":      ceb.ClausulaValue,
-				"clausula_expires_at": ceb.ClausulaExpiresAt,
+				"clausula_expires_at": ceb.Clausulatime,
 				"days_left":           daysLeft,
 			}
 			result = append(result, item)
@@ -2369,7 +2369,7 @@ func main() {
 			}
 
 			// Calcular días restantes
-			daysLeft := int(tcb.ClausulaExpiresAt.Sub(time.Now()).Hours() / 24)
+			daysLeft := int(tcb.Clausulatime.Sub(time.Now()).Hours() / 24)
 			if daysLeft < 0 {
 				daysLeft = 0
 			}
@@ -2381,7 +2381,7 @@ func main() {
 				"team":                tc.Name,
 				"image_url":           tc.ImageURL,
 				"clausula_value":      tcb.ClausulaValue,
-				"clausula_expires_at": tcb.ClausulaExpiresAt,
+				"clausula_expires_at": tcb.Clausulatime,
 				"days_left":           daysLeft,
 			}
 			result = append(result, item)
@@ -2797,6 +2797,230 @@ func main() {
 			result = append(result, item)
 		}
 		c.JSON(200, gin.H{"classification": result})
+	})
+
+	// Endpoint para obtener la plantilla completa de un jugador
+	router.GET("/api/players/:player_id/squad", func(c *gin.Context) {
+		playerID := c.Param("player_id")
+		leagueID := c.Query("league_id")
+
+		if playerID == "" || leagueID == "" {
+			c.JSON(400, gin.H{"error": "Faltan parámetros playerId o league_id"})
+			return
+		}
+
+		playerIDUint, err := strconv.ParseUint(playerID, 10, 32)
+		if err != nil {
+			c.JSON(400, gin.H{"error": "playerId inválido"})
+			return
+		}
+
+		leagueIDUint, err := strconv.ParseUint(leagueID, 10, 32)
+		if err != nil {
+			c.JSON(400, gin.H{"error": "league_id inválido"})
+			return
+		}
+
+		// Obtener pilotos del jugador
+		var pilotsByLeague []models.PilotByLeague
+		database.DB.Where("league_id = ? AND owner_id = ?", leagueIDUint, playerIDUint).Find(&pilotsByLeague)
+
+		var pilots []map[string]interface{}
+		for _, pbl := range pilotsByLeague {
+			var pilot models.Pilot
+			if err := database.DB.First(&pilot, pbl.PilotID).Error; err != nil {
+				continue
+			}
+
+			item := map[string]interface{}{
+				"id":                 pbl.ID,
+				"pilot_by_league_id": pbl.ID,
+				"pilot_id":           pilot.ID,
+				"driver_name":        pilot.DriverName,
+				"team":               pilot.Team,
+				"image_url":          pilot.ImageURL,
+				"mode":               pilot.Mode,
+				"total_points":       pilot.TotalPoints,
+				"value":              pilot.Value,
+				"clausulatime":       pbl.Clausulatime,
+				"clausula_value":     pbl.ClausulaValue,
+				"owner_id":           pbl.OwnerID,
+				"venta":              pbl.Venta,
+				"venta_expires_at":   pbl.VentaExpiresAt,
+				"created_at":         pbl.CreatedAt,
+				"updated_at":         pbl.UpdatedAt,
+				"league_id":          pbl.LeagueID,
+			}
+			pilots = append(pilots, item)
+		}
+
+		// Obtener ingenieros de pista del jugador
+		var trackEngineersByLeague []models.TrackEngineerByLeague
+		database.DB.Where("league_id = ? AND owner_id = ?", leagueIDUint, playerIDUint).Find(&trackEngineersByLeague)
+
+		var trackEngineers []map[string]interface{}
+		for _, teb := range trackEngineersByLeague {
+			var trackEngineer models.TrackEngineer
+			if err := database.DB.First(&trackEngineer, teb.TrackEngineerID).Error; err != nil {
+				continue
+			}
+
+			item := map[string]interface{}{
+				"id":                          teb.ID,
+				"track_engineer_by_league_id": teb.ID,
+				"track_engineer_id":           trackEngineer.ID,
+				"name":                        trackEngineer.Name,
+				"image_url":                   trackEngineer.ImageURL,
+				"team":                        trackEngineer.Team,
+				"total_points":                trackEngineer.TotalPoints,
+				"value":                       trackEngineer.Value,
+				"clausulatime":                teb.Clausulatime,
+				"clausula_value":              teb.ClausulaValue,
+				"owner_id":                    teb.OwnerID,
+				"venta":                       teb.Venta,
+				"venta_expires_at":            teb.VentaExpiresAt,
+				"created_at":                  teb.CreatedAt,
+				"updated_at":                  teb.UpdatedAt,
+				"league_id":                   teb.LeagueID,
+			}
+			trackEngineers = append(trackEngineers, item)
+		}
+
+		// Obtener ingenieros jefe del jugador
+		var chiefEngineersByLeague []models.ChiefEngineerByLeague
+		database.DB.Where("league_id = ? AND owner_id = ?", leagueIDUint, playerIDUint).Find(&chiefEngineersByLeague)
+
+		var chiefEngineers []map[string]interface{}
+		for _, ceb := range chiefEngineersByLeague {
+			var chiefEngineer models.ChiefEngineer
+			if err := database.DB.First(&chiefEngineer, ceb.ChiefEngineerID).Error; err != nil {
+				continue
+			}
+
+			item := map[string]interface{}{
+				"id":                          ceb.ID,
+				"chief_engineer_by_league_id": ceb.ID,
+				"chief_engineer_id":           chiefEngineer.ID,
+				"name":                        chiefEngineer.Name,
+				"image_url":                   chiefEngineer.ImageURL,
+				"team":                        chiefEngineer.Team,
+				"total_points":                chiefEngineer.TotalPoints,
+				"value":                       chiefEngineer.Value,
+				"clausulatime":                ceb.Clausulatime,
+				"clausula_value":              ceb.ClausulaValue,
+				"owner_id":                    ceb.OwnerID,
+				"venta":                       ceb.Venta,
+				"venta_expires_at":            ceb.VentaExpiresAt,
+				"created_at":                  ceb.CreatedAt,
+				"updated_at":                  ceb.UpdatedAt,
+				"league_id":                   ceb.LeagueID,
+			}
+			chiefEngineers = append(chiefEngineers, item)
+		}
+
+		// Obtener equipos del jugador
+		var teamConstructorsByLeague []models.TeamConstructorByLeague
+		database.DB.Where("league_id = ? AND owner_id = ?", leagueIDUint, playerIDUint).Find(&teamConstructorsByLeague)
+
+		var teamConstructors []map[string]interface{}
+		for _, tcb := range teamConstructorsByLeague {
+			var teamConstructor models.TeamConstructor
+			if err := database.DB.First(&teamConstructor, tcb.TeamConstructorID).Error; err != nil {
+				continue
+			}
+
+			item := map[string]interface{}{
+				"id":                            tcb.ID,
+				"team_constructor_by_league_id": tcb.ID,
+				"team_constructor_id":           teamConstructor.ID,
+				"name":                          teamConstructor.Name,
+				"image_url":                     teamConstructor.ImageURL,
+				"value":                         teamConstructor.Value,
+				"clausulatime":                  tcb.Clausulatime,
+				"clausula_value":                tcb.ClausulaValue,
+				"owner_id":                      tcb.OwnerID,
+				"venta":                         tcb.Venta,
+				"venta_expires_at":              tcb.VentaExpiresAt,
+				"created_at":                    tcb.CreatedAt,
+				"updated_at":                    tcb.UpdatedAt,
+				"league_id":                     tcb.LeagueID,
+			}
+			teamConstructors = append(teamConstructors, item)
+		}
+
+		c.JSON(200, gin.H{
+			"pilots":            pilots,
+			"track_engineers":   trackEngineers,
+			"chief_engineers":   chiefEngineers,
+			"team_constructors": teamConstructors,
+		})
+	})
+
+	// Endpoint para obtener el historial de puntos de un jugador
+	router.GET("/api/players/:player_id/points", func(c *gin.Context) {
+		playerID := c.Param("player_id")
+		leagueID := c.Query("league_id")
+
+		if playerID == "" || leagueID == "" {
+			c.JSON(400, gin.H{"error": "Faltan parámetros playerId o league_id"})
+			return
+		}
+
+		playerIDUint, err := strconv.ParseUint(playerID, 10, 32)
+		if err != nil {
+			c.JSON(400, gin.H{"error": "playerId inválido"})
+			return
+		}
+
+		leagueIDUint, err := strconv.ParseUint(leagueID, 10, 32)
+		if err != nil {
+			c.JSON(400, gin.H{"error": "league_id inválido"})
+			return
+		}
+
+		// Obtener el historial de puntos del jugador
+		var points []map[string]interface{}
+
+		// Buscar en la tabla de puntos por GP
+		rows, err := database.DB.Raw(`
+			SELECT 
+				gp.gp_index,
+				gp.name as gp_name,
+				gp.start_date,
+				COALESCE(SUM(p.points), 0) as total_points
+			FROM grand_prix gp
+			LEFT JOIN player_points_by_gp p ON p.player_id = ? AND p.league_id = ? AND p.gp_index = gp.gp_index
+			WHERE gp.gp_index > 0
+			GROUP BY gp.gp_index, gp.name, gp.start_date
+			ORDER BY gp.gp_index ASC
+		`, playerIDUint, leagueIDUint).Rows()
+
+		if err != nil {
+			c.JSON(500, gin.H{"error": "Error obteniendo puntos"})
+			return
+		}
+		defer rows.Close()
+
+		for rows.Next() {
+			var gpIndex int
+			var gpName string
+			var startDate time.Time
+			var totalPoints int
+
+			if err := rows.Scan(&gpIndex, &gpName, &startDate, &totalPoints); err != nil {
+				continue
+			}
+
+			point := map[string]interface{}{
+				"gp_index": gpIndex,
+				"gp_name":  gpName,
+				"date":     startDate,
+				"points":   totalPoints,
+			}
+			points = append(points, point)
+		}
+
+		c.JSON(200, gin.H{"points": points})
 	})
 
 	// Endpoint para obtener los perfiles de varios pilotos por sus IDs en una liga
@@ -5262,7 +5486,7 @@ func main() {
 				"image_url":           trackEngineer.ImageURL,
 				"value":               trackEngineer.Value,
 				"total_points":        trackEngineer.TotalPoints,
-				"clausula_expires_at": teb.ClausulaExpiresAt,
+				"clausula_expires_at": teb.Clausulatime,
 				"clausula_value":      teb.ClausulaValue,
 				"owner_id":            teb.OwnerID,
 			}
@@ -5332,7 +5556,7 @@ func main() {
 				"image_url":           chiefEngineer.ImageURL,
 				"value":               chiefEngineer.Value,
 				"total_points":        chiefEngineer.TotalPoints,
-				"clausula_expires_at": ceb.ClausulaExpiresAt,
+				"clausula_expires_at": ceb.Clausulatime,
 				"clausula_value":      ceb.ClausulaValue,
 				"owner_id":            ceb.OwnerID,
 			}
@@ -5391,7 +5615,7 @@ func main() {
 				"name":                teamConstructor.Name,
 				"image_url":           teamConstructor.ImageURL,
 				"value":               teamConstructor.Value,
-				"clausula_expires_at": tcb.ClausulaExpiresAt,
+				"clausula_expires_at": tcb.Clausulatime,
 				"clausula_value":      tcb.ClausulaValue,
 				"owner_id":            tcb.OwnerID,
 			}
@@ -5975,6 +6199,602 @@ func main() {
 			"league_id":   req.LeagueID,
 			"gp_index":    req.GPIndex,
 		})
+	})
+
+	// Endpoint para hacer oferta de compra
+	router.POST("/api/:item_type/make-offer", authMiddleware(), func(c *gin.Context) {
+		itemType := c.Param("item_type")
+		var req struct {
+			ItemID     uint    `json:"item_id"`
+			LeagueID   uint    `json:"league_id"`
+			OfferValue float64 `json:"offer_value"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(400, gin.H{"error": "Datos inválidos"})
+			return
+		}
+		userID := c.GetUint("user_id")
+
+		// Verificar que el usuario tiene suficiente dinero
+		var playerLeague models.PlayerByLeague
+		if err := database.DB.Where("player_id = ? AND league_id = ?", userID, req.LeagueID).First(&playerLeague).Error; err != nil {
+			c.JSON(404, gin.H{"error": "Jugador no encontrado"})
+			return
+		}
+
+		if playerLeague.Money < req.OfferValue {
+			c.JSON(400, gin.H{"error": "No tienes suficiente dinero"})
+			return
+		}
+
+		// Crear la oferta según el tipo de elemento
+		var bid Bid
+		switch itemType {
+		case "pilot":
+			var pbl models.PilotByLeague
+			if err := database.DB.First(&pbl, req.ItemID).Error; err != nil {
+				c.JSON(404, gin.H{"error": "Piloto no encontrado"})
+				return
+			}
+			bid = Bid{PlayerID: userID, Valor: req.OfferValue}
+			// Añadir la oferta al array de bids existente
+			var existingBids []Bid
+			if len(pbl.Bids) > 0 {
+				json.Unmarshal(pbl.Bids, &existingBids)
+			}
+			existingBids = append(existingBids, bid)
+			bidsJSON, _ := json.Marshal(existingBids)
+			pbl.Bids = bidsJSON
+			database.DB.Save(&pbl)
+
+		case "track_engineer":
+			var teb models.TrackEngineerByLeague
+			if err := database.DB.First(&teb, req.ItemID).Error; err != nil {
+				c.JSON(404, gin.H{"error": "Track Engineer no encontrado"})
+				return
+			}
+			bid = Bid{PlayerID: userID, Valor: req.OfferValue}
+			var existingBids []Bid
+			if len(teb.Bids) > 0 {
+				json.Unmarshal(teb.Bids, &existingBids)
+			}
+			existingBids = append(existingBids, bid)
+			bidsJSON, _ := json.Marshal(existingBids)
+			teb.Bids = bidsJSON
+			database.DB.Save(&teb)
+
+		case "chief_engineer":
+			var ceb models.ChiefEngineerByLeague
+			if err := database.DB.First(&ceb, req.ItemID).Error; err != nil {
+				c.JSON(404, gin.H{"error": "Chief Engineer no encontrado"})
+				return
+			}
+			bid = Bid{PlayerID: userID, Valor: req.OfferValue}
+			var existingBids []Bid
+			if len(ceb.Bids) > 0 {
+				json.Unmarshal(ceb.Bids, &existingBids)
+			}
+			existingBids = append(existingBids, bid)
+			bidsJSON, _ := json.Marshal(existingBids)
+			ceb.Bids = bidsJSON
+			database.DB.Save(&ceb)
+
+		case "team_constructor":
+			var tcb models.TeamConstructorByLeague
+			if err := database.DB.First(&tcb, req.ItemID).Error; err != nil {
+				c.JSON(404, gin.H{"error": "Team Constructor no encontrado"})
+				return
+			}
+			bid = Bid{PlayerID: userID, Valor: req.OfferValue}
+			var existingBids []Bid
+			if len(tcb.Bids) > 0 {
+				json.Unmarshal(tcb.Bids, &existingBids)
+			}
+			existingBids = append(existingBids, bid)
+			bidsJSON, _ := json.Marshal(existingBids)
+			tcb.Bids = bidsJSON
+			database.DB.Save(&tcb)
+
+		default:
+			c.JSON(400, gin.H{"error": "Tipo de elemento no válido"})
+			return
+		}
+
+		c.JSON(200, gin.H{"message": "Oferta enviada correctamente"})
+	})
+
+	// Endpoint para activar cláusula
+	router.POST("/api/:item_type/activate-clausula", authMiddleware(), func(c *gin.Context) {
+		itemType := c.Param("item_type")
+		var req struct {
+			ItemID        uint    `json:"item_id"`
+			LeagueID      uint    `json:"league_id"`
+			ClausulaValue float64 `json:"clausula_value"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(400, gin.H{"error": "Datos inválidos"})
+			return
+		}
+		userID := c.GetUint("user_id")
+
+		// Verificar que el usuario tiene suficiente dinero
+		var playerLeague models.PlayerByLeague
+		if err := database.DB.Where("player_id = ? AND league_id = ?", userID, req.LeagueID).First(&playerLeague).Error; err != nil {
+			c.JSON(404, gin.H{"error": "Jugador no encontrado"})
+			return
+		}
+
+		if playerLeague.Money < req.ClausulaValue {
+			c.JSON(400, gin.H{"error": "No tienes suficiente dinero"})
+			return
+		}
+
+		// Activar cláusula según el tipo de elemento
+		switch itemType {
+		case "pilot":
+			var pbl models.PilotByLeague
+			if err := database.DB.First(&pbl, req.ItemID).Error; err != nil {
+				c.JSON(404, gin.H{"error": "Piloto no encontrado"})
+				return
+			}
+			if pbl.ClausulaValue == nil || *pbl.ClausulaValue != req.ClausulaValue {
+				c.JSON(400, gin.H{"error": "Valor de cláusula incorrecto"})
+				return
+			}
+			// Verificar que la cláusula haya expirado
+			if pbl.Clausulatime != nil && pbl.Clausulatime.After(time.Now()) {
+				c.JSON(400, gin.H{"error": "La cláusula aún está activa y protege al elemento"})
+				return
+			}
+			// Transferir propiedad
+			oldOwnerID := pbl.OwnerID
+			pbl.OwnerID = userID
+			database.DB.Save(&pbl)
+			// Actualizar dinero
+			playerLeague.Money -= req.ClausulaValue
+			database.DB.Save(&playerLeague)
+			// Dar dinero al propietario anterior
+			var oldOwnerLeague models.PlayerByLeague
+			if err := database.DB.Where("player_id = ? AND league_id = ?", oldOwnerID, req.LeagueID).First(&oldOwnerLeague).Error; err == nil {
+				oldOwnerLeague.Money += req.ClausulaValue
+				database.DB.Save(&oldOwnerLeague)
+			}
+
+		case "track_engineer":
+			var teb models.TrackEngineerByLeague
+			if err := database.DB.First(&teb, req.ItemID).Error; err != nil {
+				c.JSON(404, gin.H{"error": "Track Engineer no encontrado"})
+				return
+			}
+			if teb.ClausulaValue == nil || *teb.ClausulaValue != req.ClausulaValue {
+				c.JSON(400, gin.H{"error": "Valor de cláusula incorrecto"})
+				return
+			}
+			// Verificar que la cláusula haya expirado
+			if teb.Clausulatime != nil && teb.Clausulatime.After(time.Now()) {
+				c.JSON(400, gin.H{"error": "La cláusula aún está activa y protege al elemento"})
+				return
+			}
+			oldOwnerID := teb.OwnerID
+			teb.OwnerID = userID
+			database.DB.Save(&teb)
+			playerLeague.Money -= req.ClausulaValue
+			database.DB.Save(&playerLeague)
+			var oldOwnerLeague models.PlayerByLeague
+			if err := database.DB.Where("player_id = ? AND league_id = ?", oldOwnerID, req.LeagueID).First(&oldOwnerLeague).Error; err == nil {
+				oldOwnerLeague.Money += req.ClausulaValue
+				database.DB.Save(&oldOwnerLeague)
+			}
+
+		case "chief_engineer":
+			var ceb models.ChiefEngineerByLeague
+			if err := database.DB.First(&ceb, req.ItemID).Error; err != nil {
+				c.JSON(404, gin.H{"error": "Chief Engineer no encontrado"})
+				return
+			}
+			if ceb.ClausulaValue == nil || *ceb.ClausulaValue != req.ClausulaValue {
+				c.JSON(400, gin.H{"error": "Valor de cláusula incorrecto"})
+				return
+			}
+			// Verificar que la cláusula haya expirado
+			if ceb.Clausulatime != nil && ceb.Clausulatime.After(time.Now()) {
+				c.JSON(400, gin.H{"error": "La cláusula aún está activa y protege al elemento"})
+				return
+			}
+			oldOwnerID := ceb.OwnerID
+			ceb.OwnerID = userID
+			database.DB.Save(&ceb)
+			playerLeague.Money -= req.ClausulaValue
+			database.DB.Save(&playerLeague)
+			var oldOwnerLeague models.PlayerByLeague
+			if err := database.DB.Where("player_id = ? AND league_id = ?", oldOwnerID, req.LeagueID).First(&oldOwnerLeague).Error; err == nil {
+				oldOwnerLeague.Money += req.ClausulaValue
+				database.DB.Save(&oldOwnerLeague)
+			}
+
+		case "team_constructor":
+			var tcb models.TeamConstructorByLeague
+			if err := database.DB.First(&tcb, req.ItemID).Error; err != nil {
+				c.JSON(404, gin.H{"error": "Team Constructor no encontrado"})
+				return
+			}
+			if tcb.ClausulaValue == nil || *tcb.ClausulaValue != req.ClausulaValue {
+				c.JSON(400, gin.H{"error": "Valor de cláusula incorrecto"})
+				return
+			}
+			// Verificar que la cláusula haya expirado
+			if tcb.Clausulatime != nil && tcb.Clausulatime.After(time.Now()) {
+				c.JSON(400, gin.H{"error": "La cláusula aún está activa y protege al elemento"})
+				return
+			}
+			oldOwnerID := tcb.OwnerID
+			tcb.OwnerID = userID
+			database.DB.Save(&tcb)
+			playerLeague.Money -= req.ClausulaValue
+			database.DB.Save(&playerLeague)
+			var oldOwnerLeague models.PlayerByLeague
+			if err := database.DB.Where("player_id = ? AND league_id = ?", oldOwnerID, req.LeagueID).First(&oldOwnerLeague).Error; err == nil {
+				oldOwnerLeague.Money += req.ClausulaValue
+				database.DB.Save(&oldOwnerLeague)
+			}
+
+		default:
+			c.JSON(400, gin.H{"error": "Tipo de elemento no válido"})
+			return
+		}
+
+		c.JSON(200, gin.H{"message": "Cláusula activada correctamente"})
+	})
+
+	// Endpoint para obtener ofertas recibidas por un jugador
+	router.GET("/api/player/received-offers", authMiddleware(), func(c *gin.Context) {
+		userID := c.GetUint("user_id")
+		leagueID := c.Query("league_id")
+
+		if leagueID == "" {
+			c.JSON(400, gin.H{"error": "Falta league_id"})
+			return
+		}
+
+		leagueIDUint, err := strconv.ParseUint(leagueID, 10, 64)
+		if err != nil {
+			c.JSON(400, gin.H{"error": "league_id inválido"})
+			return
+		}
+
+		var receivedOffers []map[string]interface{}
+
+		// Obtener pilotos del jugador con ofertas
+		var pilotsWithOffers []models.PilotByLeague
+		database.DB.Where("league_id = ? AND owner_id = ? AND bids IS NOT NULL AND bids != '[]'", leagueIDUint, userID).Find(&pilotsWithOffers)
+
+		for _, pbl := range pilotsWithOffers {
+			var pilot models.Pilot
+			if err := database.DB.First(&pilot, pbl.PilotID).Error; err != nil {
+				continue
+			}
+
+			var bids []Bid
+			if len(pbl.Bids) > 0 {
+				json.Unmarshal(pbl.Bids, &bids)
+			}
+
+			for _, bid := range bids {
+				// Obtener nombre del jugador que hizo la oferta
+				var bidderPlayer models.Player
+				if err := database.DB.First(&bidderPlayer, bid.PlayerID).Error; err != nil {
+					continue
+				}
+
+				offer := map[string]interface{}{
+					"id":          pbl.ID,
+					"type":        "pilot",
+					"name":        pilot.DriverName,
+					"team":        pilot.Team,
+					"image_url":   pilot.ImageURL,
+					"bidder_id":   bid.PlayerID,
+					"bidder_name": bidderPlayer.Name,
+					"offer_value": bid.Valor,
+					"received_at": time.Now(), // En una implementación real, esto debería venir de la base de datos
+				}
+				receivedOffers = append(receivedOffers, offer)
+			}
+		}
+
+		// Obtener track engineers del jugador con ofertas
+		var trackEngineersWithOffers []models.TrackEngineerByLeague
+		database.DB.Where("league_id = ? AND owner_id = ? AND bids IS NOT NULL AND bids != '[]'", leagueIDUint, userID).Find(&trackEngineersWithOffers)
+
+		for _, teb := range trackEngineersWithOffers {
+			var engineer models.TrackEngineer
+			if err := database.DB.First(&engineer, teb.TrackEngineerID).Error; err != nil {
+				continue
+			}
+
+			var bids []Bid
+			if len(teb.Bids) > 0 {
+				json.Unmarshal(teb.Bids, &bids)
+			}
+
+			for _, bid := range bids {
+				var bidderPlayer models.Player
+				if err := database.DB.First(&bidderPlayer, bid.PlayerID).Error; err != nil {
+					continue
+				}
+
+				offer := map[string]interface{}{
+					"id":          teb.ID,
+					"type":        "track_engineer",
+					"name":        engineer.Name,
+					"team":        engineer.Team,
+					"image_url":   engineer.ImageURL,
+					"bidder_id":   bid.PlayerID,
+					"bidder_name": bidderPlayer.Name,
+					"offer_value": bid.Valor,
+					"received_at": time.Now(),
+				}
+				receivedOffers = append(receivedOffers, offer)
+			}
+		}
+
+		// Obtener chief engineers del jugador con ofertas
+		var chiefEngineersWithOffers []models.ChiefEngineerByLeague
+		database.DB.Where("league_id = ? AND owner_id = ? AND bids IS NOT NULL AND bids != '[]'", leagueIDUint, userID).Find(&chiefEngineersWithOffers)
+
+		for _, ceb := range chiefEngineersWithOffers {
+			var engineer models.ChiefEngineer
+			if err := database.DB.First(&engineer, ceb.ChiefEngineerID).Error; err != nil {
+				continue
+			}
+
+			var bids []Bid
+			if len(ceb.Bids) > 0 {
+				json.Unmarshal(ceb.Bids, &bids)
+			}
+
+			for _, bid := range bids {
+				var bidderPlayer models.Player
+				if err := database.DB.First(&bidderPlayer, bid.PlayerID).Error; err != nil {
+					continue
+				}
+
+				offer := map[string]interface{}{
+					"id":          ceb.ID,
+					"type":        "chief_engineer",
+					"name":        engineer.Name,
+					"team":        engineer.Team,
+					"image_url":   engineer.ImageURL,
+					"bidder_id":   bid.PlayerID,
+					"bidder_name": bidderPlayer.Name,
+					"offer_value": bid.Valor,
+					"received_at": time.Now(),
+				}
+				receivedOffers = append(receivedOffers, offer)
+			}
+		}
+
+		// Obtener team constructors del jugador con ofertas
+		var teamConstructorsWithOffers []models.TeamConstructorByLeague
+		database.DB.Where("league_id = ? AND owner_id = ? AND bids IS NOT NULL AND bids != '[]'", leagueIDUint, userID).Find(&teamConstructorsWithOffers)
+
+		for _, tcb := range teamConstructorsWithOffers {
+			var team models.TeamConstructor
+			if err := database.DB.First(&team, tcb.TeamConstructorID).Error; err != nil {
+				continue
+			}
+
+			var bids []Bid
+			if len(tcb.Bids) > 0 {
+				json.Unmarshal(tcb.Bids, &bids)
+			}
+
+			for _, bid := range bids {
+				var bidderPlayer models.Player
+				if err := database.DB.First(&bidderPlayer, bid.PlayerID).Error; err != nil {
+					continue
+				}
+
+				offer := map[string]interface{}{
+					"id":          tcb.ID,
+					"type":        "team_constructor",
+					"name":        team.Name,
+					"team":        team.Name,
+					"image_url":   team.ImageURL,
+					"bidder_id":   bid.PlayerID,
+					"bidder_name": bidderPlayer.Name,
+					"offer_value": bid.Valor,
+					"received_at": time.Now(),
+				}
+				receivedOffers = append(receivedOffers, offer)
+			}
+		}
+
+		c.JSON(200, gin.H{"offers": receivedOffers})
+	})
+
+	// Endpoint para aceptar o rechazar una oferta
+	router.POST("/api/offer/respond", authMiddleware(), func(c *gin.Context) {
+		var req struct {
+			ItemType   string  `json:"item_type"`
+			ItemID     uint    `json:"item_id"`
+			LeagueID   uint    `json:"league_id"`
+			BidderID   uint    `json:"bidder_id"`
+			OfferValue float64 `json:"offer_value"`
+			Action     string  `json:"action"` // "accept" o "reject"
+		}
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(400, gin.H{"error": "Datos inválidos"})
+			return
+		}
+		userID := c.GetUint("user_id")
+
+		// Verificar que el usuario es el propietario del elemento
+		var isOwner bool
+		switch req.ItemType {
+		case "pilot":
+			var pbl models.PilotByLeague
+			if err := database.DB.First(&pbl, req.ItemID).Error; err != nil {
+				c.JSON(404, gin.H{"error": "Elemento no encontrado"})
+				return
+			}
+			isOwner = pbl.OwnerID == userID
+		case "track_engineer":
+			var teb models.TrackEngineerByLeague
+			if err := database.DB.First(&teb, req.ItemID).Error; err != nil {
+				c.JSON(404, gin.H{"error": "Elemento no encontrado"})
+				return
+			}
+			isOwner = teb.OwnerID == userID
+		case "chief_engineer":
+			var ceb models.ChiefEngineerByLeague
+			if err := database.DB.First(&ceb, req.ItemID).Error; err != nil {
+				c.JSON(404, gin.H{"error": "Elemento no encontrado"})
+				return
+			}
+			isOwner = ceb.OwnerID == userID
+		case "team_constructor":
+			var tcb models.TeamConstructorByLeague
+			if err := database.DB.First(&tcb, req.ItemID).Error; err != nil {
+				c.JSON(404, gin.H{"error": "Elemento no encontrado"})
+				return
+			}
+			isOwner = tcb.OwnerID == userID
+		default:
+			c.JSON(400, gin.H{"error": "Tipo de elemento no válido"})
+			return
+		}
+
+		if !isOwner {
+			c.JSON(403, gin.H{"error": "No eres el propietario de este elemento"})
+			return
+		}
+
+		if req.Action == "accept" {
+			// Verificar que el comprador tiene suficiente dinero
+			var bidderLeague models.PlayerByLeague
+			if err := database.DB.Where("player_id = ? AND league_id = ?", req.BidderID, req.LeagueID).First(&bidderLeague).Error; err != nil {
+				c.JSON(404, gin.H{"error": "Comprador no encontrado"})
+				return
+			}
+
+			if bidderLeague.Money < req.OfferValue {
+				c.JSON(400, gin.H{"error": "El comprador no tiene suficiente dinero"})
+				return
+			}
+
+			// Transferir propiedad y dinero
+			switch req.ItemType {
+			case "pilot":
+				var pbl models.PilotByLeague
+				database.DB.First(&pbl, req.ItemID)
+				pbl.OwnerID = req.BidderID
+				// Limpiar ofertas
+				pbl.Bids = []byte("[]")
+				database.DB.Save(&pbl)
+			case "track_engineer":
+				var teb models.TrackEngineerByLeague
+				database.DB.First(&teb, req.ItemID)
+				teb.OwnerID = req.BidderID
+				teb.Bids = []byte("[]")
+				database.DB.Save(&teb)
+			case "chief_engineer":
+				var ceb models.ChiefEngineerByLeague
+				database.DB.First(&ceb, req.ItemID)
+				ceb.OwnerID = req.BidderID
+				ceb.Bids = []byte("[]")
+				database.DB.Save(&ceb)
+			case "team_constructor":
+				var tcb models.TeamConstructorByLeague
+				database.DB.First(&tcb, req.ItemID)
+				tcb.OwnerID = req.BidderID
+				tcb.Bids = []byte("[]")
+				database.DB.Save(&tcb)
+			}
+
+			// Actualizar dinero
+			bidderLeague.Money -= req.OfferValue
+			database.DB.Save(&bidderLeague)
+
+			var ownerLeague models.PlayerByLeague
+			database.DB.Where("player_id = ? AND league_id = ?", userID, req.LeagueID).First(&ownerLeague)
+			ownerLeague.Money += req.OfferValue
+			database.DB.Save(&ownerLeague)
+
+			c.JSON(200, gin.H{"message": "Oferta aceptada correctamente"})
+		} else if req.Action == "reject" {
+			// Solo limpiar la oferta específica del array de bids
+			switch req.ItemType {
+			case "pilot":
+				var pbl models.PilotByLeague
+				database.DB.First(&pbl, req.ItemID)
+				var bids []Bid
+				if len(pbl.Bids) > 0 {
+					json.Unmarshal(pbl.Bids, &bids)
+				}
+				// Remover la oferta específica
+				var newBids []Bid
+				for _, bid := range bids {
+					if !(bid.PlayerID == req.BidderID && bid.Valor == req.OfferValue) {
+						newBids = append(newBids, bid)
+					}
+				}
+				bidsJSON, _ := json.Marshal(newBids)
+				pbl.Bids = bidsJSON
+				database.DB.Save(&pbl)
+			case "track_engineer":
+				var teb models.TrackEngineerByLeague
+				database.DB.First(&teb, req.ItemID)
+				var bids []Bid
+				if len(teb.Bids) > 0 {
+					json.Unmarshal(teb.Bids, &bids)
+				}
+				var newBids []Bid
+				for _, bid := range bids {
+					if !(bid.PlayerID == req.BidderID && bid.Valor == req.OfferValue) {
+						newBids = append(newBids, bid)
+					}
+				}
+				bidsJSON, _ := json.Marshal(newBids)
+				teb.Bids = bidsJSON
+				database.DB.Save(&teb)
+			case "chief_engineer":
+				var ceb models.ChiefEngineerByLeague
+				database.DB.First(&ceb, req.ItemID)
+				var bids []Bid
+				if len(ceb.Bids) > 0 {
+					json.Unmarshal(ceb.Bids, &bids)
+				}
+				var newBids []Bid
+				for _, bid := range bids {
+					if !(bid.PlayerID == req.BidderID && bid.Valor == req.OfferValue) {
+						newBids = append(newBids, bid)
+					}
+				}
+				bidsJSON, _ := json.Marshal(newBids)
+				ceb.Bids = bidsJSON
+				database.DB.Save(&ceb)
+			case "team_constructor":
+				var tcb models.TeamConstructorByLeague
+				database.DB.First(&tcb, req.ItemID)
+				var bids []Bid
+				if len(tcb.Bids) > 0 {
+					json.Unmarshal(tcb.Bids, &bids)
+				}
+				var newBids []Bid
+				for _, bid := range bids {
+					if !(bid.PlayerID == req.BidderID && bid.Valor == req.OfferValue) {
+						newBids = append(newBids, bid)
+					}
+				}
+				bidsJSON, _ := json.Marshal(newBids)
+				tcb.Bids = bidsJSON
+				database.DB.Save(&tcb)
+			}
+
+			c.JSON(200, gin.H{"message": "Oferta rechazada correctamente"})
+		} else {
+			c.JSON(400, gin.H{"error": "Acción no válida"})
+		}
 	})
 
 	port := os.Getenv("PORT")
@@ -6576,7 +7396,6 @@ func engineerNameFromImageURL(imageURL string) string {
 	return name
 }
 
-// returnUserItemsToLeague devuelve todos los fichajes de un usuario al mercado de la liga
 func returnUserItemsToLeague(userID uint, leagueID uint) error {
 	log.Printf("[DEVOLVER FICHAJES] Devolviendo fichajes del usuario %d a la liga %d", userID, leagueID)
 

@@ -1272,7 +1272,8 @@ export default function TeamPilotsPage() {
           Limpiar Alineación
         </Button>
         <Button 
-          className="px-8"
+          className="px-8 border-2 border-[#9D4EDD] text-[#9D4EDD] hover:bg-[#9D4EDD] hover:text-white transition-colors duration-200"
+          style={{ fontWeight: 600 }}
           onClick={saveLineup}
           disabled={savingLineup}
         >

@@ -12,15 +12,26 @@ import { Avatar, AvatarImage, AvatarFallback } from '../components/ui/avatar';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '../components/ui/tabs';
 
 // Icons
-import { Clock, Users, Settings, TrendingUp, Search, Filter, Plus, Trash2, X, User } from 'lucide-react';
+import { Clock, Users, Settings, TrendingUp, Search, Filter, Plus, Trash2, X } from 'lucide-react';
 
 // Components
 import DriverRaceCard from '../components/DriverRaceCard';
 import EngineerCard from '../components/EngineerCard';
 import TeamCard from '../components/TeamCard';
+import TextField from '@mui/material/TextField';
+import MuiTabs from '@mui/material/Tabs';
+import Tab from '@mui/material/Tab';
+import ButtonGroup from '@mui/material/ButtonGroup';
+import Menu from '@mui/material/Menu';
+import MenuItem from '@mui/material/MenuItem';
+import DialogActions from '@mui/material/DialogActions';
 import BidActionsMenu from '../components/BidActionsMenu';
 import EditBidDialog from '../components/EditBidDialog';
 import DeleteBidDialog from '../components/DeleteBidDialog';
+
+// Material-UI Components (legacy - some still in use)
+import Box from '@mui/material/Box';
+import Typography from '@mui/material/Typography';
 
 // Helper function
 const getItemType = (item) => {
@@ -233,8 +244,6 @@ export default function MarketPage() {
         setSnackbar({ open: true, message: 'Ofertas de la FIA generadas correctamente', severity: 'success' });
         // Actualizar datos sin cambiar de página
         fetchOps(); // Recargar elementos en venta
-        fetchMyBids(); // Recargar pujas propias
-        fetchMySales(); // Recargar ventas propias
       } else {
         setSnackbar({ open: true, message: data.error || 'Error al generar ofertas de la FIA', severity: 'error' });
       }
@@ -252,8 +261,6 @@ export default function MarketPage() {
         setSnackbar({ open: true, message: 'Ofertas de la FIA para elementos con propietario generadas correctamente', severity: 'success' });
         // Actualizar datos sin cambiar de página
         fetchOps(); // Recargar elementos en venta
-        fetchMyBids(); // Recargar pujas propias
-        fetchMySales(); // Recargar ventas propias
       } else {
         setSnackbar({ open: true, message: data.error || 'Error al generar ofertas de la FIA', severity: 'error' });
       }
@@ -907,27 +914,13 @@ export default function MarketPage() {
       const offersData = await offersResponse.json();
       console.log('Received offers data:', offersData);
       
-      // Combinar elementos en venta con ofertas recibidas y ofertas de la FIA
-      const salesWithOffers = (salesData.sales || []).map(sale => {
-        const playerOffers = (offersData.offers || []).filter(offer => 
+      // Combinar elementos en venta con ofertas recibidas
+      const salesWithOffers = (salesData.sales || []).map(sale => ({
+        ...sale,
+        received_offers: (offersData.offers || []).filter(offer => 
           offer.id === sale.id && offer.type === sale.type
-        );
-        
-        // Agregar oferta de la FIA si existe y no ha expirado
-        const fiaOffer = sale.league_offer_value && sale.league_offer_expires_at && 
-          new Date(sale.league_offer_expires_at) > new Date() ? {
-            id: `fia-${sale.id}`,
-            amount: sale.league_offer_value,
-            type: 'fia',
-            expires_at: sale.league_offer_expires_at,
-            from: 'FIA'
-          } : null;
-        
-        return {
-          ...sale,
-          received_offers: fiaOffer ? [fiaOffer, ...playerOffers] : playerOffers
-        };
-      });
+        )
+      }));
       
       setMySales(salesWithOffers);
     } catch (err) {
@@ -1149,8 +1142,7 @@ export default function MarketPage() {
   }
 
   return (
-    <>
-      <div className="min-h-screen bg-background p-4">
+    <div className="min-h-screen bg-background p-4">
       {/* Header */}
       <div className="mb-6">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
@@ -1705,8 +1697,49 @@ export default function MarketPage() {
                       </div>
                     ) : (
                       <div className="space-y-4">
-                        {mySales.map((sale) => (
-                          <>
+                        {mySales.map((sale) => {
+                          // Determinar el tipo de elemento para mostrar la información correcta
+                          const isPilot = sale.type === 'pilot';
+                          const isTrackEngineer = sale.type === 'track_engineer';
+                          const isChiefEngineer = sale.type === 'chief_engineer';
+                          const isTeam = sale.type === 'team_constructor';
+                          
+                          const displayName = isPilot ? sale.driver_name : sale.name;
+                          const displayTeam = sale.team;
+                          const displayRole = isPilot ? 'Piloto' : 
+                                            isTrackEngineer ? 'Ing. Pista' : 
+                                            isChiefEngineer ? 'Ing. Jefe' : 'Equipo';
+                          
+                          // Función para obtener nombre corto (10-12 caracteres)
+                          const getShortName = (fullName) => {
+                            if (!fullName) return '??';
+                            const parts = fullName.trim().split(' ');
+                            if (parts.length === 1) return parts[0].substring(0, 12);
+                            const firstName = parts[0];
+                            const lastName = parts.slice(1).join(' ');
+                            const combined = `${firstName} ${lastName}`;
+                            return combined.length <= 12 ? combined : combined.substring(0, 12);
+                          };
+                          
+                          // Determinar la URL de imagen correcta según el tipo
+                          let imageUrl = '';
+                          if (isPilot) {
+                            imageUrl = getImageUrl(sale, 'pilot');
+                          } else if (isTrackEngineer || isChiefEngineer) {
+                            imageUrl = getImageUrl(sale, isTrackEngineer ? 'track_engineer' : 'chief_engineer');
+                          } else if (isTeam) {
+                            imageUrl = getImageUrl(sale, 'team_constructor');
+                          }
+                          
+                          // Obtener color del equipo
+                          const teamColor = getTeamColor(displayTeam);
+                          
+                          // Determinar letra del badge
+                          const badgeLetter = isPilot ? 'P' : 
+                                            isTrackEngineer ? 'T' : 
+                                            isChiefEngineer ? 'C' : 'E';
+                          
+                          return (
                             <div key={sale.id} className="bg-surface p-6 rounded-lg border border-border">
                               <div className="flex items-start gap-4">
                                 {/* Badge y Avatar en columna */}
@@ -1740,6 +1773,7 @@ export default function MarketPage() {
                                     €{Number(sale.venta || sale.price).toLocaleString('es-ES')}
                                   </p>
                                 </div>
+                                
                                 {/* Información y botón */}
                                 <div className="flex-1 min-w-0 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                                   <div className="min-w-0">
@@ -1747,6 +1781,7 @@ export default function MarketPage() {
                                     <p className="text-text-secondary text-sm truncate">{displayTeam}</p>
                                     <p className="text-accent-main text-xs mt-1">{displayRole}</p>
                                   </div>
+                                  
                                   {/* Botón */}
                                   <div className="flex-shrink-0">
                                     {(() => {
@@ -1820,6 +1855,7 @@ export default function MarketPage() {
                                       );
                                     })()}
                                   </div>
+                                  
                                   {/* Mostrar ofertas recibidas si las hay */}
                                   {sale.received_offers && sale.received_offers.length > 0 && (
                                     <div className="mt-2">
@@ -1876,11 +1912,12 @@ export default function MarketPage() {
                                       )}
                                     </div>
                                   )}
+                                  </div>
                                 </div>
                               </div>
                             </div>
-                          </>
-                        ))}
+                          );
+                        })}
                       </div>
                     )}
                   </div>
@@ -2174,14 +2211,11 @@ export default function MarketPage() {
       />
 
       {/* Diálogo de confirmación para quitar del mercado */}
-      <Dialog open={openRemoveFromMarketDialog} onOpenChange={setOpenRemoveFromMarketDialog}>
-        <DialogContent className="max-w-md mx-auto bg-surface border border-border">
-          <DialogHeader className="text-center pb-4">
-            <DialogTitle className="text-text-primary text-h3 font-bold">
-              Confirmar retirada
-            </DialogTitle>
-          </DialogHeader>
-          
+      <Dialog open={openRemoveFromMarketDialog} onClose={() => setOpenRemoveFromMarketDialog(false)} maxWidth="xs" fullWidth>
+        <DialogTitle sx={{ background: '#1a1a1a', color: '#fff', textAlign: 'center' }}>
+          Confirmar retirada
+        </DialogTitle>
+        <DialogContent sx={{ background: '#0a0a0a', p: 3 }}>
           {selectedSalePilot && (() => {
             // Determinar datos según el tipo
             const isPilot = selectedSalePilot.type === 'pilot';
@@ -2203,45 +2237,48 @@ export default function MarketPage() {
             }
 
             return (
-              <div className="flex flex-col items-center space-y-4">
+              <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', mb: 2 }}>
                 <img
                   src={imageUrl} 
                   alt={displayName}
-                  className="w-20 h-20 rounded-full border-2 border-accent-main"
+                  style={{ width: 90, height: 90, borderRadius: '50%', marginBottom: 16, border: '2px solid #FFD600' }}
                   onError={(e) => {
                     e.target.style.display = 'none';
                     e.target.nextSibling.style.display = 'flex';
                   }}
                 />
-                <div className="w-20 h-20 rounded-full border-2 border-accent-main bg-surface-elevated hidden items-center justify-center text-text-primary font-bold text-lg">
+                <div style={{ width: 90, height: 90, borderRadius: '50%', marginBottom: 16, border: '2px solid #FFD600', backgroundColor: '#333', display: 'none', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 'bold', fontSize: '18px' }}>
                   {displayName?.substring(0, 2) || '??'}
                 </div>
-                <div className="text-center">
-                  <h3 className="text-text-primary font-bold text-lg">{displayName}</h3>
-                  <p className="text-text-secondary text-sm">{displayTeam}</p>
-                </div>
-                <p className="text-accent-main font-bold text-lg text-center">
-                  ¿Seguro que quieres quitar este elemento del mercado?
-                </p>
-                <div className="flex gap-3 w-full">
-                  <Button 
-                    variant="outline" 
-                    onClick={() => setOpenRemoveFromMarketDialog(false)}
-                    className="flex-1 text-text-secondary border-border hover:bg-surface hover:text-text-primary"
-                  >
-                    Cancelar
-                  </Button>
-                  <Button 
-                    variant="destructive"
-                    onClick={handleRemoveFromMarket}
-                    className="flex-1"
-                  >
-                    Quitar
-                  </Button>
-                </div>
-              </div>
-            );
-          })()}
+                <Typography sx={{ color: '#fff', fontWeight: 700, fontSize: 15, mb: 1 }}>
+                  {displayName}
+                </Typography>
+                <Typography sx={{ color: '#b0b0b0', fontSize: 13, mb: 2 }}>
+                  {displayTeam}
+                </Typography>
+                         <Typography sx={{ color: '#FFD600', fontWeight: 700, fontSize: 15, mb: 3 }}>
+               ¿Seguro que quieres quitar este elemento del mercado?
+             </Typography>
+             <Box sx={{ display: 'flex', gap: 2, width: '100%' }}>
+               <Button 
+                 variant="outline" 
+                 onClick={() => setOpenRemoveFromMarketDialog(false)}
+                 sx={{ flex: 1, color: '#fff', borderColor: '#666' }}
+               >
+                 Cancelar
+               </Button>
+               <Button 
+                 variant="contained" 
+                 color="error"
+                 onClick={handleRemoveFromMarket}
+                 sx={{ flex: 1 }}
+               >
+                 Quitar
+               </Button>
+             </Box>
+           </Box>
+           );
+         })()}
         </DialogContent>
       </Dialog>
 
@@ -2324,135 +2361,54 @@ export default function MarketPage() {
                   </div>
                 </div>
                 
-                {/* Ofertas recibidas */}
-                <div className="w-full space-y-4">
-                  {/* Oferta de la FIA (si existe) */}
-                  {selectedSalePilot.league_offer_value && (
-                    <div className="bg-surface-elevated p-4 rounded-lg border border-border">
-                      <div className="text-center mb-4">
-                        <p className="text-accent-main font-bold text-sm mb-2">OFERTA DE LA FIA</p>
-                        <p className="text-text-primary font-bold text-2xl">
-                          €{Number(selectedSalePilot.league_offer_value).toLocaleString('es-ES')}
-                        </p>
-                        {selectedSalePilot.league_offer_expires_at && (
-                          <p className="text-text-secondary text-xs mt-2">
-                            Expira: {new Date(selectedSalePilot.league_offer_expires_at).toLocaleDateString('es-ES', {
-                              year: 'numeric',
-                              month: 'short',
-                              day: 'numeric',
-                              hour: '2-digit',
-                              minute: '2-digit'
-                            })}
-                          </p>
-                        )}
-                      </div>
-                      <div className="flex gap-3">
-                        <Button 
-                          variant="outline" 
-                          onClick={handleRejectLeagueOffer}
-                          className="flex-1 text-text-secondary border-border hover:bg-surface hover:text-text-primary"
-                        >
-                          Rechazar
-                        </Button>
-                        <Button 
-                          variant="primary"
-                          onClick={handleAcceptLeagueOffer}
-                          className="flex-1 bg-state-success hover:bg-state-success hover:bg-opacity-80 text-white"
-                        >
-                          Aceptar
-                        </Button>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Ofertas de otros jugadores */}
-                  {selectedSalePilot.received_offers && selectedSalePilot.received_offers.length > 0 && (
-                    <div className="space-y-3">
-                      <p className="text-accent-main font-bold text-sm text-center">OFERTAS RECIBIDAS</p>
-                      {selectedSalePilot.received_offers.map((offer, index) => (
-                        <div key={index} className="bg-surface-elevated p-4 rounded-lg border border-border">
-                          <div className="flex items-center justify-between mb-3">
-                            <div className="flex items-center gap-3">
-                              <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
-                                offer.type === 'fia' ? 'bg-yellow-500' : 'bg-accent-main'
-                              }`}>
-                                {offer.type === 'fia' ? (
-                                  <span className="text-white font-bold text-xs">FIA</span>
-                                ) : (
-                                  <User className="h-4 w-4 text-white" />
-                                )}
-                              </div>
-                              <div>
-                                <p className="text-text-primary font-medium">
-                                  {offer.type === 'fia' ? 'FIA' : offer.bidder_name}
-                                </p>
-                                <p className="text-text-secondary text-xs">
-                                  {new Date(offer.type === 'fia' ? offer.expires_at : offer.received_at).toLocaleDateString('es-ES', {
-                                    year: 'numeric',
-                                    month: 'short',
-                                    day: 'numeric',
-                                    hour: '2-digit',
-                                    minute: '2-digit'
-                                  })}
-                                </p>
-                              </div>
-                            </div>
-                            <p className="text-text-primary font-bold text-lg">
-                              €{Number(offer.type === 'fia' ? offer.amount : offer.offer_value).toLocaleString('es-ES')}
-                            </p>
-                          </div>
-                          <div className="flex gap-3">
-                            {offer.type === 'fia' ? (
-                              <>
-                                <Button 
-                                  variant="outline" 
-                                  onClick={handleRejectLeagueOffer}
-                                  className="flex-1 text-text-secondary border-border hover:bg-surface hover:text-text-primary"
-                                >
-                                  Rechazar
-                                </Button>
-                                <Button 
-                                  variant="primary"
-                                  onClick={handleAcceptLeagueOffer}
-                                  className="flex-1 bg-state-success hover:bg-state-success hover:bg-opacity-80 text-white"
-                                >
-                                  Aceptar
-                                </Button>
-                              </>
-                            ) : (
-                              <>
-                                <Button 
-                                  variant="outline" 
-                                  onClick={() => handleRejectPlayerOffer(offer.bidder_id)}
-                                  className="flex-1 text-text-secondary border-border hover:bg-surface hover:text-text-primary"
-                                >
-                                  Rechazar
-                                </Button>
-                                <Button 
-                                  variant="primary"
-                                  onClick={() => handleAcceptPlayerOffer(offer.bidder_id, offer.offer_value)}
-                                  className="flex-1 bg-state-success hover:bg-state-success hover:bg-opacity-80 text-white"
-                                >
-                                  Aceptar
-                                </Button>
-                              </>
-                            )}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  {/* Mensaje si no hay ofertas */}
-                  {(!selectedSalePilot.league_offer_value && (!selectedSalePilot.received_offers || selectedSalePilot.received_offers.length === 0)) && (
-                    <div className="text-center py-8 space-y-2">
-                      <p className="text-text-secondary text-body">No hay ofertas recibidas</p>
-                      <p className="text-text-secondary text-small">
-                        Las ofertas aparecerán aquí cuando la FIA o otros jugadores hagan ofertas
+                {/* Oferta de la FIA (si existe) */}
+                {selectedSalePilot.league_offer_value && (
+                  <div className="w-full bg-surface-elevated p-4 rounded-lg border border-border">
+                    <div className="text-center mb-4">
+                      <p className="text-accent-main font-bold text-sm mb-2">OFERTA DE LA FIA</p>
+                      <p className="text-text-primary font-bold text-2xl">
+                        €{Number(selectedSalePilot.league_offer_value).toLocaleString('es-ES')}
                       </p>
+                      {selectedSalePilot.league_offer_expires_at && (
+                        <p className="text-text-secondary text-xs mt-2">
+                          Expira: {new Date(selectedSalePilot.league_offer_expires_at).toLocaleDateString('es-ES', {
+                            year: 'numeric',
+                            month: 'short',
+                            day: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit'
+                          })}
+                        </p>
+                      )}
                     </div>
-                  )}
-                </div>
+                    <div className="flex gap-3">
+                      <Button 
+                        variant="outline" 
+                        onClick={handleRejectLeagueOffer}
+                        className="flex-1 text-text-secondary border-border hover:bg-surface hover:text-text-primary"
+                      >
+                        Rechazar
+                      </Button>
+                      <Button 
+                        variant="primary"
+                        onClick={handleAcceptLeagueOffer}
+                        className="flex-1 bg-state-success hover:bg-state-success hover:bg-opacity-80 text-white"
+                      >
+                        Aceptar
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Mensaje si no hay ofertas */}
+                {!selectedSalePilot.league_offer_value && (
+                  <div className="text-center py-8 space-y-2">
+                    <p className="text-text-secondary text-body">No hay ofertas recibidas</p>
+                    <p className="text-text-secondary text-small">
+                      Las ofertas aparecerán aquí cuando la FIA o otros jugadores hagan ofertas
+                    </p>
+                  </div>
+                )}
               </div>
             );
           })()}
@@ -2468,7 +2424,6 @@ export default function MarketPage() {
           <p className="text-white">{snackbar.message}</p>
         </div>
       )}
-      </div>
-    </>
+    </div>
   );
 }
