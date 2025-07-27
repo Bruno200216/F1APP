@@ -19,11 +19,7 @@ function formatDate(fecha) {
 
 function getPhrase({ Tipo, PlayerName, CounterName, PilotName, PilotMode, ValorPagado }) {
   const modo = PilotMode ? PilotMode.charAt(0).toUpperCase() + PilotMode.slice(1) : '';
-  const valor = ValorPagado?.toLocaleString('es-ES', { 
-    style: 'currency', 
-    currency: 'EUR', 
-    maximumFractionDigits: 0 
-  });
+  const valor = ValorPagado ? `€${formatNumberWithDots(ValorPagado)}` : '';
   
   if (Tipo === 'fichaje') {
     return {
@@ -71,6 +67,17 @@ function getActionColor(action) {
 export default function ActivityPage() {
   const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(true);
+
+  // Función para formatear números con puntos
+  const formatNumberWithDots = (amount) => {
+    const num = Number(amount);
+    if (isNaN(num)) return '0';
+    return new Intl.NumberFormat('es-ES', {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+      useGrouping: true
+    }).format(num);
+  };
 
   useEffect(() => {
     const fetchHistory = async () => {

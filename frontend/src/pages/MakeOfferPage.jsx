@@ -65,6 +65,17 @@ export default function MakeOfferPage() {
   const [playerMoney, setPlayerMoney] = useState(0);
   const [success, setSuccess] = useState(false);
 
+  // Función para formatear números con puntos
+  const formatNumberWithDots = (amount) => {
+    const num = Number(amount);
+    if (isNaN(num)) return '0';
+    return new Intl.NumberFormat('es-ES', {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+      useGrouping: true
+    }).format(num);
+  };
+
   const itemType = searchParams.get('type');
   const itemId = searchParams.get('id');
 
@@ -114,34 +125,34 @@ export default function MakeOfferPage() {
 
       const data = await response.json();
       let itemData;
+      let baseData;
       
       switch (itemType) {
         case 'pilot':
           itemData = data.pilot_by_league;
+          baseData = data.pilot;
           break;
         case 'track_engineer':
           itemData = data.engineer;
+          baseData = data.track_engineer;
           break;
         case 'chief_engineer':
           itemData = data.engineer;
+          baseData = data.chief_engineer;
           break;
         case 'team_constructor':
           itemData = data.team;
+          baseData = data.team_constructor;
           break;
         default:
           throw new Error('Tipo de elemento no válido');
       }
       
-      if (!itemData) {
+      if (!itemData || !baseData) {
         throw new Error('Elemento no encontrado');
       }
 
       // Combinar datos del elemento base con los datos de la liga
-      const baseData = itemType === 'pilot' ? data.pilot : 
-                      itemType === 'track_engineer' ? data.track_engineer :
-                      itemType === 'chief_engineer' ? data.chief_engineer :
-                      data.team_constructor;
-      
       const combinedData = { ...baseData, ...itemData };
       setItem(combinedData);
       setOfferValue(combinedData.value?.toString() || '0');
@@ -343,7 +354,7 @@ export default function MakeOfferPage() {
                 </h2>
                 <p className="text-[#C9A9DD] text-lg mb-1">{displayTeam}</p>
                 <p className="text-[#9D4EDD] text-sm font-medium">
-                  Valor de mercado: €{Number(item.value || 0).toLocaleString('es-ES')}
+                  Valor de mercado: €{formatNumberWithDots(item.value || 0)}
                 </p>
               </div>
             </div>
@@ -384,14 +395,14 @@ export default function MakeOfferPage() {
                 <div className="flex justify-between items-center">
                   <span className="text-[#C9A9DD]">Tu saldo disponible:</span>
                   <span className="text-[#FFFFFF] font-bold">
-                    €{Number(playerMoney).toLocaleString('es-ES')}
+                    €{formatNumberWithDots(playerMoney)}
                   </span>
                 </div>
                 {offerValue && parseFloat(offerValue) > 0 && (
                   <div className="mt-2 flex justify-between items-center">
                     <span className="text-[#C9A9DD]">Saldo restante:</span>
                     <span className={`font-bold ${parseFloat(offerValue) > playerMoney ? 'text-[#EA5455]' : 'text-[#28C76F]'}`}>
-                      €{Number(playerMoney - parseFloat(offerValue)).toLocaleString('es-ES')}
+                      €{formatNumberWithDots(playerMoney - parseFloat(offerValue))}
                     </span>
                   </div>
                 )}

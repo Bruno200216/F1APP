@@ -16,6 +16,16 @@ const PlayerItemActions = ({
   isOwned = false,
   existingOffers = [] // Array de ofertas existentes del usuario
 }) => {
+  // Función para formatear números con puntos
+  const formatNumberWithDots = (amount) => {
+    const num = Number(amount);
+    if (isNaN(num)) return '0';
+    return new Intl.NumberFormat('es-ES', {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+      useGrouping: true
+    }).format(num);
+  };
   const navigate = useNavigate();
   const { selectedLeague } = useLeague();
   const [showActions, setShowActions] = useState(false);
@@ -247,7 +257,7 @@ const PlayerItemActions = ({
             }}
           >
             <User className="h-3 w-3" />
-            {existingOffer ? `Editar oferta (${existingOffer.offer_value?.toLocaleString()} €)` : 'Hacer oferta'}
+            {existingOffer ? `Editar oferta (${formatNumberWithDots(existingOffer.offer_value)} €)` : 'Hacer oferta'}
           </Button>
 
           {/* Botón de Cláusula - SOLO CUANDO EXPIRA */}
@@ -286,7 +296,7 @@ const PlayerItemActions = ({
               }}
             >
               <Lock className="h-3 w-3" />
-              Pagar cláusula ({item.clausula_value?.toLocaleString()} €)
+                              Pagar cláusula ({formatNumberWithDots(item.clausula_value)} €)
             </Button>
           )}
 
@@ -305,7 +315,7 @@ const PlayerItemActions = ({
                 <Lock className="h-3 w-3" style={{ color: '#28C76F' }} />
                 <div className="text-xs">
                   <p style={{ color: '#28C76F', fontWeight: 500 }}>
-                    Cláusula activa: {item.clausula_value?.toLocaleString()} €
+                    Cláusula activa: {formatNumberWithDots(item.clausula_value)} €
                   </p>
                   <p style={{ color: '#C9A9DD' }}>
                     Protegido hasta: {new Date(item.clausulatime).toLocaleDateString('es-ES')}
@@ -386,7 +396,7 @@ const PlayerItemActions = ({
                     className="font-bold text-base"
                     style={{ color: '#FFFFFF', fontFamily: "'Inter', 'Segoe UI', sans-serif" }}
                   >
-                    €{existingOffer.offer_value?.toLocaleString('es-ES')}
+                    €{formatNumberWithDots(existingOffer.offer_value)}
                   </p>
                   <p 
                     className="text-xs mt-1"
@@ -417,7 +427,7 @@ const PlayerItemActions = ({
                     className="font-bold text-base"
                     style={{ color: '#FFFFFF', fontFamily: "'Inter', 'Segoe UI', sans-serif" }}
                   >
-                    {Number(item.value || item.valor_global || 0).toLocaleString('es-ES')}
+                    {formatNumberWithDots(item.value || item.valor_global || 0)}
                   </span>
                 </div>
                 
@@ -432,7 +442,7 @@ const PlayerItemActions = ({
                     className="font-bold text-base"
                     style={{ color: '#FFFFFF', fontFamily: "'Inter', 'Segoe UI', sans-serif" }}
                   >
-                    {Number(item.value || item.valor_global || 0).toLocaleString('es-ES')}
+                    {formatNumberWithDots(item.value || item.valor_global || 0)}
                   </span>
                 </div>
                 
@@ -455,7 +465,7 @@ const PlayerItemActions = ({
                     variant="standard"
                     value={offerValue}
                     onChange={(e) => setOfferValue(e.target.value)}
-                    placeholder={Number(item.value || item.valor_global || 0).toLocaleString('es-ES')}
+                    placeholder={formatNumberWithDots(item.value || item.valor_global || 0)}
                     type="number"
                     inputProps={{ min: 1 }}
                     className="flex-1 text-right font-bold text-lg bg-transparent border-none"
@@ -517,7 +527,7 @@ const PlayerItemActions = ({
               className="font-semibold text-base mb-2"
               style={{ color: '#28C76F', fontFamily: "'Inter', 'Segoe UI', sans-serif" }}
             >
-              Tu saldo: {currentPlayerMoney?.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })}
+                                  Tu saldo: €{formatNumberWithDots(currentPlayerMoney)}
             </p>
 
             {/* Saldo después de la oferta */}
@@ -529,7 +539,7 @@ const PlayerItemActions = ({
                   fontFamily: "'Inter', 'Segoe UI', sans-serif"
                 }}
               >
-                Saldo después: {(currentPlayerMoney - Number(offerValue)).toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })}
+                                    Saldo después: €{formatNumberWithDots(currentPlayerMoney - Number(offerValue))}
               </p>
             )}
           </div>

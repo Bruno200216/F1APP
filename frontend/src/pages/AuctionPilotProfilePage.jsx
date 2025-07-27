@@ -34,6 +34,17 @@ export default function AuctionPilotProfilePage() {
   const [error, setError] = useState('');
   const [seconds, setSeconds] = useState(0);
 
+  // Función para formatear números con puntos
+  const formatNumberWithDots = (amount) => {
+    const num = Number(amount);
+    if (isNaN(num)) return '0';
+    return new Intl.NumberFormat('es-ES', {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+      useGrouping: true
+    }).format(num);
+  };
+
   useEffect(() => {
     const fetchAuction = async () => {
       setLoading(true);
@@ -266,7 +277,7 @@ export default function AuctionPilotProfilePage() {
               Valor Base
             </Typography>
             <Typography variant="h5" sx={{ fontWeight: 700, color: '#4CAF50' }}>
-              {auction.valor_base.toLocaleString()} €
+                              {formatNumberWithDots(auction.valor_base)} €
             </Typography>
           </Box>
           <Box sx={{ 
@@ -280,7 +291,7 @@ export default function AuctionPilotProfilePage() {
               {auction.mi_puja_maxima > 0 ? 'Mi puja máxima' : 'Puja actual'}
             </Typography>
             <Typography variant="h5" sx={{ fontWeight: 700, color: '#f44336' }}>
-              {auction.mi_puja_maxima > 0 ? auction.mi_puja_maxima.toLocaleString() : auction.puja_visible.toLocaleString()} €
+                              {auction.mi_puja_maxima > 0 ? formatNumberWithDots(auction.mi_puja_maxima) : formatNumberWithDots(auction.puja_visible)} €
             </Typography>
           </Box>
         </Box>

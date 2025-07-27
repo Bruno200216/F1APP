@@ -39,6 +39,16 @@ export default function TeamRaceCard({
   onDeleteBid, 
   bidActionsButton 
 }) {
+  // Función para formatear números con puntos
+  const formatNumberWithDots = (amount) => {
+    const num = Number(amount);
+    if (isNaN(num)) return '0';
+    return new Intl.NumberFormat('es-ES', {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+      useGrouping: true
+    }).format(num);
+  };
   const navigate = useNavigate();
   const teamColor = teamColors[team.name] || { primary: '#666666', secondary: '#444444' };
 
@@ -207,7 +217,7 @@ export default function TeamRaceCard({
               Valor:
             </Typography>
             <Typography variant="body2" sx={{ fontWeight: 700, color: '#4CAF50', fontSize: '0.9rem' }}>
-              {(team.value ?? team.valor_global ?? team.valorGlobal ?? 0).toLocaleString()} €
+              {formatNumberWithDots(team.value ?? team.valor_global ?? team.valorGlobal ?? 0)} €
             </Typography>
           </Box>
           <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>

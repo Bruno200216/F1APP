@@ -16,6 +16,17 @@ export default function ClasificationPage() {
   const [error, setError] = useState('');
   const playerId = Number(localStorage.getItem('player_id'));
 
+  // Función para formatear números con puntos
+  const formatNumberWithDots = (amount) => {
+    const num = Number(amount);
+    if (isNaN(num)) return '0';
+    return new Intl.NumberFormat('es-ES', {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+      useGrouping: true
+    }).format(num);
+  };
+
   // Fetch classification when selected league changes
   useEffect(() => {
     if (selectedLeague) {
@@ -182,7 +193,7 @@ export default function ClasificationPage() {
                           {player.name}
                         </h3>
                         <p className="text-text-secondary text-small mt-1">
-                          €{player.money?.toLocaleString('es-ES') || '0'}
+                          €{formatNumberWithDots(player.money) || '0'}
                         </p>
                       </div>
                     </div>

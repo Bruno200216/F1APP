@@ -5702,9 +5702,23 @@ func main() {
 			c.JSON(400, gin.H{"error": "Faltan parámetros id o league_id"})
 			return
 		}
+
+		// Convertir IDs a uint
+		idUint, err := strconv.ParseUint(id, 10, 64)
+		if err != nil {
+			c.JSON(400, gin.H{"error": "ID inválido"})
+			return
+		}
+		leagueIDUint, err := strconv.ParseUint(leagueID, 10, 64)
+		if err != nil {
+			c.JSON(400, gin.H{"error": "league_id inválido"})
+			return
+		}
+
+		// Buscar por track_engineer_id y league_id
 		var teb models.TrackEngineerByLeague
-		if err := database.DB.First(&teb, id).Error; err != nil {
-			log.Printf("[TRACK-ENG-PROFILE] No se encontró TrackEngineerByLeague id=%s", id)
+		if err := database.DB.Where("track_engineer_id = ? AND league_id = ?", idUint, leagueIDUint).First(&teb).Error; err != nil {
+			log.Printf("[TRACK-ENG-PROFILE] No se encontró TrackEngineerByLeague track_engineer_id=%d league_id=%d", idUint, leagueIDUint)
 			c.JSON(404, gin.H{"error": "TrackEngineerByLeague no encontrado"})
 			return
 		}
@@ -5771,8 +5785,22 @@ func main() {
 			c.JSON(400, gin.H{"error": "Faltan parámetros id o league_id"})
 			return
 		}
+
+		// Convertir IDs a uint
+		idUint, err := strconv.ParseUint(id, 10, 64)
+		if err != nil {
+			c.JSON(400, gin.H{"error": "ID inválido"})
+			return
+		}
+		leagueIDUint, err := strconv.ParseUint(leagueID, 10, 64)
+		if err != nil {
+			c.JSON(400, gin.H{"error": "league_id inválido"})
+			return
+		}
+
+		// Buscar por chief_engineer_id y league_id
 		var ceb models.ChiefEngineerByLeague
-		if err := database.DB.First(&ceb, id).Error; err != nil {
+		if err := database.DB.Where("chief_engineer_id = ? AND league_id = ?", idUint, leagueIDUint).First(&ceb).Error; err != nil {
 			c.JSON(404, gin.H{"error": "ChiefEngineerByLeague no encontrado"})
 			return
 		}
@@ -5825,13 +5853,27 @@ func main() {
 	// Endpoint para perfil de team constructor by league
 	router.GET("/api/teamconstructorsbyleague", func(c *gin.Context) {
 		id := c.Query("id")
-		// leagueID := c.Query("league_id") // Para futuras validaciones
+		leagueID := c.Query("league_id")
 		if id == "" {
 			c.JSON(400, gin.H{"error": "Falta parámetro id"})
 			return
 		}
+
+		// Convertir IDs a uint
+		idUint, err := strconv.ParseUint(id, 10, 64)
+		if err != nil {
+			c.JSON(400, gin.H{"error": "ID inválido"})
+			return
+		}
+		leagueIDUint, err := strconv.ParseUint(leagueID, 10, 64)
+		if err != nil {
+			c.JSON(400, gin.H{"error": "league_id inválido"})
+			return
+		}
+
+		// Buscar por teamconstructor_id y league_id
 		var tcb models.TeamConstructorByLeague
-		if err := database.DB.First(&tcb, id).Error; err != nil {
+		if err := database.DB.Where("teamconstructor_id = ? AND league_id = ?", idUint, leagueIDUint).First(&tcb).Error; err != nil {
 			c.JSON(404, gin.H{"error": "TeamConstructorByLeague no encontrado"})
 			return
 		}
@@ -5842,7 +5884,7 @@ func main() {
 		}
 		// Buscar pilotos asignados a este team constructor
 		var pilots []models.Pilot
-		database.DB.Where("teamconstructor_id = ?", tc.ID).Find(&pilots)
+		database.DB.Where("team = ?", tc.Name).Find(&pilots)
 		c.JSON(200, gin.H{
 			"team":             tcb,
 			"team_constructor": tc,

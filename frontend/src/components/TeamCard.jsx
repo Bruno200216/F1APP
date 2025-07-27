@@ -1,6 +1,6 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { cn, getTeamColor, formatCurrency } from '../lib/utils';
+import { cn, getTeamColor, formatCurrency, formatNumberWithDots } from '../lib/utils';
 import { Card, CardContent } from './ui/card';
 import { Avatar, AvatarImage, AvatarFallback } from './ui/avatar';
 import { Button } from './ui/button';
@@ -107,7 +107,7 @@ export default function TeamCard({
                 {team.num_bids} puja{team.num_bids !== 1 ? 's' : ''}
                 {team.my_bid && (
                   <span className="text-accent-main ml-2">
-                    (Mi puja: €{formatCurrency(team.my_bid)})
+                    (Mi puja: €{formatNumberWithDots(team.my_bid)})
                   </span>
                 )}
               </p>
@@ -121,7 +121,7 @@ export default function TeamCard({
             <div className="flex justify-between items-center">
               <span className="text-text-secondary text-small">Valor:</span>
               <span className="font-bold text-state-success text-small">
-                {formatCurrency(team.value || 0)}
+                {formatNumberWithDots(team.value || 0)}€
               </span>
             </div>
             
@@ -156,7 +156,7 @@ export default function TeamCard({
               <div className="flex justify-between items-center">
                 <span className="text-text-secondary text-small">Mi puja:</span>
                 <span className="text-accent-main font-bold text-small">
-                  {formatCurrency(team.my_bid)}
+                  {formatNumberWithDots(team.my_bid)}€
                 </span>
               </div>
             )}

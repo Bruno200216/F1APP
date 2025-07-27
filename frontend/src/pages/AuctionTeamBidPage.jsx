@@ -39,6 +39,17 @@ export default function AuctionTeamBidPage() {
   const [saldoLoading, setSaldoLoading] = useState(false);
   const [team, setTeam] = useState(null);
 
+  // Función para formatear números con puntos
+  const formatNumberWithDots = (amount) => {
+    const num = Number(amount);
+    if (isNaN(num)) return '0';
+    return new Intl.NumberFormat('es-ES', {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+      useGrouping: true
+    }).format(num);
+  };
+
   useEffect(() => {
     const fetchTeamAndAuction = async () => {
       setLoading(true);
@@ -51,11 +62,20 @@ export default function AuctionTeamBidPage() {
         if (!teamRes.ok) throw new Error('Equipo no encontrado');
         
         // Los datos vienen según la estructura del backend
-        const teamMainData = teamData.team_constructor;
+        const teamsArray = teamData.team_constructors;
+        if (!teamsArray || teamsArray.length === 0) {
+          throw new Error('Datos del equipo no encontrados');
+        }
+        
+        const teamMainData = teamsArray[0];
+        
+        // Combinar los datos del equipo principal con los datos de la liga
         setTeam({
           ...teamMainData,
-          // Agregar datos de la relación por liga para cláusulas, etc.
-          team_by_league: teamData.team
+          // Asegurar que los campos principales estén disponibles
+          Name: teamMainData.name,
+          Value: teamMainData.value,
+          ImageURL: teamMainData.image_url
         });
         
         // Intentar obtener subasta existente
@@ -212,11 +232,11 @@ export default function AuctionTeamBidPage() {
       <Box sx={{ width: '100%', maxWidth: 320, mb: 2 }}>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
           <Typography sx={{ color: '#E0AAFF', fontWeight: 700, fontSize: 15 }}>VALOR DE MERCADO</Typography>
-          <Typography sx={{ color: '#fff', fontWeight: 700, fontSize: 15 }}>{Number(team.Value).toLocaleString('es-ES')}</Typography>
+          <Typography sx={{ color: '#fff', fontWeight: 700, fontSize: 15 }}>{formatNumberWithDots(team.Value)}</Typography>
         </Box>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
           <Typography sx={{ color: '#28C76F', fontWeight: 700, fontSize: 15 }}>PRECIO SOLICITADO</Typography>
-          <Typography sx={{ color: '#fff', fontWeight: 700, fontSize: 15 }}>{Number(team.Value).toLocaleString('es-ES')}</Typography>
+          <Typography sx={{ color: '#fff', fontWeight: 700, fontSize: 15 }}>{formatNumberWithDots(team.Value)}</Typography>
         </Box>
         <Box sx={{ display: 'flex', alignItems: 'center', background: '#1E1A1E', borderRadius: 2, px: 2, py: 1, mb: 2, border: '1px solid #9D4EDD' }}>
           <Typography sx={{ color: '#C9A9DD', fontWeight: 700, mr: 1 }}>€</Typography>
@@ -226,7 +246,7 @@ export default function AuctionTeamBidPage() {
             onChange={e => setAmount(e.target.value)}
             InputProps={{ disableUnderline: true, style: { color: '#fff', fontWeight: 700, fontSize: 18, background: 'transparent' } }}
             sx={{ flex: 1, input: { textAlign: 'right' } }}
-            placeholder={Number(team.Value).toLocaleString('es-ES')}
+                                placeholder={formatNumberWithDots(team.Value)}
             type="number"
             inputProps={{ min: minBid }}
           />
@@ -258,7 +278,7 @@ export default function AuctionTeamBidPage() {
         </Typography>
       )}
       <Typography sx={{ color: '#9D4EDD', fontWeight: 700, fontSize: 16, mt: 2, mb: 1 }}>
-        Tu saldo: {saldoLoading ? <CircularProgress size={18} /> : saldo?.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })}
+        Tu saldo: {saldoLoading ? <CircularProgress size={18} /> : `€${formatNumberWithDots(saldo)}`}
       </Typography>
       {msg && <Alert severity="success" sx={{ mt: 2 }}>{msg}</Alert>}
       {error && <Alert severity="error" sx={{ mt: 2 }}>{error}</Alert>}

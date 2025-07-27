@@ -22,6 +22,17 @@ export default function EngineerActionsMenu({ engineer, onSell, onAcceptOffer, o
   const [loadingSell, setLoadingSell] = useState(false);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
 
+  // Función para formatear números con puntos
+  const formatNumberWithDots = (amount) => {
+    const num = Number(amount);
+    if (isNaN(num)) return '0';
+    return new Intl.NumberFormat('es-ES', {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+      useGrouping: true
+    }).format(num);
+  };
+
   const handleActionsClick = (event) => {
     setAnchorEl(event.currentTarget);
   };
@@ -199,7 +210,7 @@ export default function EngineerActionsMenu({ engineer, onSell, onAcceptOffer, o
         {hasFIAOffer && (
           <>
             <MenuItem onClick={handleAcceptOffer}>
-              Aceptar oferta FIA ({engineer.league_offer_value?.toLocaleString()}€)
+                              Aceptar oferta FIA ({formatNumberWithDots(engineer.league_offer_value)}€)
             </MenuItem>
             <MenuItem onClick={handleRejectOffer}>
               Rechazar oferta FIA
@@ -222,7 +233,7 @@ export default function EngineerActionsMenu({ engineer, onSell, onAcceptOffer, o
                 style={{ width: 90, height: 90, borderRadius: '50%', marginBottom: 16 }}
               />
               <Typography sx={{ color: '#FFD600', fontWeight: 700, fontSize: 15 }}>VALOR DE MERCADO</Typography>
-              <Typography sx={{ color: '#fff', fontWeight: 700, fontSize: 15, mb: 1 }}>{Number(engineer.value).toLocaleString('es-ES')}</Typography>
+                              <Typography sx={{ color: '#fff', fontWeight: 700, fontSize: 15, mb: 1 }}>{formatNumberWithDots(engineer.value)}</Typography>
               <Typography sx={{ color: '#b0b0b0', fontWeight: 700, fontSize: 15, mb: 2 }}>
                 {engineer.type === 'track_engineer' ? 'Ingeniero de Pista' : 'Ingeniero Jefe'}
               </Typography>
@@ -234,7 +245,7 @@ export default function EngineerActionsMenu({ engineer, onSell, onAcceptOffer, o
                   onChange={e => setSellPrice(e.target.value)}
                   InputProps={{ disableUnderline: true, style: { color: '#fff', fontWeight: 700, fontSize: 18, background: 'transparent' } }}
                   sx={{ flex: 1, input: { textAlign: 'right' } }}
-                  placeholder={Number(engineer.value).toLocaleString('es-ES')}
+                                      placeholder={formatNumberWithDots(engineer.value)}
                   type="number"
                   inputProps={{ min: 1 }}
                   disabled={loadingSell}

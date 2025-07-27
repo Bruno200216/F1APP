@@ -165,6 +165,17 @@ export default function TeamPilotsPage() {
   const [snackbarTimeout, setSnackbarTimeout] = useState(null);
   const [loadingSell, setLoadingSell] = useState(false);
 
+  // Función para formatear números con puntos
+  const formatNumberWithDots = (amount) => {
+    const num = Number(amount);
+    if (isNaN(num)) return '0';
+    return new Intl.NumberFormat('es-ES', {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+      useGrouping: true
+    }).format(num);
+  };
+
   // Función para mostrar snackbar con timeout automático
   const showSnackbar = (message, severity = 'success') => {
     // Limpiar timeout anterior si existe
@@ -1039,7 +1050,7 @@ export default function TeamPilotsPage() {
             <p className={`text-small font-semibold ${
               isAligned ? 'text-accent-main' : 'text-accent-main'
             }`}>
-              €{(item.value || item.Value || 0).toLocaleString()}
+                                €{formatNumberWithDots(item.value || item.Value || 0)}
             </p>
           </div>
         </div>
@@ -1359,7 +1370,7 @@ export default function TeamPilotsPage() {
                     </div>
                     <div className="text-right mr-4">
                       <p className="text-accent-main font-bold text-body">
-                        €{Number(driver.value).toLocaleString('es-ES')}
+                        €{formatNumberWithDots(driver.value)}
                       </p>
                       {driver.clausula_value && (
                         <p className="text-state-error text-caption font-medium">
@@ -1453,7 +1464,7 @@ export default function TeamPilotsPage() {
                     </div>
                     <div className="text-right mr-4">
                       <p className="text-accent-main font-bold text-body">
-                        €{Number(engineer.value).toLocaleString('es-ES')}
+                        €{formatNumberWithDots(engineer.value)}
                       </p>
                     </div>
                     <Button
@@ -1542,7 +1553,7 @@ export default function TeamPilotsPage() {
                     </div>
                     <div className="text-right mr-4">
                       <p className="text-accent-main font-bold text-body">
-                        €{Number(engineer.value).toLocaleString('es-ES')}
+                        €{formatNumberWithDots(engineer.value)}
                       </p>
                     </div>
                     <Button
@@ -1630,7 +1641,7 @@ export default function TeamPilotsPage() {
                     </div>
                     <div className="text-right mr-4">
                       <p className="text-accent-main font-bold text-body">
-                        €{Number(team.value).toLocaleString('es-ES')}
+                        €{formatNumberWithDots(team.value)}
                       </p>
                     </div>
                     <Button
@@ -1973,7 +1984,7 @@ export default function TeamPilotsPage() {
                 <div className="space-y-1">
                   <p className="text-accent-main font-bold text-small">VALOR DE MERCADO</p>
                   <p className="text-text-primary font-bold text-body">
-                    €{Number(selectedDriver.value).toLocaleString('es-ES')}
+                    €{formatNumberWithDots(selectedDriver.value)}
                   </p>
                 </div>
                 {selectedItemType === 'pilot' && selectedDriver.clausula && (
@@ -1993,7 +2004,7 @@ export default function TeamPilotsPage() {
                     type="number"
                     value={sellPrice}
                     onChange={(e) => setSellPrice(e.target.value)}
-                    placeholder={Number(selectedDriver.value).toLocaleString('es-ES')}
+                    placeholder={formatNumberWithDots(selectedDriver.value)}
                     className="border-none bg-transparent text-text-primary font-bold text-right text-body flex-1"
                     disabled={loadingSell}
                     min="1"
@@ -2080,7 +2091,7 @@ export default function TeamPilotsPage() {
                       {/* Valor */}
                       <div className="text-right">
                         <p className="selection-item-value">
-                          €{(item.value || item.Value || 0).toLocaleString()}
+                          €{formatNumberWithDots(item.value || item.Value || 0)}
                         </p>
                         {item.clausula && (
                           <p className="selection-item-clausula">

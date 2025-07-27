@@ -21,6 +21,17 @@ export default function AuctionPilotCard({
 }) {
   const [seconds, setSeconds] = useState(tiempoRestante);
 
+  // Función para formatear números con puntos
+  const formatNumberWithDots = (amount) => {
+    const num = Number(amount);
+    if (isNaN(num)) return '0';
+    return new Intl.NumberFormat('es-ES', {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+      useGrouping: true
+    }).format(num);
+  };
+
   useEffect(() => {
     setSeconds(tiempoRestante);
   }, [tiempoRestante]);
@@ -55,9 +66,9 @@ export default function AuctionPilotCard({
       </Box>
       <Box sx={{ textAlign: 'right', minWidth: 120 }}>
         <Typography variant="body2" color="#b0b0b0">Valor</Typography>
-        <Typography variant="h6" sx={{ fontWeight: 700, color: '#fff' }}>{valorBase.toLocaleString()} €</Typography>
+        <Typography variant="h6" sx={{ fontWeight: 700, color: '#fff' }}>{formatNumberWithDots(valorBase)} €</Typography>
         <Typography variant="body2" color="#b0b0b0">Puja actual</Typography>
-        <Typography variant="h6" sx={{ fontWeight: 700, color: '#f44336' }}>{pujaActual.toLocaleString()} €</Typography>
+        <Typography variant="h6" sx={{ fontWeight: 700, color: '#f44336' }}>{formatNumberWithDots(pujaActual)} €</Typography>
       </Box>
       {showBidButton && (
         <Button

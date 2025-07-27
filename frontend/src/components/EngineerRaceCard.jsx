@@ -5,7 +5,7 @@ import { Avatar, AvatarImage, AvatarFallback } from '../components/ui/avatar';
 import { Badge } from '../components/ui/badge';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '../components/ui/tabs';
 import { Lock } from 'lucide-react';
-import { getTeamColor, cn } from '../lib/utils';
+import { getTeamColor, cn, formatNumberWithDots } from '../lib/utils';
 
 export default function EngineerRaceCard({ 
   engineer, 
@@ -66,7 +66,7 @@ export default function EngineerRaceCard({
                   {type === 'chief_engineer' ? 'Ingeniero Jefe' : 'Ingeniero de Pista'}
                 </Badge>
                 <Badge variant="success" className="font-bold">
-                  {(engineer.value || 0).toLocaleString()} €
+                  {formatNumberWithDots(engineer.value || 0)} €
                 </Badge>
                 {clausulaDias && (
                   <Badge variant="error" className="flex items-center gap-1">

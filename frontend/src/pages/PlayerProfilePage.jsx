@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useLeague } from '../context/LeagueContext';
-import { cn, formatCurrency, getTeamColor } from '../lib/utils';
+import { cn, formatCurrency, formatNumberWithDots, getTeamColor } from '../lib/utils';
 
 // UI Components
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
@@ -129,13 +129,15 @@ export default function PlayerProfilePage() {
         navigate(`/profile/${item.pilot_id}?league_id=${selectedLeague.id}`);
         break;
       case 'track_engineer':
-        navigate(`/profile/engineer/track/${item.track_engineer_id}?league_id=${selectedLeague.id}`);
+        // Usar el ID del registro TrackEngineerByLeague, no el ID del TrackEngineer base
+        navigate(`/profile/engineer/track/${item.id}?league_id=${selectedLeague.id}`);
         break;
       case 'chief_engineer':
-        navigate(`/profile/engineer/chief/${item.chief_engineer_id}?league_id=${selectedLeague.id}`);
+        // Usar el ID del registro ChiefEngineerByLeague, no el ID del ChiefEngineer base
+        navigate(`/profile/engineer/chief/${item.id}?league_id=${selectedLeague.id}`);
         break;
       case 'team_constructor':
-        navigate(`/profile/team/${item.team_constructor_id}?league_id=${selectedLeague.id}`);
+        navigate(`/profile/team/${item.id}?league_id=${selectedLeague.id}`);
         break;
     }
   };
@@ -280,7 +282,7 @@ export default function PlayerProfilePage() {
                 {player.name}
               </h1>
               <p className="text-text-secondary text-small">
-                €{player.money?.toLocaleString('es-ES') || '0'}
+                €{formatNumberWithDots(player.money) || '0'}
               </p>
             </div>
           </div>

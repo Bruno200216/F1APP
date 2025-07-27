@@ -8,6 +8,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '../components/ui/tabs'
 import { ChevronLeft, ChevronRight, X, Lock } from 'lucide-react';
 import { useLeague } from '../context/LeagueContext';
 import { getTeamColor } from '../lib/utils';
+import PlayerItemActions from '../components/PlayerItemActions';
 
 export default function EngineerProfilePage() {
   const { type, id } = useParams();
@@ -21,7 +22,19 @@ export default function EngineerProfilePage() {
   const [error, setError] = useState('');
   const [grandPrix, setGrandPrix] = useState([]);
   const [selectedGP, setSelectedGP] = useState(0);
+  const [playerMoney, setPlayerMoney] = useState(0);
   const gpRefs = useRef([]);
+
+  // Función para formatear números con puntos
+  const formatNumberWithDots = (amount) => {
+    const num = Number(amount);
+    if (isNaN(num)) return '0';
+    return new Intl.NumberFormat('es-ES', {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+      useGrouping: true
+    }).format(num);
+  };
 
   useEffect(() => {
     if (!id || !type || !selectedLeague?.id) return;
@@ -31,9 +44,22 @@ export default function EngineerProfilePage() {
       .then(res => res.json())
       .then(data => {
         if (!data || data.error) throw new Error(data?.error || 'No data');
-        setEngineer(data.engineer || data);
-        setTrackEngineer(data.track_engineer || null);
-        setChiefEngineer(data.chief_engineer || null);
+        
+        // Los datos vienen en formato { engineer: {...}, track_engineer: {...}, pilots: [...] }
+        const engineerData = data.engineer;
+        const baseEngineerData = type === 'track' ? data.track_engineer : data.chief_engineer;
+        
+        if (engineerData && baseEngineerData) {
+          // Combinar datos del engineer (liga) con los datos base
+          const combinedData = { ...baseEngineerData, ...engineerData };
+          setEngineer(combinedData);
+          setTrackEngineer(type === 'track' ? combinedData : null);
+          setChiefEngineer(type === 'chief' ? combinedData : null);
+        } else {
+          setEngineer(null);
+          setTrackEngineer(null);
+          setChiefEngineer(null);
+        }
         setPilots(data.pilots || []);
       })
       .catch(err => setError(err.message))
@@ -46,19 +72,36 @@ export default function EngineerProfilePage() {
       .then(data => setGrandPrix(data.gps || []));
   }, []);
 
+  useEffect(() => {
+    // Obtener dinero del jugador
+    const fetchPlayerMoney = async () => {
+      try {
+        const player_id = localStorage.getItem('player_id');
+        if (player_id && selectedLeague) {
+          const res = await fetch(`/api/playerbyleague?player_id=${player_id}&league_id=${selectedLeague.id}`);
+          const data = await res.json();
+          setPlayerMoney(data.player_by_league?.money ?? 0);
+        }
+      } catch (e) {
+        setPlayerMoney(0);
+      }
+    };
+    fetchPlayerMoney();
+  }, [selectedLeague]);
+
   if (loading) return <div className="min-h-screen bg-background flex items-center justify-center"><p className="text-body text-text-primary">Cargando perfil...</p></div>;
   if (error || !engineer) return <div className="min-h-screen bg-background flex items-center justify-center"><h2 className="text-h2 font-semibold text-state-error">{error || 'Ingeniero no encontrado'}</h2></div>;
 
   // Datos principales
   const data = type === 'track' ? trackEngineer : chiefEngineer;
   if (!data) return <div className="min-h-screen bg-background flex items-center justify-center"><h2 className="text-h2 font-semibold text-state-error">Ingeniero no encontrado</h2></div>;
-  const teamColor = getTeamColor(data.Team);
+  const teamColor = getTeamColor(data.team || '');
 
   // Parse points_by_gp (puede ser json string o array)
   let pointsByGP = [];
   try {
-    if (data.PointsByGP) {
-      pointsByGP = typeof data.PointsByGP === 'string' ? JSON.parse(data.PointsByGP) : data.PointsByGP;
+    if (data.points_by_gp) {
+      pointsByGP = typeof data.points_by_gp === 'string' ? JSON.parse(data.points_by_gp) : data.points_by_gp;
     }
   } catch (e) { pointsByGP = []; }
 
@@ -108,16 +151,16 @@ export default function EngineerProfilePage() {
           <CardHeader>
             <div className="flex items-center space-x-4">
               <Avatar className="w-16 h-16 border-2" style={{ borderColor: teamColor.primary }}>
-                <AvatarImage src={data.ImageURL ? `/images/ingenierosdepista/${data.ImageURL}` : ''} alt={data.Name} />
+                <AvatarImage src={data.image_url ? `/images/ingenierosdepista/${data.image_url}` : ''} alt={data.name} />
                 <AvatarFallback className="text-text-primary bg-surface">
-                  {data.Name?.split(' ').map(n => n[0]).join('')}
+                  {data.name?.split(' ').map(n => n[0]).join('')}
                 </AvatarFallback>
               </Avatar>
               <div className="flex-1">
                 <CardTitle className="text-h2 font-bold mb-1" style={{ color: teamColor.primary }}>
-                  {data.Name}
+                  {data.name}
                 </CardTitle>
-                <p className="text-small text-text-secondary font-medium mb-2">{data.Team}</p>
+                                  <p className="text-small text-text-secondary font-medium mb-2">{data.team || ''}</p>
                 {type === 'track' && pilots && pilots.length > 0 && (
                   <p className="text-small text-text-primary font-medium mb-2">
                     👤 Piloto asignado: <span className="font-bold" style={{ color: teamColor.primary }}>{pilots[0].driver_name}</span>
@@ -128,23 +171,55 @@ export default function EngineerProfilePage() {
                     {type === 'track' ? 'Ingeniero de pista' : 'Chief Engineer'}
                   </Badge>
                   <Badge variant="success" className="font-bold">
-                    {(data.Value || 0).toLocaleString()} €
+                    {formatNumberWithDots(data.value || 0)} €
                   </Badge>
-                  {engineer.ClausulaValue && (
+                  {engineer.clausula_value && (
                     <Badge variant="error" className="flex items-center gap-1">
                       <Lock className="h-3 w-3" />
-                      <span>{engineer.ClausulaValue?.toLocaleString()} €</span>
+                      <span>{formatNumberWithDots(engineer.clausula_value)} €</span>
                     </Badge>
                   )}
-                  {engineer.ClausulaExpiresAt && (
+                  {engineer.clausulatime && (
                     <Badge variant="warning" className="text-xs">
-                      Exp: {new Date(engineer.ClausulaExpiresAt).toLocaleDateString()}
+                      Exp: {new Date(engineer.clausulatime).toLocaleDateString()}
                     </Badge>
                   )}
                 </div>
               </div>
             </div>
           </CardHeader>
+          
+          {/* Botón de acciones para hacer oferta */}
+          <div className="px-6 pb-4">
+            <PlayerItemActions
+              item={{
+                id: engineer.id,
+                name: data.name,
+                value: data.value,
+                image_url: data.image_url,
+                team: data.team || '',
+                clausula_value: engineer.clausula_value,
+                clausula_expires_at: engineer.clausulatime
+              }}
+              itemType={type === 'track' ? 'track_engineer' : 'chief_engineer'}
+              currentPlayerMoney={playerMoney}
+              onMakeOffer={async (offerValue) => {
+                // Navegar a la página de oferta
+                const searchParams = new URLSearchParams({
+                  type: type === 'track' ? 'track_engineer' : 'chief_engineer',
+                  id: engineer.id.toString()
+                });
+                navigate(`/make-offer?${searchParams.toString()}`);
+              }}
+              onActivateClausula={async () => {
+                // Implementar activación de cláusula si es necesario
+                console.log('Activar cláusula');
+              }}
+              isOwned={false}
+              existingOffers={[]}
+            />
+          </div>
+          
           <CardContent>
             {/* Barra de navegación de GPs con flechas SIEMPRE visible */}
             <div className="mb-4 flex items-center justify-center gap-2">

@@ -8,6 +8,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '../components/ui/tabs'
 import { X, Lock, ChevronLeft, ChevronRight } from 'lucide-react';
 import { getTeamColor } from '../lib/utils';
 import { useLeague } from '../context/LeagueContext';
+import PlayerItemActions from '../components/PlayerItemActions';
 
 export default function TeamProfilePage() {
   const { id } = useParams();
@@ -20,7 +21,19 @@ export default function TeamProfilePage() {
   const [error, setError] = useState('');
   const [grandPrix, setGrandPrix] = useState([]);
   const [selectedGP, setSelectedGP] = useState(0);
+  const [playerMoney, setPlayerMoney] = useState(0);
   const gpRefs = useRef([]);
+
+  // Función para formatear números con puntos
+  const formatNumberWithDots = (amount) => {
+    const num = Number(amount);
+    if (isNaN(num)) return '0';
+    return new Intl.NumberFormat('es-ES', {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+      useGrouping: true
+    }).format(num);
+  };
 
   const handlePrevGP = () => {
     setSelectedGP((prev) => Math.max(prev - 1, 0));
@@ -47,8 +60,20 @@ export default function TeamProfilePage() {
       .then(res => res.json())
       .then(data => {
         if (!data || data.error) throw new Error(data?.error || 'No data');
-        setTeam(data.team || data);
-        setTeamConstructor(data.team_constructor || null);
+        
+        // Los datos vienen en formato { team: {...}, team_constructor: {...}, pilots: [...] }
+        const teamData = data.team;
+        const baseTeamData = data.team_constructor;
+        
+        if (teamData && baseTeamData) {
+          // Combinar datos del team (liga) con los datos base
+          const combinedData = { ...baseTeamData, ...teamData };
+          setTeam(combinedData);
+          setTeamConstructor(combinedData);
+        } else {
+          setTeam(null);
+          setTeamConstructor(null);
+        }
         setPilots(data.pilots || []);
       })
       .catch(err => setError(err.message))
@@ -61,12 +86,29 @@ export default function TeamProfilePage() {
       .then(data => setGrandPrix(data.gps || []));
   }, []);
 
+  useEffect(() => {
+    // Obtener dinero del jugador
+    const fetchPlayerMoney = async () => {
+      try {
+        const player_id = localStorage.getItem('player_id');
+        if (player_id && selectedLeague) {
+          const res = await fetch(`/api/playerbyleague?player_id=${player_id}&league_id=${selectedLeague.id}`);
+          const data = await res.json();
+          setPlayerMoney(data.player_by_league?.money ?? 0);
+        }
+      } catch (e) {
+        setPlayerMoney(0);
+      }
+    };
+    fetchPlayerMoney();
+  }, [selectedLeague]);
+
   if (loading) return <div className="min-h-screen bg-background flex items-center justify-center"><p className="text-body text-text-primary">Cargando perfil...</p></div>;
   if (error || !team) return <div className="min-h-screen bg-background flex items-center justify-center"><h2 className="text-h2 font-semibold text-state-error">{error || 'Equipo no encontrado'}</h2></div>;
 
   const data = teamConstructor;
   if (!data) return <div className="min-h-screen bg-background flex items-center justify-center"><h2 className="text-h2 font-semibold text-state-error">Equipo no encontrado</h2></div>;
-  const teamColor = getTeamColor(data.Name);
+  const teamColor = getTeamColor(data.name);
 
   // Parse points_by_gp (puede ser json string o array)
   let pointsByGP = [];
@@ -99,38 +141,70 @@ export default function TeamProfilePage() {
           <CardHeader>
             <div className="flex items-center space-x-4">
               <Avatar className="w-16 h-16 border-2" style={{ borderColor: teamColor.primary }}>
-                <AvatarImage src={data.ImageURL ? `/images/equipos/${data.ImageURL}` : ''} alt={data.Name} />
+                <AvatarImage src={data.image_url ? `/images/equipos/${data.image_url}` : ''} alt={data.name} />
                 <AvatarFallback className="text-text-primary bg-surface">
-                  {data.Name?.split(' ').map(n => n[0]).join('')}
+                  {data.name?.split(' ').map(n => n[0]).join('')}
                 </AvatarFallback>
               </Avatar>
               <div className="flex-1">
                 <CardTitle className="text-h2 font-bold mb-1" style={{ color: teamColor.primary }}>
-                  {data.Name}
+                  {data.name}
                 </CardTitle>
                 <div className="flex flex-wrap items-center gap-2">
                   <Badge variant="accent" className="font-bold">
                     Equipo
                   </Badge>
                   <Badge variant="success" className="font-bold">
-                    {(data.Value || 0).toLocaleString()} €
+                    {formatNumberWithDots(data.value || 0)} €
                   </Badge>
                   {/* Mostrar cláusula y expiración si existen en el objeto team (by_league) */}
-                  {(team.ClausulaValue || team.clausula_value) && (
+                  {team.clausula_value && (
                     <Badge variant="error" className="flex items-center gap-1">
                       <Lock className="h-3 w-3" />
-                      <span>{Number(team.ClausulaValue || team.clausula_value).toLocaleString()} €</span>
+                      <span>{formatNumberWithDots(team.clausula_value)} €</span>
                     </Badge>
                   )}
-                  {(team.ClausulaExpiresAt || team.clausula_expires_at) && (
+                  {team.clausulatime && (
                     <Badge variant="warning" className="text-xs">
-                      Exp: {new Date(team.ClausulaExpiresAt || team.clausula_expires_at).toLocaleDateString()}
+                      Exp: {new Date(team.clausulatime).toLocaleDateString()}
                     </Badge>
                   )}
                 </div>
               </div>
             </div>
           </CardHeader>
+          
+          {/* Botón de acciones para hacer oferta */}
+          <div className="px-6 pb-4">
+            <PlayerItemActions
+              item={{
+                id: team.id,
+                name: data.name,
+                value: data.value,
+                image_url: data.image_url,
+                team: data.name,
+                clausula_value: team.clausula_value,
+                clausula_expires_at: team.clausulatime
+              }}
+              itemType="team_constructor"
+              currentPlayerMoney={playerMoney}
+              onMakeOffer={async (offerValue) => {
+                // Navegar a la página de oferta
+                const searchParams = new URLSearchParams({
+                  type: 'team_constructor',
+                  id: team.id.toString()
+                });
+                navigate(`/make-offer?${searchParams.toString()}`);
+              }}
+              onActivateClausula={async () => {
+                // Implementar activación de cláusula si es necesario
+                console.log('Activar cláusula');
+              }}
+              isOwned={false}
+              existingOffers={[]}
+            />
+          </div>
+          
           <CardContent>
             {/* Barra de navegación de GPs con flechas SIEMPRE visible */}
             <div className="mb-4 flex items-center justify-center gap-2">

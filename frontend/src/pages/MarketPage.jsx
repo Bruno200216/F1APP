@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useLeague } from '../context/LeagueContext';
-import { cn, formatCurrency, formatTime, getTeamColor } from '../lib/utils';
+import { cn, formatCurrency, formatCompactCurrency, formatTime, getTeamColor } from '../lib/utils';
 
 // UI Components
 import { Button } from '../components/ui/button';
@@ -1496,8 +1496,31 @@ export default function MarketPage() {
                     Filtros
                   </Button>
                 )}
-                <Button variant="outline" onClick={fetchMarketPilots}>
-                  Actualizar
+                <Button 
+                  variant="outline" 
+                  onClick={fetchMarketPilots} 
+                  className="text-lg"
+                  style={{
+                    borderColor: '#9D4EDD',
+                    color: '#9D4EDD',
+                    backgroundColor: 'transparent',
+                    borderRadius: 12,
+                    padding: '12px 20px',
+                    fontSize: 16,
+                    fontWeight: 500,
+                    fontFamily: "'Inter', 'Segoe UI', sans-serif",
+                    transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.target.style.backgroundColor = 'rgba(212, 178, 216, 0.12)';
+                    e.target.style.color = '#E0AAFF';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.target.style.backgroundColor = 'transparent';
+                    e.target.style.color = '#9D4EDD';
+                  }}
+                >
+                  🔄
                 </Button>
               </div>
             </div>
@@ -1566,8 +1589,31 @@ export default function MarketPage() {
             <Card className="p-6">
               <div className="text-center">
                 <p className="text-state-error mb-4">{error}</p>
-                <Button onClick={fetchMarketPilots}>
-                  Reintentar
+                <Button 
+                  onClick={fetchMarketPilots} 
+                  className="text-lg"
+                  style={{
+                    backgroundColor: '#640160',
+                    color: '#FFFFFF',
+                    border: 'none',
+                    borderRadius: 12,
+                    padding: '12px 20px',
+                    fontSize: 16,
+                    fontWeight: 500,
+                    fontFamily: "'Inter', 'Segoe UI', sans-serif",
+                    transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
+                    boxShadow: '0 0 8px #640160, 0 0 16px #640160'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.target.style.backgroundColor = '#D4B2D8';
+                    e.target.style.boxShadow = '0 0 12px #640160, 0 0 20px #640160';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.target.style.backgroundColor = '#640160';
+                    e.target.style.boxShadow = '0 0 8px #640160, 0 0 16px #640160';
+                  }}
+                >
+                  🔄
                 </Button>
               </div>
             </Card>
@@ -1688,14 +1734,36 @@ export default function MarketPage() {
                     variant="outline" 
                     onClick={fetchOps}
                     disabled={loadingOps}
-                    className="flex items-center gap-2"
+                    className="text-lg"
+                    style={{
+                      borderColor: '#9D4EDD',
+                      color: '#9D4EDD',
+                      backgroundColor: 'transparent',
+                      borderRadius: 12,
+                      padding: '8px 16px',
+                      fontSize: 14,
+                      fontWeight: 500,
+                      fontFamily: "'Inter', 'Segoe UI', sans-serif",
+                      transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)'
+                    }}
+                    onMouseEnter={(e) => {
+                      if (!loadingOps) {
+                        e.target.style.backgroundColor = 'rgba(212, 178, 216, 0.12)';
+                        e.target.style.color = '#E0AAFF';
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (!loadingOps) {
+                        e.target.style.backgroundColor = 'transparent';
+                        e.target.style.color = '#9D4EDD';
+                      }
+                    }}
                   >
                     {loadingOps ? (
                       <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-accent-main"></div>
                     ) : (
-                      <TrendingUp className="h-4 w-4" />
+                      '🔄'
                     )}
-                    Actualizar
                   </Button>
                 </div>
               </div>
@@ -1804,7 +1872,7 @@ export default function MarketPage() {
                                         </Avatar>
                                         {/* Mi puja debajo de la foto */}
                                         <p className="text-accent-main font-bold text-sm text-center">
-                                          Mi puja: €{Number(bid.my_bid).toLocaleString('es-ES')}
+                                          Mi puja: {formatCompactCurrency(bid.my_bid)}
                                         </p>
                                       </div>
                                       
@@ -1816,7 +1884,7 @@ export default function MarketPage() {
                                           <p className="text-accent-main text-xs mt-1">{displayRole}</p>
                                           {bid.highest_bid && bid.highest_bid !== bid.my_bid && (
                                             <p className="text-state-warning text-xs mt-1">
-                                              Más alta: €{Number(bid.highest_bid).toLocaleString('es-ES')}
+                                              Más alta: {formatCompactCurrency(bid.highest_bid)}
                                             </p>
                                           )}
                                         </div>
@@ -1939,7 +2007,7 @@ export default function MarketPage() {
                                     </Avatar>
                                     {/* Mi oferta debajo de la foto */}
                                     <p className="text-state-success font-bold text-sm text-center">
-                                      Mi oferta: €{Number(offer.my_bid || offer.offer_value).toLocaleString('es-ES')}
+                                      Mi oferta: {formatCompactCurrency(offer.my_bid || offer.offer_value)}
                                     </p>
                                   </div>
                                   
@@ -2094,7 +2162,7 @@ export default function MarketPage() {
                                   </Avatar>
                                   {/* Valor debajo de la foto */}
                                   <p className="text-accent-main font-bold text-sm text-center">
-                                    €{Number(sale.venta || sale.price).toLocaleString('es-ES')}
+                                    {formatCompactCurrency(sale.venta || sale.price)}
                                   </p>
                                 </div>
                                 {/* Información y botón */}
@@ -2216,7 +2284,7 @@ export default function MarketPage() {
                                               fontFamily: "'Inter', 'Segoe UI', sans-serif"
                                             }}
                                           >
-                                            {offer.offer_value?.toLocaleString()} €
+                                            {formatCompactCurrency(offer.offer_value)}
                                           </span>
                                         </div>
                                       ))}
@@ -2676,7 +2744,7 @@ export default function MarketPage() {
                     <h3 className="text-text-primary font-bold text-lg">{displayName}</h3>
                     <p className="text-text-secondary text-sm">{displayTeam}</p>
                     <p className="text-accent-main font-bold text-sm mt-1">
-                      €{Number(selectedSalePilot.venta || selectedSalePilot.price || 0).toLocaleString('es-ES')}
+                      {formatCompactCurrency(selectedSalePilot.venta || selectedSalePilot.price || 0)}
                     </p>
                   </div>
                 </div>
@@ -2689,7 +2757,7 @@ export default function MarketPage() {
                       <div className="text-center mb-4">
                         <p className="text-accent-main font-bold text-sm mb-2">OFERTA DE LA FIA</p>
                         <p className="text-text-primary font-bold text-2xl">
-                          €{Number(selectedSalePilot.league_offer_value).toLocaleString('es-ES')}
+                          {formatCompactCurrency(selectedSalePilot.league_offer_value)}
                         </p>
                         {selectedSalePilot.league_offer_expires_at && (
                           <p className="text-text-secondary text-xs mt-2">
@@ -2755,7 +2823,7 @@ export default function MarketPage() {
                               </div>
                             </div>
                             <p className="text-text-primary font-bold text-lg">
-                              €{Number(offer.type === 'fia' ? offer.amount : offer.offer_value).toLocaleString('es-ES')}
+                              {formatCompactCurrency(offer.type === 'fia' ? offer.amount : offer.offer_value)}
                             </p>
                           </div>
                           <div className="flex gap-3">

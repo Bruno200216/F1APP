@@ -19,6 +19,17 @@ export default function ProfilePage() {
   const [selectedGP, setSelectedGP] = useState(0);
   const gpRefs = useRef([]);
 
+  // Función para formatear números con puntos
+  const formatNumberWithDots = (amount) => {
+    const num = Number(amount);
+    if (isNaN(num)) return '0';
+    return new Intl.NumberFormat('es-ES', {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+      useGrouping: true
+    }).format(num);
+  };
+
   const handlePrevGP = () => {
     setSelectedGP((prev) => Math.max(prev - 1, 0));
     setTimeout(() => {
@@ -130,12 +141,12 @@ export default function ProfilePage() {
                     Modo: {pilot_by_league?.mode?.toUpperCase()}
                   </Badge>
                   <Badge variant="success" className="font-bold">
-                    {(pilot.value || 0).toLocaleString()} €
+                    {formatNumberWithDots(pilot.value || 0)} €
                   </Badge>
                   {pilot_by_league?.clausula_value && (
                     <Badge variant="error" className="flex items-center gap-1">
                       <Lock className="h-3 w-3" />
-                      <span>{pilot_by_league.clausula_value?.toLocaleString()} €</span>
+                      <span>{formatNumberWithDots(pilot_by_league.clausula_value)} €</span>
                     </Badge>
                   )}
                   {clausulaDias && (

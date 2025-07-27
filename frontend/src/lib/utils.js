@@ -11,7 +11,48 @@ export function formatCurrency(amount) {
     currency: 'EUR',
     minimumFractionDigits: 0,
     maximumFractionDigits: 0,
+    useGrouping: true
   }).format(amount)
+}
+
+// Nueva función para formatear números largos sin decimales
+export function formatCompactCurrency(amount) {
+  const num = Number(amount);
+  if (isNaN(num)) return '0€';
+  
+  // Si el número es mayor a 999, usar formato compacto
+  if (num >= 1000) {
+    return new Intl.NumberFormat('es-ES', {
+      style: 'currency',
+      currency: 'EUR',
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+      notation: 'compact',
+      compactDisplay: 'short',
+      useGrouping: true
+    }).format(num);
+  }
+  
+  // Para números menores a 1000, usar formato normal sin decimales
+  return new Intl.NumberFormat('es-ES', {
+    style: 'currency',
+    currency: 'EUR',
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+    useGrouping: true
+  }).format(num);
+}
+
+// Función para formatear números con puntos como separadores de miles
+export function formatNumberWithDots(amount) {
+  const num = Number(amount);
+  if (isNaN(num)) return '0';
+  
+  return new Intl.NumberFormat('es-ES', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+    useGrouping: true
+  }).format(num);
 }
 
 export function formatTime(timeString) {

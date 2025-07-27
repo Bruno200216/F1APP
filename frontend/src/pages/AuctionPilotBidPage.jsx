@@ -39,6 +39,17 @@ export default function AuctionPilotBidPage() {
   const [saldoLoading, setSaldoLoading] = useState(false);
   const [pilot, setPilot] = useState(null);
 
+  // Función para formatear números con puntos
+  const formatNumberWithDots = (amount) => {
+    const num = Number(amount);
+    if (isNaN(num)) return '0';
+    return new Intl.NumberFormat('es-ES', {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+      useGrouping: true
+    }).format(num);
+  };
+
   useEffect(() => {
     const fetchPilotAndAuction = async () => {
       setLoading(true);
@@ -313,7 +324,7 @@ export default function AuctionPilotBidPage() {
             fontSize: 16,
             fontFamily: "'Inter', 'Segoe UI', sans-serif"
           }}>
-            {Number(pilot.value).toLocaleString('es-ES')}
+            {formatNumberWithDots(pilot.value)}
           </Typography>
         </Box>
         
@@ -337,7 +348,7 @@ export default function AuctionPilotBidPage() {
             fontSize: 16,
             fontFamily: "'Inter', 'Segoe UI', sans-serif"
           }}>
-            {Number(pilot.value).toLocaleString('es-ES')}
+            {formatNumberWithDots(pilot.value)}
           </Typography>
         </Box>
         
@@ -380,7 +391,7 @@ export default function AuctionPilotBidPage() {
                 fontFamily: "'Inter', 'Segoe UI', sans-serif"
               } 
             }}
-            placeholder={Number(pilot.value).toLocaleString('es-ES')}
+            placeholder={formatNumberWithDots(pilot.value)}
             type="number"
             inputProps={{ min: minBid }}
           />
@@ -438,7 +449,7 @@ export default function AuctionPilotBidPage() {
         mb: 1,
         fontFamily: "'Inter', 'Segoe UI', sans-serif"
       }}>
-        Tu saldo: {saldoLoading ? <CircularProgress size={18} sx={{ color: '#28C76F' }} /> : saldo?.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })}
+                        Tu saldo: {saldoLoading ? <CircularProgress size={18} sx={{ color: '#28C76F' }} /> : `€${formatNumberWithDots(saldo)}`}
       </Typography>
       
       {msg && (

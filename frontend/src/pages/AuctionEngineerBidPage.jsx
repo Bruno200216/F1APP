@@ -39,6 +39,17 @@ export default function AuctionEngineerBidPage() {
   const [saldoLoading, setSaldoLoading] = useState(false);
   const [engineer, setEngineer] = useState(null);
 
+  // Función para formatear números con puntos
+  const formatNumberWithDots = (amount) => {
+    const num = Number(amount);
+    if (isNaN(num)) return '0';
+    return new Intl.NumberFormat('es-ES', {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+      useGrouping: true
+    }).format(num);
+  };
+
   useEffect(() => {
     const fetchEngineerAndAuction = async () => {
       setLoading(true);
@@ -55,11 +66,21 @@ export default function AuctionEngineerBidPage() {
         if (!engineerRes.ok) throw new Error('Ingeniero no encontrado');
         
         // Los datos vienen según el tipo de ingeniero
-        const engineerMainData = type === 'track' ? engineerData.track_engineer : engineerData.chief_engineer;
+        const engineersArray = type === 'track' ? engineerData.track_engineers : engineerData.chief_engineers;
+        if (!engineersArray || engineersArray.length === 0) {
+          throw new Error('Datos del ingeniero no encontrados');
+        }
+        
+        const engineerMainData = engineersArray[0];
+        
+        // Combinar los datos del ingeniero principal con los datos de la liga
         setEngineer({
           ...engineerMainData,
-          // Agregar datos de la relación por liga para cláusulas, etc.
-          engineer_by_league: engineerData.engineer
+          // Asegurar que los campos principales estén disponibles
+          Name: engineerMainData.name,
+          Value: engineerMainData.value,
+          ImageURL: engineerMainData.image_url,
+          Team: engineerMainData.team || ''
         });
         
         // Intentar obtener subasta existente
@@ -212,11 +233,11 @@ export default function AuctionEngineerBidPage() {
       <Box sx={{ width: '100%', maxWidth: 320, mb: 2 }}>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
           <Typography sx={{ color: '#E0AAFF', fontWeight: 700, fontSize: 15 }}>VALOR DE MERCADO</Typography>
-          <Typography sx={{ color: '#fff', fontWeight: 700, fontSize: 15 }}>{Number(engineer.Value).toLocaleString('es-ES')}</Typography>
+          <Typography sx={{ color: '#fff', fontWeight: 700, fontSize: 15 }}>{formatNumberWithDots(engineer.Value)}</Typography>
         </Box>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
           <Typography sx={{ color: '#28C76F', fontWeight: 700, fontSize: 15 }}>PRECIO SOLICITADO</Typography>
-          <Typography sx={{ color: '#fff', fontWeight: 700, fontSize: 15 }}>{Number(engineer.Value).toLocaleString('es-ES')}</Typography>
+          <Typography sx={{ color: '#fff', fontWeight: 700, fontSize: 15 }}>{formatNumberWithDots(engineer.Value)}</Typography>
         </Box>
         <Box sx={{ display: 'flex', alignItems: 'center', background: '#1E1A1E', borderRadius: 2, px: 2, py: 1, mb: 2, border: '1px solid #9D4EDD' }}>
           <Typography sx={{ color: '#C9A9DD', fontWeight: 700, mr: 1 }}>€</Typography>
@@ -226,7 +247,7 @@ export default function AuctionEngineerBidPage() {
             onChange={e => setAmount(e.target.value)}
             InputProps={{ disableUnderline: true, style: { color: '#fff', fontWeight: 700, fontSize: 18, background: 'transparent' } }}
             sx={{ flex: 1, input: { textAlign: 'right' } }}
-            placeholder={Number(engineer.Value).toLocaleString('es-ES')}
+            placeholder={formatNumberWithDots(engineer.Value)}
             type="number"
             inputProps={{ min: minBid }}
           />
@@ -258,7 +279,7 @@ export default function AuctionEngineerBidPage() {
         </Typography>
       )}
       <Typography sx={{ color: '#9D4EDD', fontWeight: 700, fontSize: 16, mt: 2, mb: 1 }}>
-        Tu saldo: {saldoLoading ? <CircularProgress size={18} /> : saldo?.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })}
+        Tu saldo: {saldoLoading ? <CircularProgress size={18} /> : `€${formatNumberWithDots(saldo)}`}
       </Typography>
       {msg && <Alert severity="success" sx={{ mt: 2 }}>{msg}</Alert>}
       {error && <Alert severity="error" sx={{ mt: 2 }}>{error}</Alert>}

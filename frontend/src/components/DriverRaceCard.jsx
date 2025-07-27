@@ -1,6 +1,6 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { cn, getTeamColor, formatCurrency } from '../lib/utils';
+import { cn, getTeamColor, formatCurrency, formatNumberWithDots } from '../lib/utils';
 import { Card, CardContent } from './ui/card';
 import { Avatar, AvatarImage, AvatarFallback } from './ui/avatar';
 import { Badge } from './ui/badge';
@@ -135,7 +135,7 @@ export default function DriverRaceCard({
                 {driver.num_bids} puja{driver.num_bids !== 1 ? 's' : ''}
                 {driver.my_bid && (
                   <span className="text-accent-main ml-2">
-                    (Mi puja: €{formatCurrency(driver.my_bid)})
+                    (Mi puja: €{formatNumberWithDots(driver.my_bid)})
                   </span>
                 )}
               </p>
@@ -149,7 +149,7 @@ export default function DriverRaceCard({
             <div className="flex justify-between items-center">
               <span className="text-text-secondary text-small">Valor:</span>
               <span className="font-bold text-state-success text-small">
-                {formatCurrency(driver.value ?? driver.valor_global ?? driver.valorGlobal ?? 0)}
+                {formatNumberWithDots(driver.value ?? driver.valor_global ?? driver.valorGlobal ?? 0)}€
               </span>
             </div>
             
@@ -174,7 +174,7 @@ export default function DriverRaceCard({
               <div className="flex justify-between items-center">
                 <span className="text-text-secondary text-small">Mi puja:</span>
                 <span className="text-accent-main font-bold text-small">
-                  {formatCurrency(driver.my_bid)}
+                  {formatNumberWithDots(driver.my_bid)}€
                 </span>
               </div>
             )}

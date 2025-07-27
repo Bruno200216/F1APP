@@ -1,6 +1,6 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { cn, getTeamColor, formatCurrency } from '../lib/utils';
+import { cn, getTeamColor, formatCurrency, formatNumberWithDots } from '../lib/utils';
 import { Card, CardContent } from './ui/card';
 import { Avatar, AvatarImage, AvatarFallback } from './ui/avatar';
 import { Button } from './ui/button';
@@ -143,7 +143,7 @@ export default function EngineerCard({
                 {engineer.num_bids} puja{engineer.num_bids !== 1 ? 's' : ''}
                 {engineer.my_bid && (
                   <span className="text-accent-main ml-2">
-                    (Mi puja: €{formatCurrency(engineer.my_bid)})
+                    (Mi puja: €{formatNumberWithDots(engineer.my_bid)})
                   </span>
                 )}
               </p>
@@ -157,7 +157,7 @@ export default function EngineerCard({
             <div className="flex justify-between items-center">
               <span className="text-text-secondary text-small">Valor:</span>
               <span className="font-bold text-state-success text-small">
-                {formatCurrency(engineer.value || 0)}
+                {formatNumberWithDots(engineer.value || 0)}€
               </span>
             </div>
             
@@ -182,7 +182,7 @@ export default function EngineerCard({
               <div className="flex justify-between items-center">
                 <span className="text-text-secondary text-small">Mi puja:</span>
                 <span className="text-accent-main font-bold text-small">
-                  {formatCurrency(engineer.my_bid)}
+                  {formatNumberWithDots(engineer.my_bid)}€
                 </span>
               </div>
             )}
