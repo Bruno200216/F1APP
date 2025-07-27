@@ -285,16 +285,25 @@ export default function TeamRaceCard({
           {bidActionsButton ? bidActionsButton : <>
             <button
               style={{
-                background: '#1ed760',
+                background: '#640160',
                 color: '#fff',
-                border: 'none',
-                borderRadius: 8,
-                padding: '8px 18px',
-                fontWeight: 700,
-                fontSize: 15,
+                border: '1px solid #9D4EDD',
+                borderRadius: 12,
+                padding: '12px 20px',
+                fontWeight: 500,
+                fontSize: 16,
                 cursor: 'pointer',
-                boxShadow: '0 2px 8px rgba(30,215,96,0.15)',
-                transition: 'background 0.2s'
+                boxShadow: '0 0 8px #640160, 0 0 16px #640160',
+                transition: 'all 0.2s ease',
+                fontFamily: "'Inter', 'Segoe UI', sans-serif"
+              }}
+              onMouseEnter={(e) => {
+                e.target.style.background = '#D4B2D8';
+                e.target.style.color = '#640160';
+              }}
+              onMouseLeave={(e) => {
+                e.target.style.background = '#640160';
+                e.target.style.color = '#fff';
               }}
               onClick={e => {
                 e.stopPropagation();
@@ -305,16 +314,25 @@ export default function TeamRaceCard({
             </button>
             <button
               style={{
-                background: '#f44336',
+                background: '#EA5455',
                 color: '#fff',
-                border: 'none',
-                borderRadius: 8,
-                padding: '8px 18px',
-                fontWeight: 700,
-                fontSize: 15,
+                border: '1px solid #EA5455',
+                borderRadius: 12,
+                padding: '12px 20px',
+                fontWeight: 500,
+                fontSize: 16,
                 cursor: 'pointer',
-                boxShadow: '0 2px 8px rgba(244,67,54,0.15)',
-                transition: 'background 0.2s'
+                boxShadow: '0 4px 16px rgba(234, 84, 85, 0.35)',
+                transition: 'all 0.2s ease',
+                fontFamily: "'Inter', 'Segoe UI', sans-serif"
+              }}
+              onMouseEnter={(e) => {
+                e.target.style.background = '#FF6B6B';
+                e.target.style.borderColor = '#FF6B6B';
+              }}
+              onMouseLeave={(e) => {
+                e.target.style.background = '#EA5455';
+                e.target.style.borderColor = '#EA5455';
               }}
               onClick={e => {
                 e.stopPropagation();

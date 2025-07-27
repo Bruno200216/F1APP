@@ -124,6 +124,7 @@ export default function MarketPage() {
   const [opsTab, setOpsTab] = useState(0);
   const [myBids, setMyBids] = useState([]);
   const [mySales, setMySales] = useState([]);
+  const [existingOffers, setExistingOffers] = useState([]);
   const [loadingOps, setLoadingOps] = useState(false);
   const [openOffersModal, setOpenOffersModal] = useState(false);
   const [selectedSalePilot, setSelectedSalePilot] = useState(null);
@@ -864,6 +865,86 @@ export default function MarketPage() {
     }
   };
 
+  // Función para editar oferta (usando PUT)
+  const handleEditOfferSubmit = async () => {
+    if (!selectedBidPilot || !editBidValue || Number(editBidValue) <= 0) {
+      setSnackbar({ open: true, message: 'Introduce un importe válido', severity: 'error' });
+      return;
+    }
+    if (Number(editBidValue) > playerMoney) {
+      setSnackbar({ open: true, message: 'No tienes suficiente saldo para esta oferta', severity: 'error' });
+      return;
+    }
+    try {
+      const user = JSON.parse(localStorage.getItem('user'));
+      
+      const itemType = getItemType(selectedBidPilot);
+      
+      // Usar el endpoint PUT para actualizar ofertas
+      const res = await fetch(`/api/${itemType}/update-offer`, {
+        method: 'PUT',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${user.token}`
+        },
+        body: JSON.stringify({
+          item_id: selectedBidPilot.id,
+          league_id: selectedLeague.id,
+          offer_value: Number(editBidValue)
+        })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setSnackbar({ open: true, message: data.message || 'Oferta actualizada correctamente', severity: 'success' });
+        setOpenEditBid(false);
+        setEditBidValue('');
+        // Actualizar datos
+        fetchExistingOffers();
+        fetchMoney();
+      } else {
+        setSnackbar({ open: true, message: data.error || 'Error al actualizar la oferta', severity: 'error' });
+      }
+    } catch (err) {
+      console.error('Error updating offer:', err);
+      setSnackbar({ open: true, message: 'Error de conexión con el backend', severity: 'error' });
+    }
+  };
+
+  // Función para eliminar oferta (usando DELETE)
+  const handleDeleteOfferConfirmed = async () => {
+    if (!selectedBidPilot) return;
+    try {
+      const user = JSON.parse(localStorage.getItem('user'));
+      
+      const itemType = getItemType(selectedBidPilot);
+      
+      const res = await fetch(`/api/${itemType}/delete-offer`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${user.token}`
+        },
+        body: JSON.stringify({ 
+          item_id: selectedBidPilot.id, 
+          league_id: selectedLeague.id 
+        })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setSnackbar({ open: true, message: 'Oferta eliminada correctamente', severity: 'success' });
+        setOpenDeleteDialog(false);
+        setSelectedBidPilot(null);
+        // Actualizar datos
+        fetchExistingOffers();
+      } else {
+        setSnackbar({ open: true, message: data.error || 'Error al eliminar la oferta', severity: 'error' });
+      }
+    } catch (err) {
+      console.error('Error removing offer:', err);
+      setSnackbar({ open: true, message: 'Error de conexión', severity: 'error' });
+    }
+  };
+
   // Fetch my bids (compras activas)
   const fetchMyBids = async () => {
     if (!selectedLeague) return;
@@ -876,10 +957,35 @@ export default function MarketPage() {
       });
       const data = await response.json();
       console.log('My bids data:', data);
-      setMyBids(data.bids || []);
+      
+      // Filtrar solo las subastas (is_auction: true)
+      const auctionBids = (data.bids || []).filter(bid => bid.is_auction === true);
+      setMyBids(auctionBids);
     } catch (err) {
       console.error('Error fetching my bids:', err);
       setMyBids([]);
+    }
+  };
+
+  // Fetch existing offers (ofertas que el usuario ha hecho a otros jugadores)
+  const fetchExistingOffers = async () => {
+    if (!selectedLeague) return;
+    try {
+      const user = JSON.parse(localStorage.getItem('user'));
+      const response = await fetch(`/api/my-market-bids?league_id=${selectedLeague.id}`, {
+        headers: {
+          'Authorization': `Bearer ${user?.token}`
+        }
+      });
+      const data = await response.json();
+      console.log('Existing offers data:', data);
+      
+      // Filtrar solo las ofertas directas (is_auction: false)
+      const directOffers = (data.bids || []).filter(bid => bid.is_auction === false);
+      setExistingOffers(directOffers);
+    } catch (err) {
+      console.error('Error fetching existing offers:', err);
+      setExistingOffers([]);
     }
   };
 
@@ -897,6 +1003,7 @@ export default function MarketPage() {
       });
       const salesData = await salesResponse.json();
       console.log('My sales data:', salesData);
+      console.log('Sales array:', salesData.sales);
       
       // Buscar ofertas recibidas de otros jugadores
       const offersResponse = await fetch(`/api/player/received-offers?league_id=${selectedLeague.id}`, {
@@ -906,12 +1013,60 @@ export default function MarketPage() {
       });
       const offersData = await offersResponse.json();
       console.log('Received offers data:', offersData);
+      console.log('Offers array:', offersData.offers);
+      
+      // Si no hay elementos en venta pero sí hay ofertas, crear elementos virtuales para mostrar las ofertas
+      if (!salesData.sales || salesData.sales.length === 0) {
+        console.log('No sales found, creating virtual items from offers');
+        
+        // Agrupar ofertas por elemento (id + type)
+        const offersByItem = {};
+        (offersData.offers || []).forEach(offer => {
+          const key = `${offer.id}-${offer.type}`;
+          if (!offersByItem[key]) {
+            offersByItem[key] = {
+              id: offer.id,
+              type: offer.type,
+              name: offer.name,
+              image_url: offer.image_url,
+              team: offer.team,
+              venta: Math.max(...offersData.offers.filter(o => o.id === offer.id && o.type === offer.type).map(o => o.offer_value)),
+              price: Math.max(...offersData.offers.filter(o => o.id === offer.id && o.type === offer.type).map(o => o.offer_value)),
+              received_offers: []
+            };
+          }
+          offersByItem[key].received_offers.push(offer);
+        });
+        
+        const virtualSales = Object.values(offersByItem);
+        console.log('Virtual sales created:', virtualSales);
+        console.log('Number of virtual sales:', virtualSales.length);
+        setMySales(virtualSales);
+        return;
+      }
       
       // Combinar elementos en venta con ofertas recibidas y ofertas de la FIA
       const salesWithOffers = (salesData.sales || []).map(sale => {
-        const playerOffers = (offersData.offers || []).filter(offer => 
-          offer.id === sale.id && offer.type === sale.type
-        );
+        console.log('Processing sale:', sale);
+        
+        const playerOffers = (offersData.offers || []).filter(offer => {
+          console.log('Checking offer:', offer, 'against sale:', sale);
+          
+          // Comparar IDs (pueden ser números o strings)
+          const idMatch = offer.id == sale.id || offer.id == sale.driver_id || offer.id == sale.engineer_id || offer.id == sale.team_id;
+          
+          // Comparar tipos (pueden tener diferentes nombres)
+          const typeMatch = offer.type === sale.type || 
+                           offer.type === sale.card_type ||
+                           (offer.type === 'pilot' && sale.type === 'driver') ||
+                           (offer.type === 'driver' && sale.type === 'pilot');
+          
+          const match = idMatch && typeMatch;
+          console.log('ID match:', idMatch, 'Type match:', typeMatch, 'Final match:', match);
+          return match;
+        });
+        
+        console.log('Filtered player offers for sale:', playerOffers);
         
         // Agregar oferta de la FIA si existe y no ha expirado
         const fiaOffer = sale.league_offer_value && sale.league_offer_expires_at && 
@@ -923,12 +1078,16 @@ export default function MarketPage() {
             from: 'FIA'
           } : null;
         
-        return {
+        const result = {
           ...sale,
           received_offers: fiaOffer ? [fiaOffer, ...playerOffers] : playerOffers
         };
+        
+        console.log('Final result for sale:', result);
+        return result;
       });
       
+      console.log('Final salesWithOffers:', salesWithOffers);
       setMySales(salesWithOffers);
     } catch (err) {
       console.error('Error fetching my sales:', err);
@@ -1104,6 +1263,7 @@ export default function MarketPage() {
       try {
         if (opsTab === 0) {
           await fetchMyBids();
+          await fetchExistingOffers();
         } else {
           await fetchMySales();
         }
@@ -1151,17 +1311,17 @@ export default function MarketPage() {
   return (
     <>
       <div className="min-h-screen bg-background p-4">
-      {/* Header */}
-      <div className="mb-6">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
-          <div>
-            <h1 className="text-h1 font-bold text-text-primary mb-2">
-              🏁 Mercado F1
-            </h1>
-            <p className="text-text-secondary">
-              Liga: <span className="text-accent-main font-medium">{selectedLeague.name}</span>
-            </p>
-          </div>
+        {/* Header */}
+        <div className="mb-6">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+            <div>
+              <h1 className="text-h1 font-bold text-text-primary mb-2">
+                🏁 Mercado F1
+              </h1>
+              <p className="text-text-secondary">
+                Liga: <span className="text-accent-main font-medium">{selectedLeague.name}</span>
+              </p>
+            </div>
 
 
         </div>
@@ -1551,139 +1711,281 @@ export default function MarketPage() {
                     {loadingOps ? (
                       <div className="text-center py-8">
                         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-accent-main mx-auto mb-4"></div>
-                        <p className="text-text-secondary">Cargando pujas activas...</p>
+                        <p className="text-text-secondary">Cargando pujas y ofertas activas...</p>
                       </div>
-                    ) : myBids.length === 0 ? (
+                    ) : myBids.length === 0 && existingOffers.length === 0 ? (
                       <div className="text-center py-8">
                         <Users className="mx-auto h-12 w-12 text-text-secondary mb-4" />
-                        <p className="text-text-secondary">No tienes pujas activas</p>
+                        <p className="text-text-secondary">No tienes pujas ni ofertas activas</p>
                         <p className="text-small text-text-secondary mt-2">
-                          Ve al mercado para hacer pujas en fichajes
+                          Ve al mercado para hacer pujas en fichajes o ofertas a otros jugadores
                         </p>
                       </div>
                     ) : (
                       <div className="space-y-4">
-                        {myBids.map((bid) => {
-                          // Determinar el tipo de elemento para mostrar la información correcta
-                          const isPilot = bid.type === 'pilot';
-                          const isTrackEngineer = bid.type === 'track_engineer';
-                          const isChiefEngineer = bid.type === 'chief_engineer';
-                          const isTeam = bid.type === 'team_constructor';
-                          
-                          const displayName = isPilot ? bid.driver_name : bid.name;
-                          const displayTeam = bid.team;
-                          const displayRole = isPilot ? 'Piloto' : 
-                                            isTrackEngineer ? 'Ing. Pista' : 
-                                            isChiefEngineer ? 'Ing. Jefe' : 'Equipo';
-                          
-                          // Función para obtener nombre corto (10-12 caracteres)
-                          const getShortName = (fullName) => {
-                            if (!fullName) return '??';
-                            const parts = fullName.trim().split(' ');
-                            if (parts.length === 1) return parts[0].substring(0, 12);
-                            const firstName = parts[0];
-                            const lastName = parts.slice(1).join(' ');
-                            const combined = `${firstName} ${lastName}`;
-                            return combined.length <= 12 ? combined : combined.substring(0, 12);
-                          };
-                          
-                          // Determinar la URL de imagen correcta según el tipo
-                          let imageUrl = '';
-                          if (isPilot) {
-                            imageUrl = getImageUrl(bid, 'pilot');
-                          } else if (isTrackEngineer || isChiefEngineer) {
-                            imageUrl = getImageUrl(bid, isTrackEngineer ? 'track_engineer' : 'chief_engineer');
-                          } else if (isTeam) {
-                            imageUrl = getImageUrl(bid, 'team_constructor');
-                          }
-                          
-                          // Obtener color del equipo
-                          const teamColor = getTeamColor(displayTeam);
-                          
-                          // Determinar letra del badge
-                          const badgeLetter = isPilot ? 'P' : 
-                                            isTrackEngineer ? 'T' : 
-                                            isChiefEngineer ? 'C' : 'E';
-                          
-                          return (
-                            <div key={bid.id} className="bg-surface p-6 rounded-lg border border-border">
-                              <div className="flex items-start gap-4">
-                                {/* Badge y Avatar en columna */}
-                                <div className="flex flex-col items-center gap-2 flex-shrink-0">
-                                  <div
-                                    className="flex items-center justify-center font-bold"
-                                    style={{
-                                      width: 32,
-                                      height: 32,
-                                      borderRadius: '50%',
-                                      border: `2px solid ${teamColor.primary}`,
-                                      background: '#000',
-                                      color: teamColor.primary,
-                                      fontSize: 16,
-                                      boxShadow: `0 2px 4px rgba(0,0,0,0.3)`
-                                    }}
-                                  >
-                                    {badgeLetter}
-                                  </div>
-                                  <Avatar className="w-16 h-16 border-2 border-accent-main">
-                                    <AvatarImage 
-                                      src={imageUrl}
-                                      alt={displayName}
-                                    />
-                                    <AvatarFallback className="bg-surface-elevated text-text-primary font-bold">
-                                      {displayName?.substring(0, 2) || '??'}
-                                    </AvatarFallback>
-                                  </Avatar>
-                                  {/* Mi puja debajo de la foto */}
-                                  <p className="text-accent-main font-bold text-sm text-center">
-                                    Mi puja: €{Number(bid.my_bid).toLocaleString('es-ES')}
-                                  </p>
-                                </div>
+                        {/* Pujas activas */}
+                        {myBids.length > 0 && (
+                          <div className="mb-6">
+                            <h3 className="text-lg font-semibold text-text-primary mb-4 flex items-center gap-2">
+                              <div className="w-3 h-3 rounded-full bg-accent-main"></div>
+                              Pujas en Subastas ({myBids.length})
+                            </h3>
+                            <div className="space-y-4">
+                              {myBids.map((bid) => {
+                                // Determinar el tipo de elemento para mostrar la información correcta
+                                const isPilot = bid.type === 'pilot';
+                                const isTrackEngineer = bid.type === 'track_engineer';
+                                const isChiefEngineer = bid.type === 'chief_engineer';
+                                const isTeam = bid.type === 'team_constructor';
                                 
-                                {/* Información y botones */}
-                                <div className="flex-1 min-w-0 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                                  <div className="min-w-0">
-                                    <h3 className="text-text-primary font-bold text-lg truncate" style={{lineHeight: '1.1'}}>{getShortName(displayName)}</h3>
-                                    <p className="text-text-secondary text-sm truncate">{displayTeam}</p>
-                                    <p className="text-accent-main text-xs mt-1">{displayRole}</p>
-                                    {bid.highest_bid && bid.highest_bid !== bid.my_bid && (
-                                      <p className="text-state-warning text-xs mt-1">
-                                        Más alta: €{Number(bid.highest_bid).toLocaleString('es-ES')}
-                                      </p>
-                                    )}
+                                const displayName = isPilot ? bid.driver_name : bid.name;
+                                const displayTeam = bid.team;
+                                const displayRole = isPilot ? 'Piloto' : 
+                                                  isTrackEngineer ? 'Ing. Pista' : 
+                                                  isChiefEngineer ? 'Ing. Jefe' : 'Equipo';
+                                
+                                // Función para obtener nombre corto (10-12 caracteres)
+                                const getShortName = (fullName) => {
+                                  if (!fullName) return '??';
+                                  const parts = fullName.trim().split(' ');
+                                  if (parts.length === 1) return parts[0].substring(0, 12);
+                                  const firstName = parts[0];
+                                  const lastName = parts.slice(1).join(' ');
+                                  const combined = `${firstName} ${lastName}`;
+                                  return combined.length <= 12 ? combined : combined.substring(0, 12);
+                                };
+                                
+                                // Determinar la URL de imagen correcta según el tipo
+                                let imageUrl = '';
+                                if (isPilot) {
+                                  imageUrl = getImageUrl(bid, 'pilot');
+                                } else if (isTrackEngineer || isChiefEngineer) {
+                                  imageUrl = getImageUrl(bid, isTrackEngineer ? 'track_engineer' : 'chief_engineer');
+                                } else if (isTeam) {
+                                  imageUrl = getImageUrl(bid, 'team_constructor');
+                                }
+                                
+                                // Obtener color del equipo
+                                const teamColor = getTeamColor(displayTeam);
+                                
+                                // Determinar letra del badge
+                                const badgeLetter = isPilot ? 'P' : 
+                                                  isTrackEngineer ? 'T' : 
+                                                  isChiefEngineer ? 'C' : 'E';
+                                
+                                return (
+                                  <div key={bid.id} className="bg-surface p-6 rounded-lg border border-border">
+                                    <div className="flex items-start gap-4">
+                                      {/* Badge y Avatar en columna */}
+                                      <div className="flex flex-col items-center gap-2 flex-shrink-0">
+                                        <div
+                                          className="flex items-center justify-center font-bold"
+                                          style={{
+                                            width: 32,
+                                            height: 32,
+                                            borderRadius: '50%',
+                                            border: `2px solid ${teamColor.primary}`,
+                                            background: '#000',
+                                            color: teamColor.primary,
+                                            fontSize: 16,
+                                            boxShadow: `0 2px 4px rgba(0,0,0,0.3)`
+                                          }}
+                                        >
+                                          {badgeLetter}
+                                        </div>
+                                        <Avatar className="w-16 h-16 border-2 border-accent-main">
+                                          <AvatarImage 
+                                            src={imageUrl}
+                                            alt={displayName}
+                                          />
+                                          <AvatarFallback className="bg-surface-elevated text-text-primary font-bold">
+                                            {displayName?.substring(0, 2) || '??'}
+                                          </AvatarFallback>
+                                        </Avatar>
+                                        {/* Mi puja debajo de la foto */}
+                                        <p className="text-accent-main font-bold text-sm text-center">
+                                          Mi puja: €{Number(bid.my_bid).toLocaleString('es-ES')}
+                                        </p>
+                                      </div>
+                                      
+                                      {/* Información y botones */}
+                                      <div className="flex-1 min-w-0 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                                        <div className="min-w-0">
+                                          <h3 className="text-text-primary font-bold text-lg truncate" style={{lineHeight: '1.1'}}>{getShortName(displayName)}</h3>
+                                          <p className="text-text-secondary text-sm truncate">{displayTeam}</p>
+                                          <p className="text-accent-main text-xs mt-1">{displayRole}</p>
+                                          {bid.highest_bid && bid.highest_bid !== bid.my_bid && (
+                                            <p className="text-state-warning text-xs mt-1">
+                                              Más alta: €{Number(bid.highest_bid).toLocaleString('es-ES')}
+                                            </p>
+                                          )}
+                                        </div>
+                                        
+                                        {/* Botones */}
+                                        <div className="flex flex-col gap-2 flex-shrink-0">
+                                          <Button 
+                                            size="sm" 
+                                            variant="primary" 
+                                            onClick={() => {
+                                              setSelectedBidPilot(bid);
+                                              setEditBidValue(String(bid.my_bid || ''));
+                                              setOpenEditBid(true);
+                                            }}
+                                            className="text-xs px-2 py-1 min-w-0"
+                                          >
+                                            <span className="truncate">Editar Puja</span>
+                                          </Button>
+                                          <Button 
+                                            size="sm" 
+                                            variant="danger" 
+                                            onClick={() => {
+                                              setSelectedBidPilot(bid);
+                                              setOpenDeleteDialog(true);
+                                            }}
+                                            className="text-xs px-2 py-1 min-w-0"
+                                          >
+                                            <span className="truncate">Retirar Puja</span>
+                                          </Button>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Ofertas activas */}
+                    {existingOffers.length > 0 && (
+                      <div className="mb-6">
+                        <h3 className="text-lg font-semibold text-text-primary mb-4 flex items-center gap-2">
+                          <div className="w-3 h-3 rounded-full bg-state-success"></div>
+                          Ofertas a Otros Jugadores ({existingOffers.length})
+                        </h3>
+                        <div className="space-y-4">
+                          {existingOffers.map((offer) => {
+                            // Determinar el tipo de elemento para mostrar la información correcta
+                            const isPilot = offer.type === 'pilot';
+                            const isTrackEngineer = offer.type === 'track_engineer';
+                            const isChiefEngineer = offer.type === 'chief_engineer';
+                            const isTeam = offer.type === 'team_constructor';
+                            
+                            const displayName = isPilot ? offer.driver_name : offer.name;
+                            const displayTeam = offer.team;
+                            const displayRole = isPilot ? 'Piloto' : 
+                                              isTrackEngineer ? 'Ing. Pista' : 
+                                              isChiefEngineer ? 'Ing. Jefe' : 'Equipo';
+                            
+                            // Función para obtener nombre corto (10-12 caracteres)
+                            const getShortName = (fullName) => {
+                              if (!fullName) return '??';
+                              const parts = fullName.trim().split(' ');
+                              if (parts.length === 1) return parts[0].substring(0, 12);
+                              const firstName = parts[0];
+                              const lastName = parts.slice(1).join(' ');
+                              const combined = `${firstName} ${lastName}`;
+                              return combined.length <= 12 ? combined : combined.substring(0, 12);
+                            };
+                            
+                            // Determinar la URL de imagen correcta según el tipo
+                            let imageUrl = '';
+                            if (isPilot) {
+                              imageUrl = getImageUrl(offer, 'pilot');
+                            } else if (isTrackEngineer || isChiefEngineer) {
+                              imageUrl = getImageUrl(offer, isTrackEngineer ? 'track_engineer' : 'chief_engineer');
+                            } else if (isTeam) {
+                              imageUrl = getImageUrl(offer, 'team_constructor');
+                            }
+                            
+                            // Obtener color del equipo
+                            const teamColor = getTeamColor(displayTeam);
+                            
+                            // Determinar letra del badge
+                            const badgeLetter = isPilot ? 'P' : 
+                                              isTrackEngineer ? 'T' : 
+                                              isChiefEngineer ? 'C' : 'E';
+                            
+                            return (
+                              <div key={offer.id} className="bg-surface p-6 rounded-lg border border-border">
+                                <div className="flex items-start gap-4">
+                                  {/* Badge y Avatar en columna */}
+                                  <div className="flex flex-col items-center gap-2 flex-shrink-0">
+                                    <div
+                                      className="flex items-center justify-center font-bold"
+                                      style={{
+                                        width: 32,
+                                        height: 32,
+                                        borderRadius: '50%',
+                                        border: `2px solid ${teamColor.primary}`,
+                                        background: '#000',
+                                        color: teamColor.primary,
+                                        fontSize: 16,
+                                        boxShadow: `0 2px 4px rgba(0,0,0,0.3)`
+                                      }}
+                                    >
+                                      {badgeLetter}
+                                    </div>
+                                    <Avatar className="w-16 h-16 border-2 border-state-success">
+                                      <AvatarImage 
+                                        src={imageUrl}
+                                        alt={displayName}
+                                      />
+                                      <AvatarFallback className="bg-surface-elevated text-text-primary font-bold">
+                                        {displayName?.substring(0, 2) || '??'}
+                                      </AvatarFallback>
+                                    </Avatar>
+                                    {/* Mi oferta debajo de la foto */}
+                                    <p className="text-state-success font-bold text-sm text-center">
+                                      Mi oferta: €{Number(offer.my_bid || offer.offer_value).toLocaleString('es-ES')}
+                                    </p>
                                   </div>
                                   
-                                  {/* Botones */}
-                                  <div className="flex flex-col gap-2 flex-shrink-0">
-                                    <Button 
-                                      size="sm" 
-                                      variant="outline" 
-                                      onClick={() => {
-                                        setSelectedBidPilot(bid);
-                                        setEditBidValue(String(bid.my_bid || ''));
-                                        setOpenEditBid(true);
-                                      }}
-                                      className="text-xs px-2 py-1 min-w-0"
-                                    >
-                                      <span className="truncate">Editar Puja</span>
-                                    </Button>
-                                    <Button 
-                                      size="sm" 
-                                      variant="destructive" 
-                                      onClick={() => {
-                                        setSelectedBidPilot(bid);
-                                        setOpenDeleteDialog(true);
-                                      }}
-                                      className="text-xs px-2 py-1 min-w-0"
-                                    >
-                                      <span className="truncate">Retirar Puja</span>
-                                    </Button>
+                                  {/* Información y botones */}
+                                  <div className="flex-1 min-w-0 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                                    <div className="min-w-0">
+                                      <h3 className="text-text-primary font-bold text-lg truncate" style={{lineHeight: '1.1'}}>{getShortName(displayName)}</h3>
+                                      <p className="text-text-secondary text-sm truncate">{displayTeam}</p>
+                                      <p className="text-state-success text-xs mt-1">{displayRole}</p>
+                                      <p className="text-text-secondary text-xs mt-1">
+                                        Propietario: {offer.owner_name || 'Desconocido'}
+                                      </p>
+                                    </div>
+                                    
+                                    {/* Botones */}
+                                    <div className="flex flex-col gap-2 flex-shrink-0">
+                                      <Button 
+                                        size="sm" 
+                                        variant="outline" 
+                                        onClick={() => {
+                                          setSelectedBidPilot(offer);
+                                          setEditBidValue(String(offer.my_bid || offer.offer_value || ''));
+                                          setOpenEditBid(true);
+                                        }}
+                                        className="text-xs px-2 py-1 min-w-0"
+                                      >
+                                        <span className="truncate">Editar Oferta</span>
+                                      </Button>
+                                      <Button 
+                                        size="sm" 
+                                        variant="destructive" 
+                                        onClick={() => {
+                                          setSelectedBidPilot(offer);
+                                          setOpenDeleteDialog(true);
+                                        }}
+                                        className="text-xs px-2 py-1 min-w-0"
+                                      >
+                                        <span className="truncate">Retirar Oferta</span>
+                                      </Button>
+                                    </div>
                                   </div>
                                 </div>
                               </div>
-                            </div>
-                          );
-                        })}
+                            );
+                          })}
+                        </div>
                       </div>
                     )}
                   </div>
@@ -1702,11 +2004,66 @@ export default function MarketPage() {
                         <p className="text-small text-text-secondary mt-2">
                           Ve a tu equipo para poner elementos en el mercado
                         </p>
+                        <p className="text-small text-text-secondary mt-1">
+                          Las ofertas recibidas aparecerán aquí cuando tengas elementos en venta
+                        </p>
                       </div>
                     ) : (
                       <div className="space-y-4">
-                        {mySales.map((sale) => (
-                          <>
+                        {mySales.map((sale) => {
+                          // Función para obtener nombre corto
+                          const getShortName = (fullName) => {
+                            if (!fullName) return 'Sin nombre';
+                            const combined = fullName.replace(/[^a-zA-Z\s]/g, '').trim();
+                            return combined.length <= 12 ? combined : combined.substring(0, 12);
+                          };
+
+                          // Calcular variables necesarias para la visualización
+                          const getItemType = (item) => {
+                            if (item.type === 'pilot' || item.driver_id) return 'pilot';
+                            if (item.type === 'track_engineer' || item.track_engineer_id) return 'track_engineer';
+                            if (item.type === 'chief_engineer' || item.chief_engineer_id) return 'chief_engineer';
+                            if (item.type === 'team_constructor' || item.team_id) return 'team_constructor';
+                            return item.type;
+                          };
+
+                          const itemType = getItemType(sale);
+                          const isPilot = itemType === 'pilot';
+                          const isTrackEngineer = itemType === 'track_engineer';
+                          const isChiefEngineer = itemType === 'chief_engineer';
+                          const isTeam = itemType === 'team_constructor';
+
+                          // Determinar nombre de visualización
+                          const displayName = sale.name || sale.driver_name || sale.engineer_name || sale.team_name || 'Sin nombre';
+                          
+                          // Determinar equipo
+                          const displayTeam = sale.team || sale.team_name || '';
+                          
+                          // Determinar rol
+                          const displayRole = isPilot ? 'Piloto' : 
+                                            isTrackEngineer ? 'Ingeniero de Pista' : 
+                                            isChiefEngineer ? 'Ingeniero Jefe' : 
+                                            isTeam ? 'Constructor' : 'Elemento';
+
+                          // Determinar letra del badge
+                          const badgeLetter = isPilot ? 'P' : 
+                                            isTrackEngineer ? 'T' : 
+                                            isChiefEngineer ? 'C' : 'E';
+
+                          // Determinar la URL de imagen correcta según el tipo
+                          let imageUrl = '';
+                          if (isPilot) {
+                            imageUrl = getImageUrl(sale, 'pilot');
+                          } else if (isTrackEngineer || isChiefEngineer) {
+                            imageUrl = getImageUrl(sale, isTrackEngineer ? 'track_engineer' : 'chief_engineer');
+                          } else if (isTeam) {
+                            imageUrl = getImageUrl(sale, 'team_constructor');
+                          }
+
+                          // Obtener color del equipo
+                          const teamColor = getTeamColor(displayTeam);
+
+                          return (
                             <div key={sale.id} className="bg-surface p-6 rounded-lg border border-border">
                               <div className="flex items-start gap-4">
                                 {/* Badge y Avatar en columna */}
@@ -1879,8 +2236,8 @@ export default function MarketPage() {
                                 </div>
                               </div>
                             </div>
-                          </>
-                        ))}
+                          );
+                        })}
                       </div>
                     )}
                   </div>
@@ -2160,7 +2517,7 @@ export default function MarketPage() {
         pilot={selectedBidPilot}
         currentBid={editBidValue}
         onBidChange={setEditBidValue}
-        onSubmit={handleEditBidSubmitMarket}
+        onSubmit={selectedBidPilot && existingOffers.some(offer => offer.id === selectedBidPilot.id) ? handleEditOfferSubmit : handleEditBidSubmitMarket}
         editBidValue={editBidValue}
         setEditBidValue={setEditBidValue}
         playerMoney={playerMoney}
@@ -2170,7 +2527,7 @@ export default function MarketPage() {
         open={openDeleteDialog}
         onClose={() => setOpenDeleteDialog(false)}
         pilot={selectedBidPilot}
-        onConfirm={handleRemoveBidConfirmedMarket}
+        onConfirm={selectedBidPilot && existingOffers.some(offer => offer.id === selectedBidPilot.id) ? handleDeleteOfferConfirmed : handleRemoveBidConfirmedMarket}
       />
 
       {/* Diálogo de confirmación para quitar del mercado */}

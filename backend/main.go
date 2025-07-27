@@ -3818,11 +3818,14 @@ func main() {
 			c.JSON(400, gin.H{"error": "Falta league_id"})
 			return
 		}
+
+		var result []map[string]interface{}
+
+		// 1. Buscar ofertas en subastas activas
 		var auctions []Auction
 		database.DB.Where("league_id = ? AND end_time > ?", leagueID, time.Now()).Find(&auctions)
 		log.Printf("[MY-BIDS] Encontradas %d subastas activas para liga %s", len(auctions), leagueID)
 
-		var result []map[string]interface{}
 		for _, auction := range auctions {
 			var bids []Bid
 			if len(auction.Bids) > 0 {
@@ -3839,7 +3842,7 @@ func main() {
 				}
 			}
 			if found {
-				log.Printf("[MY-BIDS] Usuario %d tiene puja en %s ID %d", userID, auction.ItemType, auction.ItemID)
+				log.Printf("[MY-BIDS] Usuario %d tiene puja en subasta %s ID %d", userID, auction.ItemType, auction.ItemID)
 
 				switch auction.ItemType {
 				case "pilot":
@@ -3868,6 +3871,7 @@ func main() {
 						"clausula_value":   pbl.ClausulaValue,
 						"owner_id":         pbl.OwnerID,
 						"my_bid":           myBidValue,
+						"is_auction":       false, // Es una oferta directa
 					}
 					result = append(result, item)
 
@@ -3908,6 +3912,7 @@ func main() {
 						"venta_expires_at": teb.VentaExpiresAt,
 						"owner_id":         teb.OwnerID,
 						"my_bid":           myBidValue,
+						"is_auction":       true, // Es una subasta
 					}
 					result = append(result, item)
 
@@ -3934,6 +3939,7 @@ func main() {
 						"venta_expires_at": ceb.VentaExpiresAt,
 						"owner_id":         ceb.OwnerID,
 						"my_bid":           myBidValue,
+						"is_auction":       true, // Es una subasta
 					}
 					result = append(result, item)
 
@@ -3960,11 +3966,203 @@ func main() {
 						"venta_expires_at": tcb.VentaExpiresAt,
 						"owner_id":         tcb.OwnerID,
 						"my_bid":           myBidValue,
+						"is_auction":       true, // Es una subasta
 					}
 					result = append(result, item)
 				}
 			}
 		}
+
+		// 2. Buscar ofertas directas a elementos con propietario (solo las que ha hecho el usuario)
+		// Pilotos con ofertas directas del usuario (NO siendo propietario)
+		var pilotsWithOffers []models.PilotByLeague
+		database.DB.Where("league_id = ? AND owner_id > 0 AND owner_id != ? AND bids IS NOT NULL AND bids != '[]' AND bids != 'null'", leagueID, userID).Find(&pilotsWithOffers)
+
+		for _, pbl := range pilotsWithOffers {
+			var bids []Bid
+			if len(pbl.Bids) > 0 {
+				json.Unmarshal(pbl.Bids, &bids)
+			}
+
+			// Buscar si el usuario tiene una oferta en este piloto
+			var myBidValue *float64
+			found := false
+			for _, bid := range bids {
+				if bid.PlayerID == userID {
+					v := float64(bid.Valor)
+					myBidValue = &v
+					found = true
+					break
+				}
+			}
+
+			if found {
+				var pilot models.Pilot
+				database.DB.First(&pilot, pbl.PilotID)
+
+				item := map[string]interface{}{
+					"id":               pbl.ID,
+					"type":             "pilot",
+					"pilot_id":         pilot.ID,
+					"driver_name":      pilot.DriverName,
+					"name":             pilot.DriverName,
+					"team":             pilot.Team,
+					"image_url":        pilot.ImageURL,
+					"value":            pilot.Value,
+					"venta":            pbl.Venta,
+					"venta_expires_at": pbl.VentaExpiresAt,
+					"clausulatime":     pbl.Clausulatime,
+					"clausula_value":   pbl.ClausulaValue,
+					"owner_id":         pbl.OwnerID,
+					"my_bid":           myBidValue,
+					"is_auction":       false, // Es una oferta directa
+				}
+				result = append(result, item)
+			}
+		}
+
+		// Track Engineers con ofertas directas del usuario (NO siendo propietario)
+		var trackEngineersWithOffers []models.TrackEngineerByLeague
+		database.DB.Where("league_id = ? AND owner_id > 0 AND owner_id != ? AND bids IS NOT NULL AND bids != '[]' AND bids != 'null'", leagueID, userID).Find(&trackEngineersWithOffers)
+
+		for _, teb := range trackEngineersWithOffers {
+			var bids []Bid
+			if len(teb.Bids) > 0 {
+				json.Unmarshal(teb.Bids, &bids)
+			}
+
+			var myBidValue *float64
+			found := false
+			for _, bid := range bids {
+				if bid.PlayerID == userID {
+					v := float64(bid.Valor)
+					myBidValue = &v
+					found = true
+					break
+				}
+			}
+
+			if found {
+				var te models.TrackEngineer
+				database.DB.First(&te, teb.TrackEngineerID)
+
+				// Buscar piloto relacionado
+				var pilot models.Pilot
+				pilotTeam := ""
+				if err := database.DB.Where("track_engineer_id = ?", te.ID).First(&pilot).Error; err == nil {
+					pilotTeam = pilot.Team
+				}
+
+				// Arreglar ruta de imagen para ingenieros de pista
+				imageURL := te.ImageURL
+				if imageURL != "" && !strings.Contains(imageURL, "ingenierosdepista/") {
+					imageURL = "images/ingenierosdepista/" + strings.TrimPrefix(imageURL, "images/")
+				}
+
+				item := map[string]interface{}{
+					"id":               teb.ID,
+					"type":             "track_engineer",
+					"name":             te.Name,
+					"driver_name":      te.Name,
+					"team":             pilotTeam,
+					"image_url":        imageURL,
+					"value":            te.Value,
+					"venta":            teb.Venta,
+					"venta_expires_at": teb.VentaExpiresAt,
+					"owner_id":         teb.OwnerID,
+					"my_bid":           myBidValue,
+					"is_auction":       false, // Es una oferta directa
+				}
+				result = append(result, item)
+			}
+		}
+
+		// Chief Engineers con ofertas directas del usuario (NO siendo propietario)
+		var chiefEngineersWithOffers []models.ChiefEngineerByLeague
+		database.DB.Where("league_id = ? AND owner_id > 0 AND owner_id != ? AND bids IS NOT NULL AND bids != '[]' AND bids != 'null'", leagueID, userID).Find(&chiefEngineersWithOffers)
+
+		for _, ceb := range chiefEngineersWithOffers {
+			var bids []Bid
+			if len(ceb.Bids) > 0 {
+				json.Unmarshal(ceb.Bids, &bids)
+			}
+
+			var myBidValue *float64
+			found := false
+			for _, bid := range bids {
+				if bid.PlayerID == userID {
+					v := float64(bid.Valor)
+					myBidValue = &v
+					found = true
+					break
+				}
+			}
+
+			if found {
+				var ce models.ChiefEngineer
+				database.DB.First(&ce, ceb.ChiefEngineerID)
+
+				item := map[string]interface{}{
+					"id":               ceb.ID,
+					"type":             "chief_engineer",
+					"name":             ce.Name,
+					"driver_name":      ce.Name,
+					"team":             ce.Team,
+					"image_url":        ce.ImageURL,
+					"value":            ce.Value,
+					"venta":            ceb.Venta,
+					"venta_expires_at": ceb.VentaExpiresAt,
+					"owner_id":         ceb.OwnerID,
+					"my_bid":           myBidValue,
+					"is_auction":       false, // Es una oferta directa
+				}
+				result = append(result, item)
+			}
+		}
+
+		// Team Constructors con ofertas directas del usuario (NO siendo propietario)
+		var teamConstructorsWithOffers []models.TeamConstructorByLeague
+		database.DB.Where("league_id = ? AND owner_id > 0 AND owner_id != ? AND bids IS NOT NULL AND bids != '[]' AND bids != 'null'", leagueID, userID).Find(&teamConstructorsWithOffers)
+
+		for _, tcb := range teamConstructorsWithOffers {
+			var bids []Bid
+			if len(tcb.Bids) > 0 {
+				json.Unmarshal(tcb.Bids, &bids)
+			}
+
+			var myBidValue *float64
+			found := false
+			for _, bid := range bids {
+				if bid.PlayerID == userID {
+					v := float64(bid.Valor)
+					myBidValue = &v
+					found = true
+					break
+				}
+			}
+
+			if found {
+				var tc models.TeamConstructor
+				database.DB.First(&tc, tcb.TeamConstructorID)
+
+				item := map[string]interface{}{
+					"id":               tcb.ID,
+					"type":             "team_constructor",
+					"name":             tc.Name,
+					"driver_name":      tc.Name,
+					"team":             tc.Name,
+					"image_url":        tc.ImageURL,
+					"value":            tc.Value,
+					"venta":            tcb.Venta,
+					"venta_expires_at": tcb.VentaExpiresAt,
+					"owner_id":         tcb.OwnerID,
+					"my_bid":           myBidValue,
+					"is_auction":       false, // Es una oferta directa
+				}
+				result = append(result, item)
+			}
+		}
+
 		log.Printf("[MY-BIDS] Devolviendo %d elementos con pujas del usuario %d", len(result), userID)
 		c.JSON(200, gin.H{"bids": result})
 	})
@@ -6201,7 +6399,7 @@ func main() {
 		})
 	})
 
-	// Endpoint para hacer oferta de compra
+	// Endpoint para hacer oferta de compra (POST para crear, PUT para actualizar)
 	router.POST("/api/:item_type/make-offer", authMiddleware(), func(c *gin.Context) {
 		itemType := c.Param("item_type")
 		var req struct {
@@ -6236,13 +6434,33 @@ func main() {
 				c.JSON(404, gin.H{"error": "Piloto no encontrado"})
 				return
 			}
-			bid = Bid{PlayerID: userID, Valor: req.OfferValue}
-			// Añadir la oferta al array de bids existente
+
+			// Verificar si ya existe una oferta del usuario
 			var existingBids []Bid
 			if len(pbl.Bids) > 0 {
 				json.Unmarshal(pbl.Bids, &existingBids)
 			}
-			existingBids = append(existingBids, bid)
+
+			// Buscar si ya existe una oferta del usuario
+			existingOfferIndex := -1
+			for i, existingBid := range existingBids {
+				if existingBid.PlayerID == userID {
+					existingOfferIndex = i
+					break
+				}
+			}
+
+			if existingOfferIndex >= 0 {
+				// Actualizar oferta existente
+				existingBids[existingOfferIndex].Valor = req.OfferValue
+				c.JSON(200, gin.H{"message": "Oferta actualizada correctamente", "updated": true})
+			} else {
+				// Crear nueva oferta
+				bid = Bid{PlayerID: userID, Valor: req.OfferValue}
+				existingBids = append(existingBids, bid)
+				c.JSON(200, gin.H{"message": "Oferta enviada correctamente", "updated": false})
+			}
+
 			bidsJSON, _ := json.Marshal(existingBids)
 			pbl.Bids = bidsJSON
 			database.DB.Save(&pbl)
@@ -6253,12 +6471,29 @@ func main() {
 				c.JSON(404, gin.H{"error": "Track Engineer no encontrado"})
 				return
 			}
-			bid = Bid{PlayerID: userID, Valor: req.OfferValue}
+
 			var existingBids []Bid
 			if len(teb.Bids) > 0 {
 				json.Unmarshal(teb.Bids, &existingBids)
 			}
-			existingBids = append(existingBids, bid)
+
+			existingOfferIndex := -1
+			for i, existingBid := range existingBids {
+				if existingBid.PlayerID == userID {
+					existingOfferIndex = i
+					break
+				}
+			}
+
+			if existingOfferIndex >= 0 {
+				existingBids[existingOfferIndex].Valor = req.OfferValue
+				c.JSON(200, gin.H{"message": "Oferta actualizada correctamente", "updated": true})
+			} else {
+				bid = Bid{PlayerID: userID, Valor: req.OfferValue}
+				existingBids = append(existingBids, bid)
+				c.JSON(200, gin.H{"message": "Oferta enviada correctamente", "updated": false})
+			}
+
 			bidsJSON, _ := json.Marshal(existingBids)
 			teb.Bids = bidsJSON
 			database.DB.Save(&teb)
@@ -6269,12 +6504,29 @@ func main() {
 				c.JSON(404, gin.H{"error": "Chief Engineer no encontrado"})
 				return
 			}
-			bid = Bid{PlayerID: userID, Valor: req.OfferValue}
+
 			var existingBids []Bid
 			if len(ceb.Bids) > 0 {
 				json.Unmarshal(ceb.Bids, &existingBids)
 			}
-			existingBids = append(existingBids, bid)
+
+			existingOfferIndex := -1
+			for i, existingBid := range existingBids {
+				if existingBid.PlayerID == userID {
+					existingOfferIndex = i
+					break
+				}
+			}
+
+			if existingOfferIndex >= 0 {
+				existingBids[existingOfferIndex].Valor = req.OfferValue
+				c.JSON(200, gin.H{"message": "Oferta actualizada correctamente", "updated": true})
+			} else {
+				bid = Bid{PlayerID: userID, Valor: req.OfferValue}
+				existingBids = append(existingBids, bid)
+				c.JSON(200, gin.H{"message": "Oferta enviada correctamente", "updated": false})
+			}
+
 			bidsJSON, _ := json.Marshal(existingBids)
 			ceb.Bids = bidsJSON
 			database.DB.Save(&ceb)
@@ -6285,12 +6537,184 @@ func main() {
 				c.JSON(404, gin.H{"error": "Team Constructor no encontrado"})
 				return
 			}
-			bid = Bid{PlayerID: userID, Valor: req.OfferValue}
+
 			var existingBids []Bid
 			if len(tcb.Bids) > 0 {
 				json.Unmarshal(tcb.Bids, &existingBids)
 			}
-			existingBids = append(existingBids, bid)
+
+			existingOfferIndex := -1
+			for i, existingBid := range existingBids {
+				if existingBid.PlayerID == userID {
+					existingOfferIndex = i
+					break
+				}
+			}
+
+			if existingOfferIndex >= 0 {
+				existingBids[existingOfferIndex].Valor = req.OfferValue
+				c.JSON(200, gin.H{"message": "Oferta actualizada correctamente", "updated": true})
+			} else {
+				bid = Bid{PlayerID: userID, Valor: req.OfferValue}
+				existingBids = append(existingBids, bid)
+				c.JSON(200, gin.H{"message": "Oferta enviada correctamente", "updated": false})
+			}
+
+			bidsJSON, _ := json.Marshal(existingBids)
+			tcb.Bids = bidsJSON
+			database.DB.Save(&tcb)
+
+		default:
+			c.JSON(400, gin.H{"error": "Tipo de elemento no válido"})
+			return
+		}
+	})
+
+	// Endpoint para actualizar oferta (PUT)
+	router.PUT("/api/:item_type/update-offer", authMiddleware(), func(c *gin.Context) {
+		itemType := c.Param("item_type")
+		var req struct {
+			ItemID     uint    `json:"item_id"`
+			LeagueID   uint    `json:"league_id"`
+			OfferValue float64 `json:"offer_value"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(400, gin.H{"error": "Datos inválidos"})
+			return
+		}
+		userID := c.GetUint("user_id")
+
+		// Verificar que el usuario tiene suficiente dinero
+		var playerLeague models.PlayerByLeague
+		if err := database.DB.Where("player_id = ? AND league_id = ?", userID, req.LeagueID).First(&playerLeague).Error; err != nil {
+			c.JSON(404, gin.H{"error": "Jugador no encontrado"})
+			return
+		}
+
+		if playerLeague.Money < req.OfferValue {
+			c.JSON(400, gin.H{"error": "No tienes suficiente dinero"})
+			return
+		}
+
+		// Actualizar la oferta según el tipo de elemento
+		switch itemType {
+		case "pilot":
+			var pbl models.PilotByLeague
+			if err := database.DB.First(&pbl, req.ItemID).Error; err != nil {
+				c.JSON(404, gin.H{"error": "Piloto no encontrado"})
+				return
+			}
+
+			var existingBids []Bid
+			if len(pbl.Bids) > 0 {
+				json.Unmarshal(pbl.Bids, &existingBids)
+			}
+
+			// Buscar y actualizar la oferta del usuario
+			offerFound := false
+			for i, existingBid := range existingBids {
+				if existingBid.PlayerID == userID {
+					existingBids[i].Valor = req.OfferValue
+					offerFound = true
+					break
+				}
+			}
+
+			if !offerFound {
+				c.JSON(404, gin.H{"error": "No tienes una oferta activa para este elemento"})
+				return
+			}
+
+			bidsJSON, _ := json.Marshal(existingBids)
+			pbl.Bids = bidsJSON
+			database.DB.Save(&pbl)
+
+		case "track_engineer":
+			var teb models.TrackEngineerByLeague
+			if err := database.DB.First(&teb, req.ItemID).Error; err != nil {
+				c.JSON(404, gin.H{"error": "Track Engineer no encontrado"})
+				return
+			}
+
+			var existingBids []Bid
+			if len(teb.Bids) > 0 {
+				json.Unmarshal(teb.Bids, &existingBids)
+			}
+
+			offerFound := false
+			for i, existingBid := range existingBids {
+				if existingBid.PlayerID == userID {
+					existingBids[i].Valor = req.OfferValue
+					offerFound = true
+					break
+				}
+			}
+
+			if !offerFound {
+				c.JSON(404, gin.H{"error": "No tienes una oferta activa para este elemento"})
+				return
+			}
+
+			bidsJSON, _ := json.Marshal(existingBids)
+			teb.Bids = bidsJSON
+			database.DB.Save(&teb)
+
+		case "chief_engineer":
+			var ceb models.ChiefEngineerByLeague
+			if err := database.DB.First(&ceb, req.ItemID).Error; err != nil {
+				c.JSON(404, gin.H{"error": "Chief Engineer no encontrado"})
+				return
+			}
+
+			var existingBids []Bid
+			if len(ceb.Bids) > 0 {
+				json.Unmarshal(ceb.Bids, &existingBids)
+			}
+
+			offerFound := false
+			for i, existingBid := range existingBids {
+				if existingBid.PlayerID == userID {
+					existingBids[i].Valor = req.OfferValue
+					offerFound = true
+					break
+				}
+			}
+
+			if !offerFound {
+				c.JSON(404, gin.H{"error": "No tienes una oferta activa para este elemento"})
+				return
+			}
+
+			bidsJSON, _ := json.Marshal(existingBids)
+			ceb.Bids = bidsJSON
+			database.DB.Save(&ceb)
+
+		case "team_constructor":
+			var tcb models.TeamConstructorByLeague
+			if err := database.DB.First(&tcb, req.ItemID).Error; err != nil {
+				c.JSON(404, gin.H{"error": "Team Constructor no encontrado"})
+				return
+			}
+
+			var existingBids []Bid
+			if len(tcb.Bids) > 0 {
+				json.Unmarshal(tcb.Bids, &existingBids)
+			}
+
+			offerFound := false
+			for i, existingBid := range existingBids {
+				if existingBid.PlayerID == userID {
+					existingBids[i].Valor = req.OfferValue
+					offerFound = true
+					break
+				}
+			}
+
+			if !offerFound {
+				c.JSON(404, gin.H{"error": "No tienes una oferta activa para este elemento"})
+				return
+			}
+
 			bidsJSON, _ := json.Marshal(existingBids)
 			tcb.Bids = bidsJSON
 			database.DB.Save(&tcb)
@@ -6300,7 +6724,155 @@ func main() {
 			return
 		}
 
-		c.JSON(200, gin.H{"message": "Oferta enviada correctamente"})
+		c.JSON(200, gin.H{"message": "Oferta actualizada correctamente"})
+	})
+
+	// Endpoint para eliminar oferta (DELETE)
+	router.DELETE("/api/:item_type/delete-offer", authMiddleware(), func(c *gin.Context) {
+		itemType := c.Param("item_type")
+		var req struct {
+			ItemID   uint `json:"item_id"`
+			LeagueID uint `json:"league_id"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(400, gin.H{"error": "Datos inválidos"})
+			return
+		}
+		userID := c.GetUint("user_id")
+
+		// Eliminar la oferta según el tipo de elemento
+		switch itemType {
+		case "pilot":
+			var pbl models.PilotByLeague
+			if err := database.DB.First(&pbl, req.ItemID).Error; err != nil {
+				c.JSON(404, gin.H{"error": "Piloto no encontrado"})
+				return
+			}
+
+			var existingBids []Bid
+			if len(pbl.Bids) > 0 {
+				json.Unmarshal(pbl.Bids, &existingBids)
+			}
+
+			// Filtrar la oferta del usuario
+			newBids := make([]Bid, 0)
+			offerFound := false
+			for _, existingBid := range existingBids {
+				if existingBid.PlayerID != userID {
+					newBids = append(newBids, existingBid)
+				} else {
+					offerFound = true
+				}
+			}
+
+			if !offerFound {
+				c.JSON(404, gin.H{"error": "No tienes una oferta activa para este elemento"})
+				return
+			}
+
+			bidsJSON, _ := json.Marshal(newBids)
+			pbl.Bids = bidsJSON
+			database.DB.Save(&pbl)
+
+		case "track_engineer":
+			var teb models.TrackEngineerByLeague
+			if err := database.DB.First(&teb, req.ItemID).Error; err != nil {
+				c.JSON(404, gin.H{"error": "Track Engineer no encontrado"})
+				return
+			}
+
+			var existingBids []Bid
+			if len(teb.Bids) > 0 {
+				json.Unmarshal(teb.Bids, &existingBids)
+			}
+
+			newBids := make([]Bid, 0)
+			offerFound := false
+			for _, existingBid := range existingBids {
+				if existingBid.PlayerID != userID {
+					newBids = append(newBids, existingBid)
+				} else {
+					offerFound = true
+				}
+			}
+
+			if !offerFound {
+				c.JSON(404, gin.H{"error": "No tienes una oferta activa para este elemento"})
+				return
+			}
+
+			bidsJSON, _ := json.Marshal(newBids)
+			teb.Bids = bidsJSON
+			database.DB.Save(&teb)
+
+		case "chief_engineer":
+			var ceb models.ChiefEngineerByLeague
+			if err := database.DB.First(&ceb, req.ItemID).Error; err != nil {
+				c.JSON(404, gin.H{"error": "Chief Engineer no encontrado"})
+				return
+			}
+
+			var existingBids []Bid
+			if len(ceb.Bids) > 0 {
+				json.Unmarshal(ceb.Bids, &existingBids)
+			}
+
+			newBids := make([]Bid, 0)
+			offerFound := false
+			for _, existingBid := range existingBids {
+				if existingBid.PlayerID != userID {
+					newBids = append(newBids, existingBid)
+				} else {
+					offerFound = true
+				}
+			}
+
+			if !offerFound {
+				c.JSON(404, gin.H{"error": "No tienes una oferta activa para este elemento"})
+				return
+			}
+
+			bidsJSON, _ := json.Marshal(newBids)
+			ceb.Bids = bidsJSON
+			database.DB.Save(&ceb)
+
+		case "team_constructor":
+			var tcb models.TeamConstructorByLeague
+			if err := database.DB.First(&tcb, req.ItemID).Error; err != nil {
+				c.JSON(404, gin.H{"error": "Team Constructor no encontrado"})
+				return
+			}
+
+			var existingBids []Bid
+			if len(tcb.Bids) > 0 {
+				json.Unmarshal(tcb.Bids, &existingBids)
+			}
+
+			newBids := make([]Bid, 0)
+			offerFound := false
+			for _, existingBid := range existingBids {
+				if existingBid.PlayerID != userID {
+					newBids = append(newBids, existingBid)
+				} else {
+					offerFound = true
+				}
+			}
+
+			if !offerFound {
+				c.JSON(404, gin.H{"error": "No tienes una oferta activa para este elemento"})
+				return
+			}
+
+			bidsJSON, _ := json.Marshal(newBids)
+			tcb.Bids = bidsJSON
+			database.DB.Save(&tcb)
+
+		default:
+			c.JSON(400, gin.H{"error": "Tipo de elemento no válido"})
+			return
+		}
+
+		c.JSON(200, gin.H{"message": "Oferta eliminada correctamente"})
 	})
 
 	// Endpoint para activar cláusula

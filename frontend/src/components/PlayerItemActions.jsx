@@ -13,7 +13,8 @@ const PlayerItemActions = ({
   currentPlayerMoney, 
   onMakeOffer, 
   onActivateClausula,
-  isOwned = false 
+  isOwned = false,
+  existingOffers = [] // Array de ofertas existentes del usuario
 }) => {
   const navigate = useNavigate();
   const { selectedLeague } = useLeague();
@@ -27,13 +28,24 @@ const PlayerItemActions = ({
     return null;
   }
 
-  // Inicializar el valor de oferta con el valor de mercado cuando se abre el diálogo
+  // Verificar si ya existe una oferta para este elemento
+  const existingOffer = existingOffers.find(offer => 
+    offer.id === item.id && offer.type === itemType
+  );
+
+  // Inicializar el valor de oferta con el valor de mercado o la oferta existente
   useEffect(() => {
     if (showOfferDialog && item) {
-      const marketValue = Number(item.value || item.valor_global || 0);
-      setOfferValue(marketValue.toString());
+      if (existingOffer) {
+        // Si ya existe una oferta, usar ese valor
+        setOfferValue(existingOffer.offer_value.toString());
+      } else {
+        // Si no existe, usar el valor de mercado
+        const marketValue = Number(item.value || item.valor_global || 0);
+        setOfferValue(marketValue.toString());
+      }
     }
-  }, [showOfferDialog, item]);
+  }, [showOfferDialog, item, existingOffer]);
 
   const handleMakeOffer = async () => {
     if (!offerValue || parseFloat(offerValue) <= 0) {
@@ -200,32 +212,42 @@ const PlayerItemActions = ({
             className="flex items-center gap-2 whitespace-nowrap transition-all duration-200"
             disabled={isLoading}
             style={{
-              borderColor: '#9D4EDD',
+              borderColor: existingOffer ? '#28C76F' : '#9D4EDD',
               color: '#FFFFFF',
-              backgroundColor: '#9D4EDD',
+              backgroundColor: existingOffer ? '#28C76F' : '#9D4EDD',
               borderRadius: 12,
               padding: '8px 16px',
               fontSize: 14,
               fontWeight: 500,
               fontFamily: "'Inter', 'Segoe UI', sans-serif",
               borderWidth: '2px',
-              boxShadow: '0 0 8px rgba(157, 78, 221, 0.3)'
+              boxShadow: existingOffer ? '0 0 8px rgba(40, 199, 111, 0.3)' : '0 0 8px rgba(157, 78, 221, 0.3)'
             }}
             onMouseEnter={(e) => {
               if (!isLoading) {
-                e.target.style.backgroundColor = '#8B3DD6';
-                e.target.style.boxShadow = '0 0 12px rgba(157, 78, 221, 0.5)';
+                if (existingOffer) {
+                  e.target.style.backgroundColor = '#24B263';
+                  e.target.style.boxShadow = '0 0 12px rgba(40, 199, 111, 0.5)';
+                } else {
+                  e.target.style.backgroundColor = '#8B3DD6';
+                  e.target.style.boxShadow = '0 0 12px rgba(157, 78, 221, 0.5)';
+                }
               }
             }}
             onMouseLeave={(e) => {
               if (!isLoading) {
-                e.target.style.backgroundColor = '#9D4EDD';
-                e.target.style.boxShadow = '0 0 8px rgba(157, 78, 221, 0.3)';
+                if (existingOffer) {
+                  e.target.style.backgroundColor = '#28C76F';
+                  e.target.style.boxShadow = '0 0 8px rgba(40, 199, 111, 0.3)';
+                } else {
+                  e.target.style.backgroundColor = '#9D4EDD';
+                  e.target.style.boxShadow = '0 0 8px rgba(157, 78, 221, 0.3)';
+                }
               }
             }}
           >
             <User className="h-3 w-3" />
-            Hacer oferta
+            {existingOffer ? `Editar oferta (${existingOffer.offer_value?.toLocaleString()} €)` : 'Hacer oferta'}
           </Button>
 
           {/* Botón de Cláusula - SOLO CUANDO EXPIRA */}
@@ -315,7 +337,7 @@ const PlayerItemActions = ({
               className="text-[#FFFFFF] font-bold text-2xl mb-3 mt-2"
               style={{ fontFamily: "'Inter', 'Segoe UI', sans-serif" }}
             >
-              Oferta por {getItemName()}
+              {existingOffer ? 'Editar oferta por' : 'Oferta por'} {getItemName()}
             </h2>
             
             {/* Imagen del elemento */}
@@ -340,6 +362,41 @@ const PlayerItemActions = ({
             
             {/* Información del elemento */}
             <div className="w-full max-w-80 mb-3">
+              {/* Mostrar oferta existente si existe */}
+              {existingOffer && (
+                <div 
+                  className="rounded-lg p-3 border mb-3"
+                  style={{
+                    background: '#1E1A1E',
+                    border: '1px solid #28C76F',
+                    borderRadius: 12,
+                    boxShadow: '0 4px 16px rgba(0,0,0,0.35)'
+                  }}
+                >
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className="w-3 h-3 rounded-full" style={{ background: '#28C76F' }}></div>
+                    <span 
+                      className="font-semibold text-sm"
+                      style={{ color: '#28C76F', fontFamily: "'Inter', 'Segoe UI', sans-serif" }}
+                    >
+                      OFERTA ACTUAL
+                    </span>
+                  </div>
+                  <p 
+                    className="font-bold text-base"
+                    style={{ color: '#FFFFFF', fontFamily: "'Inter', 'Segoe UI', sans-serif" }}
+                  >
+                    €{existingOffer.offer_value?.toLocaleString('es-ES')}
+                  </p>
+                  <p 
+                    className="text-xs mt-1"
+                    style={{ color: '#C9A9DD', fontFamily: "'Inter', 'Segoe UI', sans-serif" }}
+                  >
+                    Realizada el {new Date(existingOffer.created_at || existingOffer.received_at).toLocaleDateString('es-ES')}
+                  </p>
+                </div>
+              )}
+              
               <div 
                 className="rounded-lg p-4 border"
                 style={{
@@ -442,7 +499,7 @@ const PlayerItemActions = ({
                 }
               }}
             >
-              {isLoading ? 'Enviando oferta...' : 'Hacer oferta'}
+              {isLoading ? 'Enviando oferta...' : (existingOffer ? 'Actualizar oferta' : 'Hacer oferta')}
             </Button>
 
             {/* Validación de importe mínimo */}

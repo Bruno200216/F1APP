@@ -34,6 +34,7 @@ export default function PlayerProfilePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [currentPlayerMoney, setCurrentPlayerMoney] = useState(0);
+  const [existingOffers, setExistingOffers] = useState([]); // Ofertas existentes del usuario
   
   // Obtener el ID del usuario actual
   const currentPlayerId = Number(localStorage.getItem('player_id'));
@@ -92,11 +93,33 @@ export default function PlayerProfilePage() {
         }
       }
 
+      // Obtener ofertas existentes del usuario actual
+      await fetchExistingOffers();
+
     } catch (err) {
       console.error('Error fetching player data:', err);
       setError('Error loading player data');
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Función para obtener las ofertas existentes del usuario
+  const fetchExistingOffers = async () => {
+    if (!selectedLeague || currentPlayerId === parseInt(playerId)) return;
+    
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`/api/my-market-bids?league_id=${selectedLeague.id}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      const data = await response.json();
+      setExistingOffers(data.bids || []);
+    } catch (err) {
+      console.error('Error fetching existing offers:', err);
+      setExistingOffers([]);
     }
   };
 
@@ -143,8 +166,9 @@ export default function PlayerProfilePage() {
       }
 
       alert('Oferta enviada correctamente');
-      // Recargar datos del jugador
+      // Recargar datos del jugador y ofertas existentes
       fetchPlayerData();
+      await fetchExistingOffers();
     } catch (error) {
       console.error('Error en handleMakeOffer:', error);
       throw new Error(error.message);
@@ -323,6 +347,7 @@ export default function PlayerProfilePage() {
                             onMakeOffer={(offerValue) => handleMakeOffer(pilot, 'pilot', offerValue)}
                             onActivateClausula={(clausulaValue) => handleActivateClausula(pilot, 'pilot', clausulaValue)}
                             isOwned={false}
+                            existingOffers={existingOffers}
                           />
                         </div>
                       )}
@@ -371,6 +396,7 @@ export default function PlayerProfilePage() {
                             onMakeOffer={(offerValue) => handleMakeOffer(engineer, 'track_engineer', offerValue)}
                             onActivateClausula={(clausulaValue) => handleActivateClausula(engineer, 'track_engineer', clausulaValue)}
                             isOwned={false}
+                            existingOffers={existingOffers}
                           />
                         </div>
                       )}
@@ -419,6 +445,7 @@ export default function PlayerProfilePage() {
                             onMakeOffer={(offerValue) => handleMakeOffer(engineer, 'chief_engineer', offerValue)}
                             onActivateClausula={(clausulaValue) => handleActivateClausula(engineer, 'chief_engineer', clausulaValue)}
                             isOwned={false}
+                            existingOffers={existingOffers}
                           />
                         </div>
                       )}
@@ -466,6 +493,7 @@ export default function PlayerProfilePage() {
                             onMakeOffer={(offerValue) => handleMakeOffer(team, 'team_constructor', offerValue)}
                             onActivateClausula={(clausulaValue) => handleActivateClausula(team, 'team_constructor', clausulaValue)}
                             isOwned={false}
+                            existingOffers={existingOffers}
                           />
                         </div>
                       )}
