@@ -1975,9 +1975,9 @@ func main() {
 					// Generar oferta entre 90% y 110% del valor de la puja ganadora
 					fiaOfferValue := generateFIAOffer(maxBid.Valor)
 
-					// Crear la oferta de la FIA (el PlayerID debe ser el del propietario actual)
+					// Crear la oferta de la FIA con ID especial
 					fiaBid := Bid{
-						PlayerID: pbl.OwnerID, // El propietario actual
+						PlayerID: FIA_PLAYER_ID, // ID especial de la FIA
 						Valor:    fiaOfferValue,
 					}
 
@@ -2026,9 +2026,9 @@ func main() {
 					// Generar oferta entre 90% y 110% del valor de la puja ganadora
 					fiaOfferValue := generateFIAOffer(maxBid.Valor)
 
-					// Crear la oferta de la FIA (el PlayerID debe ser el del propietario actual)
+					// Crear la oferta de la FIA con ID especial
 					fiaBid := Bid{
-						PlayerID: teb.OwnerID, // El propietario actual
+						PlayerID: FIA_PLAYER_ID, // ID especial de la FIA
 						Valor:    fiaOfferValue,
 					}
 
@@ -2077,9 +2077,9 @@ func main() {
 					// Generar oferta entre 90% y 110% del valor de la puja ganadora
 					fiaOfferValue := generateFIAOffer(maxBid.Valor)
 
-					// Crear la oferta de la FIA (el PlayerID debe ser el del propietario actual)
+					// Crear la oferta de la FIA con ID especial
 					fiaBid := Bid{
-						PlayerID: ceb.OwnerID, // El propietario actual
+						PlayerID: FIA_PLAYER_ID, // ID especial de la FIA
 						Valor:    fiaOfferValue,
 					}
 
@@ -2128,9 +2128,9 @@ func main() {
 					// Generar oferta entre 90% y 110% del valor de la puja ganadora
 					fiaOfferValue := generateFIAOffer(maxBid.Valor)
 
-					// Crear la oferta de la FIA (el PlayerID debe ser el del propietario actual)
+					// Crear la oferta de la FIA con ID especial
 					fiaBid := Bid{
-						PlayerID: tcb.OwnerID, // El propietario actual
+						PlayerID: FIA_PLAYER_ID, // ID especial de la FIA
 						Valor:    fiaOfferValue,
 					}
 
@@ -2167,7 +2167,30 @@ func main() {
 	})
 
 	// Endpoint para generar ofertas de la FIA manualmente (cada 24 horas)
-	router.POST("/api/generate-fia-offers", func(c *gin.Context) {
+	router.POST("/api/generate-fia-offers", authMiddleware(), func(c *gin.Context) {
+		// Verificar que el usuario es admin
+		userIDRaw, ok := c.Get("user_id")
+		if !ok {
+			c.JSON(401, gin.H{"error": "No autenticado"})
+			return
+		}
+		userID, ok := userIDRaw.(uint)
+		if !ok {
+			c.JSON(401, gin.H{"error": "No autenticado (tipo user_id incorrecto)"})
+			return
+		}
+
+		// Verificar si el usuario es admin
+		var player models.Player
+		if err := database.DB.First(&player, userID).Error; err != nil {
+			c.JSON(404, gin.H{"error": "Usuario no encontrado"})
+			return
+		}
+		if !player.IsAdmin {
+			c.JSON(403, gin.H{"error": "No tienes permisos de administrador"})
+			return
+		}
+
 		leagueID := c.Query("league_id")
 		if leagueID == "" {
 			c.JSON(400, gin.H{"error": "Falta league_id"})
@@ -2193,7 +2216,30 @@ func main() {
 	})
 
 	// Endpoint para generar ofertas de la FIA para elementos con propietario
-	router.POST("/api/generate-fia-offers-owned", func(c *gin.Context) {
+	router.POST("/api/generate-fia-offers-owned", authMiddleware(), func(c *gin.Context) {
+		// Verificar que el usuario es admin
+		userIDRaw, ok := c.Get("user_id")
+		if !ok {
+			c.JSON(401, gin.H{"error": "No autenticado"})
+			return
+		}
+		userID, ok := userIDRaw.(uint)
+		if !ok {
+			c.JSON(401, gin.H{"error": "No autenticado (tipo user_id incorrecto)"})
+			return
+		}
+
+		// Verificar si el usuario es admin
+		var player models.Player
+		if err := database.DB.First(&player, userID).Error; err != nil {
+			c.JSON(404, gin.H{"error": "Usuario no encontrado"})
+			return
+		}
+		if !player.IsAdmin {
+			c.JSON(403, gin.H{"error": "No tienes permisos de administrador"})
+			return
+		}
+
 		leagueID := c.Query("league_id")
 		if leagueID == "" {
 			c.JSON(400, gin.H{"error": "Falta league_id"})
@@ -2218,36 +2264,10 @@ func main() {
 		c.JSON(200, gin.H{"message": "Ofertas de la FIA generadas correctamente para elementos con propietario"})
 	})
 
-	// Reinicio automático del mercado cada 24 horas
-	go func() {
-		for {
-			time.Sleep(24 * time.Hour)
-			var leagues []models.League
-			database.DB.Find(&leagues)
-			for _, league := range leagues {
-				refreshMarketForLeague(league.ID)
-				log.Printf("Mercado reiniciado automáticamente para la liga %d", league.ID)
-				updateMarketNextRefresh()
-			}
-		}
-	}()
-
-	// Generación automática de ofertas de la FIA cada 24 horas
-	go func() {
-		for {
-			time.Sleep(24 * time.Hour)
-			var leagues []models.League
-			database.DB.Find(&leagues)
-			for _, league := range leagues {
-				log.Printf("Generando ofertas de la FIA automáticamente para la liga %d", league.ID)
-				if err := generateFIAOffersForLeague(league.ID); err != nil {
-					log.Printf("Error generando ofertas FIA automáticas para liga %d: %v", league.ID, err)
-				} else {
-					log.Printf("Ofertas de la FIA generadas automáticamente para la liga %d", league.ID)
-				}
-			}
-		}
-	}()
+	// NOTA: Se eliminó la generación automática de ofertas de la FIA cada 24 horas
+	// Ahora las ofertas de la FIA solo se generan:
+	// 1. Manualmente con el botón "Generar Ofertas FIA" (admin)
+	// 2. Automáticamente después de finalizar subastas
 
 	router.GET("/api/market/next-refresh", func(c *gin.Context) {
 		c.JSON(200, gin.H{"next_refresh": marketNextRefresh.Unix()})
@@ -3676,6 +3696,194 @@ func main() {
 		c.JSON(200, gin.H{"success": true})
 	})
 
+	// Endpoint para rechazar oferta de jugador para piloto
+	router.POST("/api/pilotbyleague/reject-player-offer", authMiddleware(), func(c *gin.Context) {
+		var req struct {
+			PilotByLeagueID uint `json:"pilot_by_league_id"`
+			OfferID         uint `json:"offer_id"`
+			LeagueID        uint `json:"league_id"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(400, gin.H{"error": "Datos inválidos"})
+			return
+		}
+		userIDRaw, ok := c.Get("user_id")
+		if !ok {
+			c.JSON(401, gin.H{"error": "No autenticado"})
+			return
+		}
+		userID, ok := userIDRaw.(uint)
+		if !ok {
+			c.JSON(401, gin.H{"error": "No autenticado (tipo user_id incorrecto)"})
+			return
+		}
+		var pbl models.PilotByLeague
+		if err := database.DB.First(&pbl, req.PilotByLeagueID).Error; err != nil {
+			c.JSON(404, gin.H{"error": "PilotByLeague no encontrado"})
+			return
+		}
+		if pbl.OwnerID != userID {
+			c.JSON(401, gin.H{"error": "No eres el propietario"})
+			return
+		}
+		// Remover la oferta específica del array de bids
+		var bids []Bid
+		if len(pbl.Bids) > 0 {
+			json.Unmarshal(pbl.Bids, &bids)
+		}
+		var newBids []Bid
+		for _, bid := range bids {
+			if bid.PlayerID != req.OfferID {
+				newBids = append(newBids, bid)
+			}
+		}
+		bidsJSON, _ := json.Marshal(newBids)
+		pbl.Bids = bidsJSON
+		database.DB.Save(&pbl)
+		c.JSON(200, gin.H{"success": true})
+	})
+
+	// Endpoint para rechazar oferta de jugador para track engineer
+	router.POST("/api/trackengineerbyleague/reject-player-offer", authMiddleware(), func(c *gin.Context) {
+		var req struct {
+			TrackEngineerByLeagueID uint `json:"track_engineer_by_league_id"`
+			OfferID                 uint `json:"offer_id"`
+			LeagueID                uint `json:"league_id"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(400, gin.H{"error": "Datos inválidos"})
+			return
+		}
+		userIDRaw, ok := c.Get("user_id")
+		if !ok {
+			c.JSON(401, gin.H{"error": "No autenticado"})
+			return
+		}
+		userID, ok := userIDRaw.(uint)
+		if !ok {
+			c.JSON(401, gin.H{"error": "No autenticado (tipo user_id incorrecto)"})
+			return
+		}
+		var teb models.TrackEngineerByLeague
+		if err := database.DB.First(&teb, req.TrackEngineerByLeagueID).Error; err != nil {
+			c.JSON(404, gin.H{"error": "TrackEngineerByLeague no encontrado"})
+			return
+		}
+		if teb.OwnerID != userID {
+			c.JSON(401, gin.H{"error": "No eres el propietario"})
+			return
+		}
+		// Remover la oferta específica del array de bids
+		var bids []Bid
+		if len(teb.Bids) > 0 {
+			json.Unmarshal(teb.Bids, &bids)
+		}
+		var newBids []Bid
+		for _, bid := range bids {
+			if bid.PlayerID != req.OfferID {
+				newBids = append(newBids, bid)
+			}
+		}
+		bidsJSON, _ := json.Marshal(newBids)
+		teb.Bids = bidsJSON
+		database.DB.Save(&teb)
+		c.JSON(200, gin.H{"success": true})
+	})
+
+	// Endpoint para rechazar oferta de jugador para chief engineer
+	router.POST("/api/chiefengineerbyleague/reject-player-offer", authMiddleware(), func(c *gin.Context) {
+		var req struct {
+			ChiefEngineerByLeagueID uint `json:"chief_engineer_by_league_id"`
+			OfferID                 uint `json:"offer_id"`
+			LeagueID                uint `json:"league_id"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(400, gin.H{"error": "Datos inválidos"})
+			return
+		}
+		userIDRaw, ok := c.Get("user_id")
+		if !ok {
+			c.JSON(401, gin.H{"error": "No autenticado"})
+			return
+		}
+		userID, ok := userIDRaw.(uint)
+		if !ok {
+			c.JSON(401, gin.H{"error": "No autenticado (tipo user_id incorrecto)"})
+			return
+		}
+		var ceb models.ChiefEngineerByLeague
+		if err := database.DB.First(&ceb, req.ChiefEngineerByLeagueID).Error; err != nil {
+			c.JSON(404, gin.H{"error": "ChiefEngineerByLeague no encontrado"})
+			return
+		}
+		if ceb.OwnerID != userID {
+			c.JSON(401, gin.H{"error": "No eres el propietario"})
+			return
+		}
+		// Remover la oferta específica del array de bids
+		var bids []Bid
+		if len(ceb.Bids) > 0 {
+			json.Unmarshal(ceb.Bids, &bids)
+		}
+		var newBids []Bid
+		for _, bid := range bids {
+			if bid.PlayerID != req.OfferID {
+				newBids = append(newBids, bid)
+			}
+		}
+		bidsJSON, _ := json.Marshal(newBids)
+		ceb.Bids = bidsJSON
+		database.DB.Save(&ceb)
+		c.JSON(200, gin.H{"success": true})
+	})
+
+	// Endpoint para rechazar oferta de jugador para team constructor
+	router.POST("/api/teamconstructorbyleague/reject-player-offer", authMiddleware(), func(c *gin.Context) {
+		var req struct {
+			TeamConstructorByLeagueID uint `json:"team_constructor_by_league_id"`
+			OfferID                   uint `json:"offer_id"`
+			LeagueID                  uint `json:"league_id"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(400, gin.H{"error": "Datos inválidos"})
+			return
+		}
+		userIDRaw, ok := c.Get("user_id")
+		if !ok {
+			c.JSON(401, gin.H{"error": "No autenticado"})
+			return
+		}
+		userID, ok := userIDRaw.(uint)
+		if !ok {
+			c.JSON(401, gin.H{"error": "No autenticado (tipo user_id incorrecto)"})
+			return
+		}
+		var tcb models.TeamConstructorByLeague
+		if err := database.DB.First(&tcb, req.TeamConstructorByLeagueID).Error; err != nil {
+			c.JSON(404, gin.H{"error": "TeamConstructorByLeague no encontrado"})
+			return
+		}
+		if tcb.OwnerID != userID {
+			c.JSON(401, gin.H{"error": "No eres el propietario"})
+			return
+		}
+		// Remover la oferta específica del array de bids
+		var bids []Bid
+		if len(tcb.Bids) > 0 {
+			json.Unmarshal(tcb.Bids, &bids)
+		}
+		var newBids []Bid
+		for _, bid := range bids {
+			if bid.PlayerID != req.OfferID {
+				newBids = append(newBids, bid)
+			}
+		}
+		bidsJSON, _ := json.Marshal(newBids)
+		tcb.Bids = bidsJSON
+		database.DB.Save(&tcb)
+		c.JSON(200, gin.H{"success": true})
+	})
+
 	// Endpoint para obtener todos los elementos en venta del usuario en la liga
 	router.GET("/api/my-market-sales", authMiddleware(), func(c *gin.Context) {
 		userIDRaw, ok := c.Get("user_id")
@@ -4213,7 +4421,29 @@ func main() {
 	})
 
 	// Endpoint para actualizar ventas7fichajes y value de todos los pilotos
-	router.POST("/api/drivers/update-values", func(c *gin.Context) {
+	router.POST("/api/drivers/update-values", authMiddleware(), func(c *gin.Context) {
+		// Verificar que el usuario es admin
+		userIDRaw, ok := c.Get("user_id")
+		if !ok {
+			c.JSON(401, gin.H{"error": "No autenticado"})
+			return
+		}
+		userID, ok := userIDRaw.(uint)
+		if !ok {
+			c.JSON(401, gin.H{"error": "No autenticado (tipo user_id incorrecto)"})
+			return
+		}
+
+		// Verificar si el usuario es admin
+		var player models.Player
+		if err := database.DB.First(&player, userID).Error; err != nil {
+			c.JSON(404, gin.H{"error": "Usuario no encontrado"})
+			return
+		}
+		if !player.IsAdmin {
+			c.JSON(403, gin.H{"error": "No tienes permisos de administrador"})
+			return
+		}
 		log.Println("[UPDATE-VALUES] Iniciando actualización de valores y ventas7fichajes usando pilot_value_history y driver_value_update_log...")
 		// Obtener la última fecha de actualización
 		var lastUpdate time.Time
@@ -5696,29 +5926,24 @@ func main() {
 	// Endpoint para perfil de track engineer by league
 	router.GET("/api/trackengineersbyleague", func(c *gin.Context) {
 		id := c.Query("id")
-		leagueID := c.Query("league_id")
-		log.Printf("[TRACK-ENG-PROFILE] id=%s leagueID=%s", id, leagueID)
-		if id == "" || leagueID == "" {
-			c.JSON(400, gin.H{"error": "Faltan parámetros id o league_id"})
+		_ = c.Query("league_id") // Para futuras validaciones
+		log.Printf("[TRACK-ENG-PROFILE] id=%s", id)
+		if id == "" {
+			c.JSON(400, gin.H{"error": "Falta parámetro id"})
 			return
 		}
 
-		// Convertir IDs a uint
+		// Convertir ID a uint
 		idUint, err := strconv.ParseUint(id, 10, 64)
 		if err != nil {
 			c.JSON(400, gin.H{"error": "ID inválido"})
 			return
 		}
-		leagueIDUint, err := strconv.ParseUint(leagueID, 10, 64)
-		if err != nil {
-			c.JSON(400, gin.H{"error": "league_id inválido"})
-			return
-		}
 
-		// Buscar por track_engineer_id y league_id
+		// Buscar por ID del registro TrackEngineerByLeague
 		var teb models.TrackEngineerByLeague
-		if err := database.DB.Where("track_engineer_id = ? AND league_id = ?", idUint, leagueIDUint).First(&teb).Error; err != nil {
-			log.Printf("[TRACK-ENG-PROFILE] No se encontró TrackEngineerByLeague track_engineer_id=%d league_id=%d", idUint, leagueIDUint)
+		if err := database.DB.First(&teb, idUint).Error; err != nil {
+			log.Printf("[TRACK-ENG-PROFILE] No se encontró TrackEngineerByLeague id=%d", idUint)
 			c.JSON(404, gin.H{"error": "TrackEngineerByLeague no encontrado"})
 			return
 		}
@@ -5736,9 +5961,17 @@ func main() {
 		log.Printf("[TRACK-ENG-PROFILE] pilots: %+v", pilots)
 		// Responder con todos los datos relevantes
 		var resp = gin.H{
-			"engineer":       teb,
-			"track_engineer": te,
-			"pilots":         pilots,
+			"engineer": teb,
+			"track_engineer": gin.H{
+				"id":           te.ID,
+				"name":         te.Name,
+				"value":        te.Value,
+				"image_url":    te.ImageURL,
+				"team":         te.Team,
+				"gp_index":     te.GPIndex,
+				"total_points": te.TotalPoints,
+			},
+			"pilots": pilots,
 		}
 		log.Printf("[TRACK-ENG-PROFILE] RESPUESTA FINAL: %+v", resp)
 		c.JSON(200, resp)
@@ -5780,27 +6013,22 @@ func main() {
 	// Endpoint para perfil de chief engineer by league
 	router.GET("/api/chiefengineersbyleague", func(c *gin.Context) {
 		id := c.Query("id")
-		leagueID := c.Query("league_id")
-		if id == "" || leagueID == "" {
-			c.JSON(400, gin.H{"error": "Faltan parámetros id o league_id"})
+		_ = c.Query("league_id") // Para futuras validaciones
+		if id == "" {
+			c.JSON(400, gin.H{"error": "Falta parámetro id"})
 			return
 		}
 
-		// Convertir IDs a uint
+		// Convertir ID a uint
 		idUint, err := strconv.ParseUint(id, 10, 64)
 		if err != nil {
 			c.JSON(400, gin.H{"error": "ID inválido"})
 			return
 		}
-		leagueIDUint, err := strconv.ParseUint(leagueID, 10, 64)
-		if err != nil {
-			c.JSON(400, gin.H{"error": "league_id inválido"})
-			return
-		}
 
-		// Buscar por chief_engineer_id y league_id
+		// Buscar por ID del registro ChiefEngineerByLeague
 		var ceb models.ChiefEngineerByLeague
-		if err := database.DB.Where("chief_engineer_id = ? AND league_id = ?", idUint, leagueIDUint).First(&ceb).Error; err != nil {
+		if err := database.DB.First(&ceb, idUint).Error; err != nil {
 			c.JSON(404, gin.H{"error": "ChiefEngineerByLeague no encontrado"})
 			return
 		}
@@ -5813,9 +6041,17 @@ func main() {
 		var pilots []models.Pilot
 		database.DB.Where("chief_engineer_id = ?", ce.ID).Find(&pilots)
 		c.JSON(200, gin.H{
-			"engineer":       ceb,
-			"chief_engineer": ce,
-			"pilots":         pilots,
+			"engineer": ceb,
+			"chief_engineer": gin.H{
+				"id":           ce.ID,
+				"name":         ce.Name,
+				"value":        ce.Value,
+				"image_url":    ce.ImageURL,
+				"team":         ce.Team,
+				"gp_index":     ce.GPIndex,
+				"total_points": ce.TotalPoints,
+			},
+			"pilots": pilots,
 		})
 	})
 
@@ -5853,27 +6089,22 @@ func main() {
 	// Endpoint para perfil de team constructor by league
 	router.GET("/api/teamconstructorsbyleague", func(c *gin.Context) {
 		id := c.Query("id")
-		leagueID := c.Query("league_id")
+		_ = c.Query("league_id") // Para futuras validaciones
 		if id == "" {
 			c.JSON(400, gin.H{"error": "Falta parámetro id"})
 			return
 		}
 
-		// Convertir IDs a uint
+		// Convertir ID a uint
 		idUint, err := strconv.ParseUint(id, 10, 64)
 		if err != nil {
 			c.JSON(400, gin.H{"error": "ID inválido"})
 			return
 		}
-		leagueIDUint, err := strconv.ParseUint(leagueID, 10, 64)
-		if err != nil {
-			c.JSON(400, gin.H{"error": "league_id inválido"})
-			return
-		}
 
-		// Buscar por teamconstructor_id y league_id
+		// Buscar por ID del registro TeamConstructorByLeague
 		var tcb models.TeamConstructorByLeague
-		if err := database.DB.Where("teamconstructor_id = ? AND league_id = ?", idUint, leagueIDUint).First(&tcb).Error; err != nil {
+		if err := database.DB.First(&tcb, idUint).Error; err != nil {
 			c.JSON(404, gin.H{"error": "TeamConstructorByLeague no encontrado"})
 			return
 		}
@@ -5886,9 +6117,16 @@ func main() {
 		var pilots []models.Pilot
 		database.DB.Where("team = ?", tc.Name).Find(&pilots)
 		c.JSON(200, gin.H{
-			"team":             tcb,
-			"team_constructor": tc,
-			"pilots":           pilots,
+			"team": tcb,
+			"team_constructor": gin.H{
+				"id":        tc.ID,
+				"name":      tc.Name,
+				"value":     tc.Value,
+				"image_url": tc.ImageURL,
+				"team":      tc.Name,
+				"gp_index":  tc.GPIndex,
+			},
+			"pilots": pilots,
 		})
 	})
 
@@ -7302,26 +7540,50 @@ func main() {
 				var pbl models.PilotByLeague
 				database.DB.First(&pbl, req.ItemID)
 				pbl.OwnerID = req.BidderID
-				// Limpiar ofertas
+				// Limpiar ofertas, cláusulas y ofertas de la FIA
 				pbl.Bids = []byte("[]")
+				pbl.Venta = nil
+				pbl.VentaExpiresAt = nil
+				pbl.LeagueOfferValue = nil
+				pbl.LeagueOfferExpiresAt = nil
+				pbl.ClausulaValue = nil
+				pbl.Clausulatime = nil
 				database.DB.Save(&pbl)
 			case "track_engineer":
 				var teb models.TrackEngineerByLeague
 				database.DB.First(&teb, req.ItemID)
 				teb.OwnerID = req.BidderID
 				teb.Bids = []byte("[]")
+				teb.Venta = nil
+				teb.VentaExpiresAt = nil
+				teb.LeagueOfferValue = nil
+				teb.LeagueOfferExpiresAt = nil
+				teb.ClausulaValue = nil
+				teb.Clausulatime = nil
 				database.DB.Save(&teb)
 			case "chief_engineer":
 				var ceb models.ChiefEngineerByLeague
 				database.DB.First(&ceb, req.ItemID)
 				ceb.OwnerID = req.BidderID
 				ceb.Bids = []byte("[]")
+				ceb.Venta = nil
+				ceb.VentaExpiresAt = nil
+				ceb.LeagueOfferValue = nil
+				ceb.LeagueOfferExpiresAt = nil
+				ceb.ClausulaValue = nil
+				ceb.Clausulatime = nil
 				database.DB.Save(&ceb)
 			case "team_constructor":
 				var tcb models.TeamConstructorByLeague
 				database.DB.First(&tcb, req.ItemID)
 				tcb.OwnerID = req.BidderID
 				tcb.Bids = []byte("[]")
+				tcb.Venta = nil
+				tcb.VentaExpiresAt = nil
+				tcb.LeagueOfferValue = nil
+				tcb.LeagueOfferExpiresAt = nil
+				tcb.ClausulaValue = nil
+				tcb.Clausulatime = nil
 				database.DB.Save(&tcb)
 			}
 
@@ -7421,11 +7683,15 @@ func main() {
 	}
 }
 
+const FIA_PLAYER_ID = 999999 // ID especial para la FIA
+
 // Función para generar oferta de la FIA (entre 90% y 110% del valor de venta)
 func generateFIAOffer(saleValue float64) float64 {
 	// Generar un valor aleatorio entre 0.9 y 1.1 (90% a 110%)
 	multiplier := 0.9 + rand.Float64()*0.2
-	return saleValue * multiplier
+	result := saleValue * multiplier
+	// NO redondear para mantener valores aleatorios más naturales
+	return result
 }
 
 // Función para actualizar puntos de jugadores que tengan un piloto alineado
@@ -7724,6 +7990,7 @@ func generateFIAOffersForLeague(leagueID uint) error {
 	// 1. Generar ofertas para pilotos en venta
 	var pilotVentas []models.PilotByLeague
 	database.DB.Where("league_id = ? AND venta IS NOT NULL AND venta_expires_at > ? AND league_offer_value IS NULL", leagueID, time.Now()).Find(&pilotVentas)
+	log.Printf("[FIA] Encontrados %d pilotos en venta sin oferta FIA", len(pilotVentas))
 
 	for _, pbl := range pilotVentas {
 		var pilot models.Pilot
@@ -7737,19 +8004,22 @@ func generateFIAOffersForLeague(leagueID uint) error {
 		fiaOffer := generateFIAOffer(saleValue)
 		expires := time.Now().Add(24 * time.Hour)
 
+		log.Printf("[FIA] Generando oferta para piloto %s (ID: %d) - Valor venta: %.2f€, Oferta FIA: %.2f€", pilot.DriverName, pbl.ID, saleValue, fiaOffer)
+
 		pbl.LeagueOfferValue = &fiaOffer
 		pbl.LeagueOfferExpiresAt = &expires
 
 		if err := database.DB.Save(&pbl).Error; err != nil {
 			log.Printf("[FIA] Error guardando oferta FIA para piloto %d: %v", pbl.ID, err)
 		} else {
-			log.Printf("[FIA] Oferta FIA generada para piloto %s: %.2f€ (valor venta: %.2f€)", pilot.DriverName, fiaOffer, saleValue)
+			log.Printf("[FIA] ✅ Oferta FIA guardada exitosamente para piloto %s: %.2f€", pilot.DriverName, fiaOffer)
 		}
 	}
 
 	// 2. Generar ofertas para track engineers en venta
 	var trackEngineerVentas []models.TrackEngineerByLeague
 	database.DB.Where("league_id = ? AND venta IS NOT NULL AND venta_expires_at > ? AND league_offer_value IS NULL", leagueID, time.Now()).Find(&trackEngineerVentas)
+	log.Printf("[FIA] Encontrados %d track engineers en venta sin oferta FIA", len(trackEngineerVentas))
 
 	for _, teb := range trackEngineerVentas {
 		var te models.TrackEngineer
@@ -7776,6 +8046,7 @@ func generateFIAOffersForLeague(leagueID uint) error {
 	// 3. Generar ofertas para chief engineers en venta
 	var chiefEngineerVentas []models.ChiefEngineerByLeague
 	database.DB.Where("league_id = ? AND venta IS NOT NULL AND venta_expires_at > ? AND league_offer_value IS NULL", leagueID, time.Now()).Find(&chiefEngineerVentas)
+	log.Printf("[FIA] Encontrados %d chief engineers en venta sin oferta FIA", len(chiefEngineerVentas))
 
 	for _, ceb := range chiefEngineerVentas {
 		var ce models.ChiefEngineer
@@ -7802,6 +8073,7 @@ func generateFIAOffersForLeague(leagueID uint) error {
 	// 4. Generar ofertas para team constructors en venta
 	var teamConstructorVentas []models.TeamConstructorByLeague
 	database.DB.Where("league_id = ? AND venta IS NOT NULL AND venta_expires_at > ? AND league_offer_value IS NULL", leagueID, time.Now()).Find(&teamConstructorVentas)
+	log.Printf("[FIA] Encontrados %d team constructors en venta sin oferta FIA", len(teamConstructorVentas))
 
 	for _, tcb := range teamConstructorVentas {
 		var tc models.TeamConstructor
@@ -7847,9 +8119,9 @@ func generateFIAOffersForOwnedItems(leagueID uint) error {
 		// Generar oferta entre 90% y 110% del valor del piloto
 		fiaOfferValue := generateFIAOffer(pilot.Value)
 
-		// Crear la oferta de la FIA (el PlayerID debe ser el del propietario actual)
+		// Crear la oferta de la FIA con ID especial
 		fiaBid := Bid{
-			PlayerID: pbl.OwnerID, // El propietario actual
+			PlayerID: FIA_PLAYER_ID, // ID especial de la FIA
 			Valor:    fiaOfferValue,
 		}
 
@@ -7875,9 +8147,9 @@ func generateFIAOffersForOwnedItems(leagueID uint) error {
 		// Generar oferta entre 90% y 110% del valor del track engineer
 		fiaOfferValue := generateFIAOffer(te.Value)
 
-		// Crear la oferta de la FIA (el PlayerID debe ser el del propietario actual)
+		// Crear la oferta de la FIA con ID especial
 		fiaBid := Bid{
-			PlayerID: teb.OwnerID, // El propietario actual
+			PlayerID: FIA_PLAYER_ID, // ID especial de la FIA
 			Valor:    fiaOfferValue,
 		}
 
@@ -7903,9 +8175,9 @@ func generateFIAOffersForOwnedItems(leagueID uint) error {
 		// Generar oferta entre 90% y 110% del valor del chief engineer
 		fiaOfferValue := generateFIAOffer(ce.Value)
 
-		// Crear la oferta de la FIA (el PlayerID debe ser el del propietario actual)
+		// Crear la oferta de la FIA con ID especial
 		fiaBid := Bid{
-			PlayerID: ceb.OwnerID, // El propietario actual
+			PlayerID: FIA_PLAYER_ID, // ID especial de la FIA
 			Valor:    fiaOfferValue,
 		}
 

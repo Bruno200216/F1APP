@@ -1382,7 +1382,7 @@ export default function TeamPilotsPage() {
                       variant="outline"
                       size="sm"
                       onClick={e => { e.stopPropagation(); handleAddToMarket(driver, 'pilot'); }}
-                      className="flex items-center gap-2"
+                      className="flex items-center gap-2 border-accent-main text-accent-main hover:bg-accent-main/10"
                     >
                       <Plus className="h-4 w-4" />
                       Vender
@@ -1471,7 +1471,7 @@ export default function TeamPilotsPage() {
                       variant="outline"
                       size="sm"
                       onClick={e => { e.stopPropagation(); handleAddToMarket(engineer, 'track_engineer'); }}
-                      className="flex items-center gap-2"
+                      className="flex items-center gap-2 border-accent-main text-accent-main hover:bg-accent-main/10"
                     >
                       <Plus className="h-4 w-4" />
                       Vender
@@ -1560,7 +1560,7 @@ export default function TeamPilotsPage() {
                       variant="outline"
                       size="sm"
                       onClick={e => { e.stopPropagation(); handleAddToMarket(engineer, 'chief_engineer'); }}
-                      className="flex items-center gap-2"
+                      className="flex items-center gap-2 border-accent-main text-accent-main hover:bg-accent-main/10"
                     >
                       <Plus className="h-4 w-4" />
                       Vender
@@ -1648,7 +1648,7 @@ export default function TeamPilotsPage() {
                       variant="outline"
                       size="sm"
                       onClick={e => { e.stopPropagation(); handleAddToMarket(team, 'team_constructor'); }}
-                      className="flex items-center gap-2"
+                      className="flex items-center gap-2 border-accent-main text-accent-main hover:bg-accent-main/10"
                     >
                       <Plus className="h-4 w-4" />
                       Vender

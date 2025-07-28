@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useLeague } from '../context/LeagueContext';
-import { cn, formatCurrency, formatCompactCurrency, formatTime, getTeamColor } from '../lib/utils';
+import { cn, formatCurrency, formatCompactCurrency, formatNumberWithDots, formatTime, getTeamColor } from '../lib/utils';
 
 // UI Components
 import { Button } from '../components/ui/button';
@@ -228,7 +228,19 @@ export default function MarketPage() {
   const handleGenerateFIAOffers = async () => {
     if (!selectedLeague) return;
     try {
-      const res = await fetch(`/api/generate-fia-offers?league_id=${selectedLeague.id}`, { method: 'POST' });
+      const user = JSON.parse(localStorage.getItem('user'));
+      if (!user?.token) {
+        setSnackbar({ open: true, message: 'Usuario no autenticado', severity: 'error' });
+        return;
+      }
+
+      const res = await fetch(`/api/generate-fia-offers?league_id=${selectedLeague.id}`, { 
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${user.token}`
+        }
+      });
       const data = await res.json();
       if (res.ok) {
         setSnackbar({ open: true, message: 'Ofertas de la FIA generadas correctamente', severity: 'success' });
@@ -247,7 +259,19 @@ export default function MarketPage() {
   const handleGenerateFIAOffersOwned = async () => {
     if (!selectedLeague) return;
     try {
-      const res = await fetch(`/api/generate-fia-offers-owned?league_id=${selectedLeague.id}`, { method: 'POST' });
+      const user = JSON.parse(localStorage.getItem('user'));
+      if (!user?.token) {
+        setSnackbar({ open: true, message: 'Usuario no autenticado', severity: 'error' });
+        return;
+      }
+
+      const res = await fetch(`/api/generate-fia-offers-owned?league_id=${selectedLeague.id}`, { 
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${user.token}`
+        }
+      });
       const data = await res.json();
       if (res.ok) {
         setSnackbar({ open: true, message: 'Ofertas de la FIA para elementos con propietario generadas correctamente', severity: 'success' });
@@ -273,7 +297,19 @@ export default function MarketPage() {
 
   const handleUpdateValues = async () => {
     try {
-      const res = await fetch('/api/drivers/update-values', { method: 'POST' });
+      const user = JSON.parse(localStorage.getItem('user'));
+      if (!user?.token) {
+        setSnackbar({ open: true, message: 'Usuario no autenticado', severity: 'error' });
+        return;
+      }
+
+      const res = await fetch('/api/drivers/update-values', { 
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${user.token}`
+        }
+      });
       const data = await res.json();
       if (res.ok) {
         setSnackbar({ open: true, message: data.message || 'Valores actualizados', severity: 'success' });
@@ -455,37 +491,17 @@ export default function MarketPage() {
     try {
       const user = JSON.parse(localStorage.getItem('user'));
       
-      // Determinar el endpoint según el tipo de elemento
-      let endpoint = '';
-      let payload = {
-        offer_id: offerId,
-        offer_amount: offerAmount,
-        league_id: selectedLeague.id
+      // Usar el endpoint unificado para aceptar ofertas de jugadores
+      const payload = {
+        item_type: selectedSalePilot.type,
+        item_id: selectedSalePilot.id,
+        league_id: selectedLeague.id,
+        bidder_id: offerId,
+        offer_value: offerAmount,
+        action: 'accept'
       };
       
-      switch(selectedSalePilot.type) {
-        case 'pilot':
-          endpoint = '/api/pilotbyleague/accept-player-offer';
-          payload.pilot_by_league_id = selectedSalePilot.id;
-          break;
-        case 'track_engineer':
-          endpoint = '/api/trackengineerbyleague/accept-player-offer';
-          payload.track_engineer_by_league_id = selectedSalePilot.id;
-          break;
-        case 'chief_engineer':
-          endpoint = '/api/chiefengineerbyleague/accept-player-offer';
-          payload.chief_engineer_by_league_id = selectedSalePilot.id;
-          break;
-        case 'team_constructor':
-          endpoint = '/api/teamconstructorbyleague/accept-player-offer';
-          payload.team_constructor_by_league_id = selectedSalePilot.id;
-          break;
-        default:
-          setSnackbar({ open: true, message: 'Tipo de elemento no soportado', severity: 'error' });
-          return;
-      }
-      
-      const res = await fetch(endpoint, {
+      const res = await fetch('/api/offer/respond', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -511,41 +527,22 @@ export default function MarketPage() {
     }
   };
 
-  const handleRejectPlayerOffer = async (offerId) => {
+  const handleRejectPlayerOffer = async (offerId, offerAmount) => {
     if (!selectedSalePilot) return;
     try {
       const user = JSON.parse(localStorage.getItem('user'));
       
-      // Determinar el endpoint según el tipo de elemento
-      let endpoint = '';
-      let payload = {
-        offer_id: offerId,
-        league_id: selectedLeague.id
+      // Usar el endpoint unificado para rechazar ofertas de jugadores
+      const payload = {
+        item_type: selectedSalePilot.type,
+        item_id: selectedSalePilot.id,
+        league_id: selectedLeague.id,
+        bidder_id: offerId,
+        offer_value: offerAmount,
+        action: 'reject'
       };
       
-      switch(selectedSalePilot.type) {
-        case 'pilot':
-          endpoint = '/api/pilotbyleague/reject-player-offer';
-          payload.pilot_by_league_id = selectedSalePilot.id;
-          break;
-        case 'track_engineer':
-          endpoint = '/api/trackengineerbyleague/reject-player-offer';
-          payload.track_engineer_by_league_id = selectedSalePilot.id;
-          break;
-        case 'chief_engineer':
-          endpoint = '/api/chiefengineerbyleague/reject-player-offer';
-          payload.chief_engineer_by_league_id = selectedSalePilot.id;
-          break;
-        case 'team_constructor':
-          endpoint = '/api/teamconstructorbyleague/reject-player-offer';
-          payload.team_constructor_by_league_id = selectedSalePilot.id;
-          break;
-        default:
-          setSnackbar({ open: true, message: 'Tipo de elemento no soportado', severity: 'error' });
-          return;
-      }
-      
-      const res = await fetch(endpoint, {
+      const res = await fetch('/api/offer/respond', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1872,7 +1869,7 @@ export default function MarketPage() {
                                         </Avatar>
                                         {/* Mi puja debajo de la foto */}
                                         <p className="text-accent-main font-bold text-sm text-center">
-                                          Mi puja: {formatCompactCurrency(bid.my_bid)}
+                                          Mi puja: {formatNumberWithDots(bid.my_bid)}€
                                         </p>
                                       </div>
                                       
@@ -1884,7 +1881,7 @@ export default function MarketPage() {
                                           <p className="text-accent-main text-xs mt-1">{displayRole}</p>
                                           {bid.highest_bid && bid.highest_bid !== bid.my_bid && (
                                             <p className="text-state-warning text-xs mt-1">
-                                              Más alta: {formatCompactCurrency(bid.highest_bid)}
+                                              Más alta: {formatNumberWithDots(bid.highest_bid)}€
                                             </p>
                                           )}
                                         </div>
@@ -2007,7 +2004,7 @@ export default function MarketPage() {
                                     </Avatar>
                                     {/* Mi oferta debajo de la foto */}
                                     <p className="text-state-success font-bold text-sm text-center">
-                                      Mi oferta: {formatCompactCurrency(offer.my_bid || offer.offer_value)}
+                                      Mi oferta: {formatNumberWithDots(offer.my_bid || offer.offer_value)}€
                                     </p>
                                   </div>
                                   
@@ -2032,7 +2029,7 @@ export default function MarketPage() {
                                           setEditBidValue(String(offer.my_bid || offer.offer_value || ''));
                                           setOpenEditBid(true);
                                         }}
-                                        className="text-xs px-2 py-1 min-w-0"
+                                        className="text-xs px-2 py-1 min-w-0 border-accent-main text-accent-main hover:bg-accent-main/10"
                                       >
                                         <span className="truncate">Editar Oferta</span>
                                       </Button>
@@ -2043,7 +2040,7 @@ export default function MarketPage() {
                                           setSelectedBidPilot(offer);
                                           setOpenDeleteDialog(true);
                                         }}
-                                        className="text-xs px-2 py-1 min-w-0"
+                                        className="text-xs px-2 py-1 min-w-0 border-state-error text-state-error hover:bg-state-error/10"
                                       >
                                         <span className="truncate">Retirar Oferta</span>
                                       </Button>
@@ -2162,7 +2159,7 @@ export default function MarketPage() {
                                   </Avatar>
                                   {/* Valor debajo de la foto */}
                                   <p className="text-accent-main font-bold text-sm text-center">
-                                    {formatCompactCurrency(sale.venta || sale.price)}
+                                    {formatNumberWithDots(sale.venta || sale.price)}€
                                   </p>
                                 </div>
                                 {/* Información y botón */}
@@ -2209,7 +2206,7 @@ export default function MarketPage() {
                                           }}
                                         >
                                           <Settings className="h-3 w-3 flex-shrink-0" />
-                                          <span className="truncate">Acciones ({totalOffers})</span>
+                                          <span className="truncate">Acciones ({totalOffers-1})</span>
                                         </Button>
                                       ) : (
                                         <Button 
@@ -2246,61 +2243,7 @@ export default function MarketPage() {
                                     })()}
                                   </div>
                                   {/* Mostrar ofertas recibidas si las hay */}
-                                  {sale.received_offers && sale.received_offers.length > 0 && (
-                                    <div className="mt-2">
-                                      <p 
-                                        className="text-xs mb-1"
-                                        style={{ 
-                                          color: '#9D4EDD', 
-                                          fontWeight: 500,
-                                          fontFamily: "'Inter', 'Segoe UI', sans-serif"
-                                        }}
-                                      >
-                                        Ofertas recibidas:
-                                      </p>
-                                      {sale.received_offers.slice(0, 2).map((offer, index) => (
-                                        <div 
-                                          key={index}
-                                          className="flex items-center justify-between mb-1 p-2 rounded"
-                                          style={{
-                                            background: '#121012',
-                                            border: '1px solid rgba(157, 78, 221, 0.3)',
-                                            borderRadius: 8
-                                          }}
-                                        >
-                                          <span 
-                                            className="text-xs truncate"
-                                            style={{ 
-                                              color: '#C9A9DD',
-                                              fontFamily: "'Inter', 'Segoe UI', sans-serif"
-                                            }}
-                                          >
-                                            {offer.bidder_name}
-                                          </span>
-                                          <span 
-                                            className="text-xs font-bold"
-                                            style={{ 
-                                              color: '#28C76F',
-                                              fontFamily: "'Inter', 'Segoe UI', sans-serif"
-                                            }}
-                                          >
-                                            {formatCompactCurrency(offer.offer_value)}
-                                          </span>
-                                        </div>
-                                      ))}
-                                      {sale.received_offers.length > 2 && (
-                                        <p 
-                                          className="text-xs text-center"
-                                          style={{ 
-                                            color: '#C9A9DD',
-                                            fontFamily: "'Inter', 'Segoe UI', sans-serif"
-                                          }}
-                                        >
-                                          +{sale.received_offers.length - 2} más...
-                                        </p>
-                                      )}
-                                    </div>
-                                  )}
+                                  
                                 </div>
                               </div>
                             </div>
@@ -2744,20 +2687,20 @@ export default function MarketPage() {
                     <h3 className="text-text-primary font-bold text-lg">{displayName}</h3>
                     <p className="text-text-secondary text-sm">{displayTeam}</p>
                     <p className="text-accent-main font-bold text-sm mt-1">
-                      {formatCompactCurrency(selectedSalePilot.venta || selectedSalePilot.price || 0)}
+                                              {formatNumberWithDots(selectedSalePilot.venta || selectedSalePilot.price || 0)}€
                     </p>
                   </div>
                 </div>
                 
                 {/* Ofertas recibidas */}
-                <div className="w-full space-y-4">
+                <div className="w-full space-y-4 max-h-96 overflow-y-auto">
                   {/* Oferta de la FIA (si existe) */}
                   {selectedSalePilot.league_offer_value && (
                     <div className="bg-surface-elevated p-4 rounded-lg border border-border">
                       <div className="text-center mb-4">
                         <p className="text-accent-main font-bold text-sm mb-2">OFERTA DE LA FIA</p>
                         <p className="text-text-primary font-bold text-2xl">
-                          {formatCompactCurrency(selectedSalePilot.league_offer_value)}
+                          {formatNumberWithDots(selectedSalePilot.league_offer_value)}€
                         </p>
                         {selectedSalePilot.league_offer_expires_at && (
                           <p className="text-text-secondary text-xs mt-2">
@@ -2790,29 +2733,25 @@ export default function MarketPage() {
                     </div>
                   )}
 
-                  {/* Ofertas de otros jugadores */}
-                  {selectedSalePilot.received_offers && selectedSalePilot.received_offers.length > 0 && (
+                  {/* Ofertas de otros jugadores (excluyendo las de la FIA) */}
+                  {selectedSalePilot.received_offers && selectedSalePilot.received_offers.filter(offer => offer.type !== 'fia').length > 0 && (
                     <div className="space-y-3">
-                      <p className="text-accent-main font-bold text-sm text-center">OFERTAS RECIBIDAS</p>
-                      {selectedSalePilot.received_offers.map((offer, index) => (
+                      <p className="text-accent-main font-bold text-sm text-center">OFERTAS DE JUGADORES</p>
+                      {selectedSalePilot.received_offers
+                        .filter(offer => offer.type !== 'fia')
+                        .map((offer, index) => (
                         <div key={index} className="bg-surface-elevated p-4 rounded-lg border border-border">
                           <div className="flex items-center justify-between mb-3">
                             <div className="flex items-center gap-3">
-                              <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
-                                offer.type === 'fia' ? 'bg-yellow-500' : 'bg-accent-main'
-                              }`}>
-                                {offer.type === 'fia' ? (
-                                  <span className="text-white font-bold text-xs">FIA</span>
-                                ) : (
-                                  <User className="h-4 w-4 text-white" />
-                                )}
+                              <div className="w-8 h-8 rounded-full flex items-center justify-center bg-accent-main">
+                                <User className="h-4 w-4 text-white" />
                               </div>
                               <div>
                                 <p className="text-text-primary font-medium">
-                                  {offer.type === 'fia' ? 'FIA' : offer.bidder_name}
+                                  {offer.bidder_name}
                                 </p>
                                 <p className="text-text-secondary text-xs">
-                                  {new Date(offer.type === 'fia' ? offer.expires_at : offer.received_at).toLocaleDateString('es-ES', {
+                                  {new Date(offer.received_at).toLocaleDateString('es-ES', {
                                     year: 'numeric',
                                     month: 'short',
                                     day: 'numeric',
@@ -2823,45 +2762,24 @@ export default function MarketPage() {
                               </div>
                             </div>
                             <p className="text-text-primary font-bold text-lg">
-                              {formatCompactCurrency(offer.type === 'fia' ? offer.amount : offer.offer_value)}
+                              {formatNumberWithDots(offer.offer_value)}€
                             </p>
                           </div>
                           <div className="flex gap-3">
-                            {offer.type === 'fia' ? (
-                              <>
-                                <Button 
-                                  variant="outline" 
-                                  onClick={handleRejectLeagueOffer}
-                                  className="flex-1 text-text-secondary border-border hover:bg-surface hover:text-text-primary"
-                                >
-                                  Rechazar
-                                </Button>
-                                <Button 
-                                  variant="primary"
-                                  onClick={handleAcceptLeagueOffer}
-                                  className="flex-1 bg-state-success hover:bg-state-success hover:bg-opacity-80 text-white"
-                                >
-                                  Aceptar
-                                </Button>
-                              </>
-                            ) : (
-                              <>
-                                <Button 
-                                  variant="outline" 
-                                  onClick={() => handleRejectPlayerOffer(offer.bidder_id)}
-                                  className="flex-1 text-text-secondary border-border hover:bg-surface hover:text-text-primary"
-                                >
-                                  Rechazar
-                                </Button>
-                                <Button 
-                                  variant="primary"
-                                  onClick={() => handleAcceptPlayerOffer(offer.bidder_id, offer.offer_value)}
-                                  className="flex-1 bg-state-success hover:bg-state-success hover:bg-opacity-80 text-white"
-                                >
-                                  Aceptar
-                                </Button>
-                              </>
-                            )}
+                            <Button 
+                              variant="outline" 
+                              onClick={() => handleRejectPlayerOffer(offer.bidder_id, offer.offer_value)}
+                              className="flex-1 text-text-secondary border-border hover:bg-surface hover:text-text-primary"
+                            >
+                              Rechazar
+                            </Button>
+                            <Button 
+                              variant="primary"
+                              onClick={() => handleAcceptPlayerOffer(offer.bidder_id, offer.offer_value)}
+                              className="flex-1 bg-state-success hover:bg-state-success hover:bg-opacity-80 text-white"
+                            >
+                              Aceptar
+                            </Button>
                           </div>
                         </div>
                       ))}
@@ -2869,7 +2787,7 @@ export default function MarketPage() {
                   )}
 
                   {/* Mensaje si no hay ofertas */}
-                  {(!selectedSalePilot.league_offer_value && (!selectedSalePilot.received_offers || selectedSalePilot.received_offers.length === 0)) && (
+                  {(!selectedSalePilot.league_offer_value && (!selectedSalePilot.received_offers || selectedSalePilot.received_offers.filter(offer => offer.type !== 'fia').length === 0)) && (
                     <div className="text-center py-8 space-y-2">
                       <p className="text-text-secondary text-body">No hay ofertas recibidas</p>
                       <p className="text-text-secondary text-small">

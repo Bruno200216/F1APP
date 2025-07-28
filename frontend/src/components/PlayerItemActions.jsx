@@ -87,9 +87,21 @@ const PlayerItemActions = ({
       return;
     }
     
+    // Usar el ID correcto según el tipo de elemento
+    let correctId = item.id;
+    
+    // Para ingenieros, usar el ID del registro *ByLeague si está disponible
+    if (itemType === 'track_engineer' && item.track_engineer_by_league_id) {
+      correctId = item.track_engineer_by_league_id;
+    } else if (itemType === 'chief_engineer' && item.chief_engineer_by_league_id) {
+      correctId = item.chief_engineer_by_league_id;
+    } else if (itemType === 'team_constructor' && item.team_constructor_by_league_id) {
+      correctId = item.team_constructor_by_league_id;
+    }
+    
     const searchParams = new URLSearchParams({
       type: itemType,
-      id: item.id.toString()
+      id: correctId.toString()
     });
     
     navigate(`/make-offer?${searchParams.toString()}`);
