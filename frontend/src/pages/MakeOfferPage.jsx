@@ -13,6 +13,9 @@ import { Badge } from '../components/ui/badge';
 // Icons
 import { ArrowLeft, Euro, User, Clock, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
 
+// Utils
+import { formatNumberWithDots } from '../lib/utils';
+
 // Helper functions
 const getTeamColor = (teamName) => {
   const teamColors = {
@@ -65,16 +68,7 @@ export default function MakeOfferPage() {
   const [playerMoney, setPlayerMoney] = useState(0);
   const [success, setSuccess] = useState(false);
 
-  // Función para formatear números con puntos
-  const formatNumberWithDots = (amount) => {
-    const num = Number(amount);
-    if (isNaN(num)) return '0';
-    return new Intl.NumberFormat('es-ES', {
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0,
-      useGrouping: true
-    }).format(num);
-  };
+
 
   const itemType = searchParams.get('type');
   const itemId = searchParams.get('id');

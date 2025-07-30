@@ -24,12 +24,19 @@ import DeleteBidDialog from '../components/DeleteBidDialog';
 
 // Helper function
 const getItemType = (item) => {
+  // Si el item ya tiene un tipo definido, usarlo
   if (item.type) return item.type;
-  if (item.driver_name) return 'pilot';
+  
+  // Si no tiene tipo, intentar determinarlo por otros campos
+  if (item.driver_name && !item.track_engineer_id && !item.chief_engineer_id && !item.team_constructor_id) {
+    return 'pilot';
+  }
   if (item.track_engineer_id) return 'track_engineer';
   if (item.chief_engineer_id) return 'chief_engineer';
   if (item.team_constructor_id) return 'team_constructor';
-  return 'pilot';
+  
+  // Si no se puede determinar, usar el tipo que viene del backend
+  return item.type || 'pilot';
 };
 
 // Función para limpiar la ruta de imagen
@@ -86,6 +93,102 @@ export default function MarketPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   
+  // Función para calcular el total de pujas activas
+  const calculateTotalBids = () => {
+    // Sumar pujas en subastas
+    const auctionBids = myBids.reduce((total, bid) => {
+      let bidAmount = 0;
+      if (bid.my_bid !== undefined && bid.my_bid !== null && bid.my_bid > 0) {
+        bidAmount = Number(bid.my_bid);
+      } else {
+        bidAmount = Number(
+          bid.bid_amount || 
+          bid.amount || 
+          bid.value || 
+          bid.puja || 
+          0
+        );
+      }
+      return total + bidAmount;
+    }, 0);
+
+    // Sumar ofertas a otros jugadores
+    const playerOffers = existingOffers.reduce((total, offer) => {
+      let offerAmount = 0;
+      if (offer.my_bid !== undefined && offer.my_bid !== null && offer.my_bid > 0) {
+        offerAmount = Number(offer.my_bid);
+      } else {
+        offerAmount = Number(
+          offer.bid_amount || 
+          offer.amount || 
+          offer.value || 
+          offer.puja || 
+          0
+        );
+      }
+      return total + offerAmount;
+    }, 0);
+
+    const total = auctionBids + playerOffers;
+    console.log('Total bids calculated:', total, '(auction:', auctionBids, '+ offers:', playerOffers, ')');
+    return total;
+  };
+
+  // Calcular total de pujas en subastas (FIA)
+  const calculateTotalAuctionBids = () => {
+    return myBids.reduce((total, bid) => {
+      const bidAmount = bid.my_bid !== undefined && bid.my_bid !== null ? bid.my_bid : 
+                       (bid.bid_amount || bid.amount || bid.value || bid.puja || 0);
+      return total + bidAmount;
+    }, 0);
+  };
+
+  // Calcular total de ofertas a otros jugadores
+  const calculateTotalPlayerOffers = () => {
+    return existingOffers.reduce((total, offer) => {
+      const offerAmount = offer.my_bid !== undefined && offer.my_bid !== null ? offer.my_bid : 
+                         (offer.bid_amount || offer.amount || offer.value || offer.puja || 0);
+      return total + offerAmount;
+    }, 0);
+  };
+
+  // Función para verificar si hay pujas activas
+  const hasActiveBids = () => {
+    const hasBids = myBids.length > 0;
+    const hasValidBids = myBids.some(bid => {
+      const hasMyBid = bid.my_bid !== undefined && bid.my_bid !== null && bid.my_bid > 0;
+      const hasBidAmount = (bid.bid_amount || bid.amount || bid.value || bid.puja || 0) > 0;
+      return hasMyBid || hasBidAmount;
+    });
+    
+    console.log('Has active bids:', hasBids, 'Number of bids:', myBids.length, 'Has valid bids:', hasValidBids);
+    return hasBids && hasValidBids;
+  };
+
+  // Contadores dinámicos para pujas activas
+  const getActiveBidsCount = () => {
+    return myBids.filter(bid => 
+      bid.my_bid !== undefined && 
+      bid.my_bid !== null && 
+      bid.my_bid > 0 &&
+      bid.is_auction === true
+    ).length;
+  };
+
+  const getActiveOffersCount = () => {
+    return existingOffers.filter(offer => 
+      offer.my_bid !== undefined && 
+      offer.my_bid !== null && 
+      offer.my_bid > 0 &&
+      offer.is_auction === false
+    ).length;
+  };
+
+  // Total de pujas activas (subastas + ofertas)
+  const getTotalActiveBidsCount = () => {
+    return getActiveBidsCount() + getActiveOffersCount();
+  };
+  
   // Admin check state
   const [isAdmin, setIsAdmin] = useState(false);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
@@ -126,6 +229,7 @@ export default function MarketPage() {
   const [mySales, setMySales] = useState([]);
   const [existingOffers, setExistingOffers] = useState([]);
   const [loadingOps, setLoadingOps] = useState(false);
+  const [loadingBids, setLoadingBids] = useState(false);
   const [openOffersModal, setOpenOffersModal] = useState(false);
   const [selectedSalePilot, setSelectedSalePilot] = useState(null);
   const [anchorEl, setAnchorEl] = useState(null);
@@ -216,10 +320,49 @@ export default function MarketPage() {
   const handleFinishAllAuctions = async () => {
     if (!selectedLeague) return;
     try {
-      const res = await fetch(`/api/market/refresh-and-finish?league_id=${selectedLeague.id}`, { method: 'POST' });
+      const user = JSON.parse(localStorage.getItem('user'));
+      if (!user?.token) {
+        setSnackbar({ open: true, message: 'Usuario no autenticado', severity: 'error' });
+        return;
+      }
+
+      // Primero finalizar subastas
+      const res = await fetch(`/api/market/refresh-and-finish?league_id=${selectedLeague.id}`, { 
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${user.token}`
+        }
+      });
       const data = await res.json();
-      fetchMarketPilots();
-      setSnackbar({ open: true, message: data.message || 'Mercado reiniciado y subastas finalizadas', severity: 'success' });
+      
+      if (res.ok) {
+        // Después de finalizar subastas, limpiar pujas antiguas de la FIA
+        try {
+          const cleanupRes = await fetch(`/api/market/cleanup-fia-bids?league_id=${selectedLeague.id}`, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${user.token}`
+            }
+          });
+          
+          if (cleanupRes.ok) {
+            setSnackbar({ open: true, message: 'Mercado reiniciado, subastas finalizadas y pujas FIA limpiadas', severity: 'success' });
+          } else {
+            setSnackbar({ open: true, message: data.message || 'Mercado reiniciado y subastas finalizadas', severity: 'success' });
+          }
+        } catch (cleanupErr) {
+          console.error('Error limpiando pujas FIA:', cleanupErr);
+          setSnackbar({ open: true, message: data.message || 'Mercado reiniciado y subastas finalizadas', severity: 'success' });
+        }
+        
+        // Actualizar datos
+        fetchMarketPilots();
+        fetchMyBids();
+        fetchMySales();
+        fetchExistingOffers();
+      } else {
+        setSnackbar({ open: true, message: data.error || 'Error al finalizar subastas', severity: 'error' });
+      }
     } catch (err) {
       setSnackbar({ open: true, message: 'Error al finalizar subastas', severity: 'error' });
     }
@@ -913,7 +1056,12 @@ export default function MarketPage() {
     try {
       const user = JSON.parse(localStorage.getItem('user'));
       
+      console.log('Selected bid pilot:', selectedBidPilot);
+      console.log('Selected bid pilot type:', selectedBidPilot.type);
+      console.log('Selected bid pilot fields:', Object.keys(selectedBidPilot));
+      
       const itemType = getItemType(selectedBidPilot);
+      console.log('Determined item type:', itemType);
       
       const res = await fetch(`/api/${itemType}/delete-offer`, {
         method: 'DELETE',
@@ -927,12 +1075,15 @@ export default function MarketPage() {
         })
       });
       const data = await res.json();
+      console.log('Delete offer response:', data);
+      
       if (res.ok) {
         setSnackbar({ open: true, message: 'Oferta eliminada correctamente', severity: 'success' });
         setOpenDeleteDialog(false);
         setSelectedBidPilot(null);
         // Actualizar datos
-        fetchExistingOffers();
+        fetchMyBids(); // Actualizar pujas activas
+        fetchExistingOffers(); // Actualizar ofertas existentes
       } else {
         setSnackbar({ open: true, message: data.error || 'Error al eliminar la oferta', severity: 'error' });
       }
@@ -942,25 +1093,50 @@ export default function MarketPage() {
     }
   };
 
-  // Fetch my bids (compras activas)
+  // Fetch my bids (pujas activas del usuario)
   const fetchMyBids = async () => {
     if (!selectedLeague) return;
+    setLoadingBids(true);
     try {
       const user = JSON.parse(localStorage.getItem('user'));
-      const response = await fetch(`/api/my-market-bids?league_id=${selectedLeague.id}`, {
+      const response = await fetch(`/api/my-bids?league_id=${selectedLeague.id}`, {
         headers: {
           'Authorization': `Bearer ${user?.token}`
         }
       });
       const data = await response.json();
-      console.log('My bids data:', data);
+      console.log('My bids raw data:', data);
+      console.log('All bids:', data.bids || []);
       
-      // Filtrar solo las subastas (is_auction: true)
-      const auctionBids = (data.bids || []).filter(bid => bid.is_auction === true);
-      setMyBids(auctionBids);
+      // Primero, vamos a ver todos los bids sin filtrar para debug
+      const allBids = data.bids || [];
+      console.log('All bids before filtering:', allBids);
+      
+      // Filtrar solo las pujas en subastas activas (pujas a la FIA)
+      const userBids = allBids.filter(bid => {
+        console.log('Checking bid:', bid);
+        console.log('Bid fields:', Object.keys(bid));
+        console.log('is_auction:', bid.is_auction, 'type:', typeof bid.is_auction);
+        console.log('my_bid:', bid.my_bid, 'num_bids:', bid.num_bids);
+        
+        // Si tiene my_bid definido y mayor que 0, es una puja activa del usuario
+        const hasMyBid = bid.my_bid !== undefined && bid.my_bid !== null && bid.my_bid > 0;
+        
+        console.log('hasMyBid:', hasMyBid);
+        
+        // Solo incluir pujas en subastas activas (is_auction: true) - pujas a la FIA
+        return hasMyBid && bid.is_auction === true;
+      });
+      
+      console.log('Filtered user bids:', userBids);
+      console.log('Number of active bids:', userBids.length);
+      
+      setMyBids(userBids);
     } catch (err) {
       console.error('Error fetching my bids:', err);
       setMyBids([]);
+    } finally {
+      setLoadingBids(false);
     }
   };
 
@@ -969,7 +1145,7 @@ export default function MarketPage() {
     if (!selectedLeague) return;
     try {
       const user = JSON.parse(localStorage.getItem('user'));
-      const response = await fetch(`/api/my-market-bids?league_id=${selectedLeague.id}`, {
+      const response = await fetch(`/api/my-bids?league_id=${selectedLeague.id}`, {
         headers: {
           'Authorization': `Bearer ${user?.token}`
         }
@@ -977,8 +1153,11 @@ export default function MarketPage() {
       const data = await response.json();
       console.log('Existing offers data:', data);
       
-      // Filtrar solo las ofertas directas (is_auction: false)
-      const directOffers = (data.bids || []).filter(bid => bid.is_auction === false);
+      // Filtrar solo las ofertas directas a otros jugadores (is_auction: false)
+      const directOffers = (data.bids || []).filter(bid => {
+        const hasMyBid = bid.my_bid !== undefined && bid.my_bid !== null && bid.my_bid > 0;
+        return hasMyBid && bid.is_auction === false;
+      });
       setExistingOffers(directOffers);
     } catch (err) {
       console.error('Error fetching existing offers:', err);
@@ -1128,18 +1307,32 @@ export default function MarketPage() {
     try {
       // Obtener track engineers
       const response = await fetch(`/api/trackengineersbyleague/list?league_id=${selectedLeague.id}`);
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
       const data = await response.json();
       console.log('🔧 Track engineers recibidos:', data);
       
+      if (!data.track_engineers || !Array.isArray(data.track_engineers)) {
+        throw new Error('Formato de datos inválido para track engineers');
+      }
+      
       // Obtener pilotos para mapear equipos (usar endpoint general que incluye track_engineer_id)
       const pilotsResponse = await fetch(`/api/pilots`);
+      if (!pilotsResponse.ok) {
+        throw new Error(`HTTP ${pilotsResponse.status}: ${pilotsResponse.statusText}`);
+      }
       const pilotsData = await pilotsResponse.json();
       console.log('🏎️ Pilotos para mapear equipos:', pilotsData);
       
+      if (!pilotsData.pilots || !Array.isArray(pilotsData.pilots)) {
+        throw new Error('Formato de datos inválido para pilotos');
+      }
+      
       // Mapear ingenieros con información de equipos
-      const engineersWithTeams = (data.track_engineers || []).map(engineer => {
+      const engineersWithTeams = data.track_engineers.map(engineer => {
         // Buscar piloto que tenga este track_engineer_id
-        const relatedPilot = pilotsData.pilots?.find(pilot => 
+        const relatedPilot = pilotsData.pilots.find(pilot => 
           pilot.track_engineer_id === engineer.id
         );
         
@@ -1153,13 +1346,17 @@ export default function MarketPage() {
         }
         
         console.log(`❌ No se encontró equipo para ${engineer.name} (ID: ${engineer.id})`);
-        return engineer;
+        return {
+          ...engineer,
+          team: 'Equipo no encontrado',
+          driver_name: ''
+        };
       });
       
       setTrackEngineersByLeague(engineersWithTeams);
     } catch (err) {
       console.error('Error fetching track engineers:', err);
-      setErrorTrackEngineers('Error al cargar los ingenieros de pista');
+      setErrorTrackEngineers(`Error al cargar los ingenieros de pista: ${err.message}`);
       setTrackEngineersByLeague([]);
     } finally {
       setLoadingTrackEngineers(false);
@@ -1175,14 +1372,21 @@ export default function MarketPage() {
 
     try {
       const response = await fetch(`/api/chiefengineersbyleague/list?league_id=${selectedLeague.id}`);
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
       const data = await response.json();
       console.log('👨‍💼 Chief engineers recibidos:', data);
       
+      if (!data.chief_engineers || !Array.isArray(data.chief_engineers)) {
+        throw new Error('Formato de datos inválido para chief engineers');
+      }
+      
       // Los chief engineers ya tienen el equipo en su modelo
-      setChiefEngineersByLeague(data.chief_engineers || []);
+      setChiefEngineersByLeague(data.chief_engineers);
     } catch (err) {
       console.error('Error fetching chief engineers:', err);
-      setErrorChiefEngineers('Error al cargar los ingenieros jefe');
+      setErrorChiefEngineers(`Error al cargar los ingenieros jefe: ${err.message}`);
       setChiefEngineersByLeague([]);
     } finally {
       setLoadingChiefEngineers(false);
@@ -1198,12 +1402,20 @@ export default function MarketPage() {
 
     try {
       const response = await fetch(`/api/teamconstructorsbyleague/list?league_id=${selectedLeague.id}`);
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
       const data = await response.json();
       console.log('🏎️ Team constructors recibidos:', data);
-      setTeamConstructorsByLeague(data.team_constructors || []);
+      
+      if (!data.team_constructors || !Array.isArray(data.team_constructors)) {
+        throw new Error('Formato de datos inválido para team constructors');
+      }
+      
+      setTeamConstructorsByLeague(data.team_constructors);
     } catch (err) {
       console.error('Error fetching team constructors:', err);
-      setErrorTeamConstructors('Error al cargar los equipos');
+      setErrorTeamConstructors(`Error al cargar los equipos: ${err.message}`);
       setTeamConstructorsByLeague([]);
     } finally {
       setLoadingTeamConstructors(false);
@@ -1228,6 +1440,8 @@ export default function MarketPage() {
       fetchPlayers();
       fetchNextRefresh();
       fetchMyBids(); // Cargar pujas para el cálculo del saldo
+      fetchExistingOffers(); // Cargar ofertas para el cálculo del saldo
+      console.log('League changed, fetching bids for league:', selectedLeague.id);
     }
     checkAdminStatus();
   }, [selectedLeague]);
@@ -1281,6 +1495,7 @@ export default function MarketPage() {
   useEffect(() => {
     if (selectedLeague) {
       fetchMyBids();
+      fetchExistingOffers();
     }
   }, [auctions, selectedLeague]);
 
@@ -1362,26 +1577,31 @@ export default function MarketPage() {
                 </div>
               </div>
 
+
+
               {/* Active Bids Information */}
-              {myBids.length > 0 && (
+              {loadingBids && (
+                <div className="flex items-center gap-4">
+                  <div className="bg-surface p-3 rounded-lg">
+                    <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-accent-main"></div>
+                  </div>
+                  <div>
+                    <p className="text-small text-text-secondary font-medium">Cargando pujas...</p>
+                  </div>
+                </div>
+              )}
+
+              {!loadingBids && hasActiveBids() && (
                 <div className="flex flex-col sm:flex-row items-start sm:items-center gap-6">
                   <div className="flex items-center gap-4">
                     <div className="bg-state-warning/20 p-3 rounded-lg">
                       <Clock className="h-6 w-6 text-state-warning" />
                     </div>
-                    <div className="flex items-center gap-3">
-                      <div>
-                        <p className="text-small text-text-secondary font-medium">Pujas activas</p>
-                        <p className="text-h3 font-bold text-state-warning">
-                          {myBids.length} puja{myBids.length !== 1 ? 's' : ''}
-                        </p>
-                      </div>
-                      <div className="flex flex-col items-start">
-                        <p className="text-small text-text-secondary font-medium">Valor total</p>
-                        <p className="text-h3 font-bold text-accent-main">
-                          {formatCurrency(myBids.reduce((total, bid) => total + Number(bid.my_bid || 0), 0))}
-                        </p>
-                      </div>
+                    <div>
+                      <p className="text-small text-text-secondary font-medium">Pujas activas</p>
+                      <p className="text-h3 font-bold text-state-warning">
+                        {getTotalActiveBidsCount()} puja{getTotalActiveBidsCount() !== 1 ? 's' : ''}
+                      </p>
                     </div>
                   </div>
                   
@@ -1394,7 +1614,7 @@ export default function MarketPage() {
                     <div>
                       <p className="text-small text-text-secondary font-medium">Total en pujas</p>
                       <p className="text-h3 font-bold text-state-error">
-                        {formatCurrency(myBids.reduce((total, bid) => total + Number(bid.my_bid || 0), 0))}
+                        {formatCurrency(calculateTotalBids())}
                       </p>
                     </div>
                   </div>
@@ -1408,7 +1628,7 @@ export default function MarketPage() {
                     <div>
                       <p className="text-small text-text-secondary font-medium">Saldo disponible</p>
                       <p className="text-h3 font-bold text-state-success">
-                        {formatCurrency(playerMoney - myBids.reduce((total, bid) => total + Number(bid.my_bid || 0), 0))}
+                        {formatCurrency(playerMoney - calculateTotalBids())}
                       </p>
                     </div>
                   </div>
@@ -1416,7 +1636,7 @@ export default function MarketPage() {
               )}
 
               {/* No Active Bids Message */}
-              {myBids.length === 0 && (
+              {!loadingBids && !hasActiveBids() && (
                 <div className="flex items-center gap-4">
                   <div className="bg-surface p-3 rounded-lg">
                     <TrendingUp className="h-6 w-6 text-text-secondary" />
@@ -1425,6 +1645,9 @@ export default function MarketPage() {
                     <p className="text-small text-text-secondary font-medium">Sin pujas activas</p>
                     <p className="text-h3 font-bold text-state-success">
                       {formatCurrency(playerMoney)}
+                    </p>
+                    <p className="text-xs text-text-secondary mt-1">
+                      Saldo disponible para pujas
                     </p>
                   </div>
                 </div>
@@ -1791,10 +2014,23 @@ export default function MarketPage() {
                         {/* Pujas activas */}
                         {myBids.length > 0 && (
                           <div className="mb-6">
-                            <h3 className="text-lg font-semibold text-text-primary mb-4 flex items-center gap-2">
-                              <div className="w-3 h-3 rounded-full bg-accent-main"></div>
-                              Pujas en Subastas ({myBids.length})
-                            </h3>
+                                                    <div className="flex items-center justify-between mb-4">
+                          <h3 className="text-lg font-semibold text-text-primary flex items-center gap-2">
+                            <div className="w-3 h-3 rounded-full bg-accent-main"></div>
+                            Pujas en Subastas ({myBids.length})
+                          </h3>
+                          
+                          {/* Información de pujas en subastas */}
+                          {myBids.length > 0 && (
+                            <div className="flex items-center gap-4 text-xs">
+                              <div className="flex items-center gap-2">
+                                <div className="w-2 h-2 rounded-full bg-state-error"></div>
+                                <span className="text-text-secondary">Total en pujas:</span>
+                                <span className="font-bold text-state-error">{formatCurrency(calculateTotalAuctionBids())}</span>
+                              </div>
+                            </div>
+                          )}
+                        </div>
                             <div className="space-y-4">
                               {myBids.map((bid) => {
                                 // Determinar el tipo de elemento para mostrar la información correcta
@@ -1834,9 +2070,18 @@ export default function MarketPage() {
                                 const teamColor = getTeamColor(displayTeam);
                                 
                                 // Determinar letra del badge
-                                const badgeLetter = isPilot ? 'P' : 
-                                                  isTrackEngineer ? 'T' : 
-                                                  isChiefEngineer ? 'C' : 'E';
+                                const badgeLetter = (() => {
+                                  // Si el item tiene un modo definido, usarlo
+                                  if (bid.mode) {
+                                    return bid.mode.toUpperCase();
+                                  }
+                                  
+                                  // Si no tiene modo, usar la lógica por defecto según el tipo
+                                  if (isPilot) return 'P';
+                                  if (isTrackEngineer) return 'T';
+                                  if (isChiefEngineer) return 'C';
+                                  return 'E';
+                                })();
                                 
                                 return (
                                   <div key={bid.id} className="bg-surface p-6 rounded-lg border border-border">
@@ -1926,10 +2171,23 @@ export default function MarketPage() {
                     {/* Ofertas activas */}
                     {existingOffers.length > 0 && (
                       <div className="mb-6">
-                        <h3 className="text-lg font-semibold text-text-primary mb-4 flex items-center gap-2">
-                          <div className="w-3 h-3 rounded-full bg-state-success"></div>
-                          Ofertas a Otros Jugadores ({existingOffers.length})
-                        </h3>
+                        <div className="flex items-center justify-between mb-4">
+                          <h3 className="text-lg font-semibold text-text-primary flex items-center gap-2">
+                            <div className="w-3 h-3 rounded-full bg-state-success"></div>
+                            Ofertas a Otros Jugadores ({existingOffers.length})
+                          </h3>
+                          
+                          {/* Información de ofertas a otros jugadores */}
+                          {existingOffers.length > 0 && (
+                            <div className="flex items-center gap-4 text-xs">
+                              <div className="flex items-center gap-2">
+                                <div className="w-2 h-2 rounded-full bg-state-error"></div>
+                                <span className="text-text-secondary">Total en ofertas:</span>
+                                <span className="font-bold text-state-error">{formatCurrency(calculateTotalPlayerOffers())}</span>
+                              </div>
+                            </div>
+                          )}
+                        </div>
                         <div className="space-y-4">
                           {existingOffers.map((offer) => {
                             // Determinar el tipo de elemento para mostrar la información correcta

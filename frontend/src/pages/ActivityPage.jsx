@@ -6,6 +6,9 @@ import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 // Icons
 import { Activity, Clock, TrendingUp, TrendingDown, Users } from 'lucide-react';
 
+// Utils
+import { formatNumberWithDots } from '../lib/utils';
+
 function formatDate(fecha) {
   const d = new Date(fecha);
   return isNaN(d) ? '' : d.toLocaleString('es-ES', { 
@@ -67,17 +70,6 @@ function getActionColor(action) {
 export default function ActivityPage() {
   const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(true);
-
-  // Función para formatear números con puntos
-  const formatNumberWithDots = (amount) => {
-    const num = Number(amount);
-    if (isNaN(num)) return '0';
-    return new Intl.NumberFormat('es-ES', {
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0,
-      useGrouping: true
-    }).format(num);
-  };
 
   useEffect(() => {
     const fetchHistory = async () => {

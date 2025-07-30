@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useLeague } from '../context/LeagueContext';
-import { cn } from '../lib/utils';
+import { cn, formatNumberWithDots } from '../lib/utils';
 import '../components/ui/selection-modal.css';
 
 // UI Components
@@ -165,16 +165,7 @@ export default function TeamPilotsPage() {
   const [snackbarTimeout, setSnackbarTimeout] = useState(null);
   const [loadingSell, setLoadingSell] = useState(false);
 
-  // Función para formatear números con puntos
-  const formatNumberWithDots = (amount) => {
-    const num = Number(amount);
-    if (isNaN(num)) return '0';
-    return new Intl.NumberFormat('es-ES', {
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0,
-      useGrouping: true
-    }).format(num);
-  };
+
 
   // Función para mostrar snackbar con timeout automático
   const showSnackbar = (message, severity = 'success') => {

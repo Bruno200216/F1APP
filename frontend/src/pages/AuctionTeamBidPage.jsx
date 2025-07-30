@@ -61,13 +61,11 @@ export default function AuctionTeamBidPage() {
         
         if (!teamRes.ok) throw new Error('Equipo no encontrado');
         
-        // Los datos vienen según la estructura del backend
-        const teamsArray = teamData.team_constructors;
-        if (!teamsArray || teamsArray.length === 0) {
+        // Los datos vienen en la nueva estructura del backend
+        const teamMainData = teamData.team_constructor;
+        if (!teamMainData) {
           throw new Error('Datos del equipo no encontrados');
         }
-        
-        const teamMainData = teamsArray[0];
         
         // Combinar los datos del equipo principal con los datos de la liga
         setTeam({

@@ -293,7 +293,11 @@ export default function LeaguesPage() {
               ? 'border-accent-main shadow-glow-accent bg-surface-elevated'
               : 'border-border hover:border-accent-hover'
           }`}
-          onClick={() => setSelectedLeague(league)}
+          onClick={() => {
+            setSelectedLeague(league);
+            localStorage.setItem('selectedLeague', JSON.stringify(league));
+            navigate('/clasification');
+          }}
         >
           <CardContent className="flex items-center justify-between p-6">
             <div className="flex-1">

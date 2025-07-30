@@ -8,6 +8,9 @@ import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 // Icons
 import { Trophy, Award, Medal, Crown } from 'lucide-react';
 
+// Utils
+import { formatNumberWithDots } from '../lib/utils';
+
 export default function ClasificationPage() {
   const { selectedLeague } = useLeague();
   const navigate = useNavigate();
@@ -15,17 +18,6 @@ export default function ClasificationPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const playerId = Number(localStorage.getItem('player_id'));
-
-  // Función para formatear números con puntos
-  const formatNumberWithDots = (amount) => {
-    const num = Number(amount);
-    if (isNaN(num)) return '0';
-    return new Intl.NumberFormat('es-ES', {
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0,
-      useGrouping: true
-    }).format(num);
-  };
 
   // Fetch classification when selected league changes
   useEffect(() => {
@@ -44,8 +36,8 @@ export default function ClasificationPage() {
     try {
       const res = await fetch(`/api/leagues/${selectedLeague.id}/classification`);
       const data = await res.json();
-      // Ordenar por puntos descendente y luego por money descendente
-      const sorted = (data.classification || []).sort((a, b) => b.points - a.points || b.money - a.money);
+      // Ordenar por valor de equipo descendente y luego por puntos descendente
+      const sorted = (data.classification || []).sort((a, b) => b.team_value - a.team_value || b.points - a.points);
       setClassification(sorted);
     } catch (err) {
       setError('Error loading classification');
@@ -193,7 +185,7 @@ export default function ClasificationPage() {
                           {player.name}
                         </h3>
                         <p className="text-text-secondary text-small mt-1">
-                          €{formatNumberWithDots(player.money) || '0'}
+                          €{formatNumberWithDots(player.team_value) || '0'}
                         </p>
                       </div>
                     </div>

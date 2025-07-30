@@ -65,13 +65,11 @@ export default function AuctionEngineerBidPage() {
         
         if (!engineerRes.ok) throw new Error('Ingeniero no encontrado');
         
-        // Los datos vienen según el tipo de ingeniero
-        const engineersArray = type === 'track' ? engineerData.track_engineers : engineerData.chief_engineers;
-        if (!engineersArray || engineersArray.length === 0) {
+        // Los datos vienen en la nueva estructura según el tipo de ingeniero
+        const engineerMainData = type === 'track' ? engineerData.track_engineer : engineerData.chief_engineer;
+        if (!engineerMainData) {
           throw new Error('Datos del ingeniero no encontrados');
         }
-        
-        const engineerMainData = engineersArray[0];
         
         // Combinar los datos del ingeniero principal con los datos de la liga
         setEngineer({
