@@ -2808,12 +2808,62 @@ func main() {
 				continue
 			}
 
-			// Usar directamente la columna totalpoints
+			// Recalcular team_value sumando todos los elementos que posee el jugador
+			totalTeamValue := 0.0
+
+			// Sumar valor de pilotos
+			var pilotsByLeague []models.PilotByLeague
+			database.DB.Where("league_id = ? AND owner_id = ?", leagueID, playerID).Find(&pilotsByLeague)
+			for _, pbl := range pilotsByLeague {
+				var pilot models.Pilot
+				if err := database.DB.First(&pilot, pbl.PilotID).Error; err == nil {
+					totalTeamValue += pilot.Value
+				}
+			}
+
+			// Sumar valor de track engineers
+			var trackEngineersByLeague []models.TrackEngineerByLeague
+			database.DB.Where("league_id = ? AND owner_id = ?", leagueID, playerID).Find(&trackEngineersByLeague)
+			for _, tebl := range trackEngineersByLeague {
+				var trackEngineer models.TrackEngineer
+				if err := database.DB.First(&trackEngineer, tebl.TrackEngineerID).Error; err == nil {
+					totalTeamValue += trackEngineer.Value
+				}
+			}
+
+			// Sumar valor de chief engineers
+			var chiefEngineersByLeague []models.ChiefEngineerByLeague
+			database.DB.Where("league_id = ? AND owner_id = ?", leagueID, playerID).Find(&chiefEngineersByLeague)
+			for _, cebl := range chiefEngineersByLeague {
+				var chiefEngineer models.ChiefEngineer
+				if err := database.DB.First(&chiefEngineer, cebl.ChiefEngineerID).Error; err == nil {
+					totalTeamValue += chiefEngineer.Value
+				}
+			}
+
+			// Sumar valor de team constructors
+			var teamConstructorsByLeague []models.TeamConstructorByLeague
+			database.DB.Where("league_id = ? AND owner_id = ?", leagueID, playerID).Find(&teamConstructorsByLeague)
+			for _, tcbl := range teamConstructorsByLeague {
+				var teamConstructor models.TeamConstructor
+				if err := database.DB.First(&teamConstructor, tcbl.TeamConstructorID).Error; err == nil {
+					totalTeamValue += teamConstructor.Value
+				}
+			}
+
+			// Actualizar el team_value en la base de datos si es diferente
+			if pl.TeamValue != totalTeamValue {
+				database.DB.Model(&pl).Update("team_value", totalTeamValue)
+				pl.TeamValue = totalTeamValue
+			}
+
+			// Usar directamente la columna totalpoints y team_value recalculado
 			item := map[string]interface{}{
-				"player_id": pl.PlayerID,
-				"name":      player.Name,
-				"points":    pl.TotalPoints,
-				"money":     pl.Money,
+				"player_id":  pl.PlayerID,
+				"name":       player.Name,
+				"points":     pl.TotalPoints,
+				"money":      pl.Money,
+				"team_value": pl.TeamValue,
 			}
 			result = append(result, item)
 		}
