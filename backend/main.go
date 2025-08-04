@@ -589,7 +589,7 @@ func main() {
 		}
 		// Poblar ingenieros de pista para el primer GP
 		var gps []models.GrandPrix
-		database.DB.Order("gp_index asc").Find(&gps)
+		database.DB.Order("start_date asc").Find(&gps)
 		if len(gps) > 0 {
 			// Obtener todos los ingenieros globales
 			var globalEngineers []models.TrackEngineer
@@ -1015,7 +1015,7 @@ func main() {
 			return
 		}
 		var gps []models.GrandPrix
-		database.DB.Order("date asc").Find(&gps)
+		database.DB.Order("start_date asc").Find(&gps)
 		nGPS := len(gps)
 		scoring := map[string]interface{}{}
 		pointsArray := make([]int, nGPS)
@@ -3063,7 +3063,7 @@ func main() {
 			LEFT JOIN player_points_by_gp p ON p.player_id = ? AND p.league_id = ? AND p.gp_index = gp.gp_index
 			WHERE gp.gp_index > 0
 			GROUP BY gp.gp_index, gp.name, gp.start_date
-			ORDER BY gp.gp_index ASC
+			ORDER BY gp.start_date ASC
 		`, playerIDUint, leagueIDUint).Rows()
 
 		if err != nil {
@@ -5335,7 +5335,7 @@ func main() {
 	// Endpoint para obtener la lista de GPs para el formulario
 	router.GET("/api/grand-prix", func(c *gin.Context) {
 		var gps []models.GrandPrix
-		database.DB.Find(&gps)
+		database.DB.Order("start_date asc").Find(&gps)
 		c.JSON(200, gin.H{"gps": gps})
 	})
 
@@ -6338,6 +6338,8 @@ func main() {
 
 	// Endpoint para guardar los resultados de sesión de un piloto en un GP y modo
 	router.POST("/api/admin/session-result", func(c *gin.Context) {
+		log.Printf("[SESSION-RESULT] Endpoint llamado - Method: %s, URL: %s", c.Request.Method, c.Request.URL.Path)
+
 		var body map[string]interface{}
 		if err := c.ShouldBindJSON(&body); err != nil {
 			log.Printf("[SESSION-RESULT] Error ShouldBindJSON body: %v", err)
@@ -6370,12 +6372,15 @@ func main() {
 		} else if fp, ok := body["finish_position"].(int); ok {
 			finishPosition = fp
 		} else if fp, ok := body["finish_position"].(string); ok {
-			if fp != "" && fp != "null" {
+			if fp != "" && fp != "null" && fp != "0" {
 				if fpInt, err := strconv.Atoi(fp); err == nil {
 					finishPosition = fpInt
 				}
 			}
 		}
+
+		log.Printf("[SESSION-RESULT] finish_position extraído: %v (tipo: %T)", body["finish_position"], body["finish_position"])
+		log.Printf("[SESSION-RESULT] finishPosition procesado: %d", finishPosition)
 
 		// Los puntos se calculan automáticamente basados en expected_position y finish_position
 
@@ -6399,15 +6404,100 @@ func main() {
 
 		// Calcular puntos por posición final
 		positionPoints := getPositionPoints(pilot.Mode, finishPosition)
-		totalPoints := realDelta + positionPoints
 
-		log.Printf("[SESSION-RESULT] Piloto %s (Mode: %s, Pos: %d): Delta=%d + Position=%d = Total=%d",
-			pilot.DriverName, pilot.Mode, finishPosition, realDelta, positionPoints, totalPoints)
-		log.Printf("[SESSION-RESULT] Valores extraídos - finishPosition: %v, expectedPosition: %v, realDelta: %v, positionPoints: %v",
-			finishPosition, expectedPosition, realDelta, positionPoints)
+		// Calcular bonificaciones y penalizaciones
+		bonusPoints := 0
 
-		// Actualizar el campo points con el total
+		// Debug: mostrar todos los valores recibidos
+		log.Printf("[SESSION-RESULT] Valores recibidos en body: %+v", body)
+
+		// Posiciones ganadas/perdidas en salida - multiplicar por cantidad (permite negativos)
+		positionsGainedAtStartVal := body["positions_gained_at_start"]
+		log.Printf("[SESSION-RESULT] Procesando positions_gained_at_start: %v (tipo: %T)", positionsGainedAtStartVal, positionsGainedAtStartVal)
+
+		if positionsGainedAtStart, ok := positionsGainedAtStartVal.(float64); ok && positionsGainedAtStart != 0 {
+			bonusPoints += int(positionsGainedAtStart) * 3
+			log.Printf("[SESSION-RESULT] Bonificación/penalización por posiciones en salida: %+d (valor: %v)", int(positionsGainedAtStart)*3, positionsGainedAtStart)
+		} else if positionsGainedAtStart, ok := positionsGainedAtStartVal.(int); ok && positionsGainedAtStart != 0 {
+			bonusPoints += positionsGainedAtStart * 3
+			log.Printf("[SESSION-RESULT] Bonificación/penalización por posiciones en salida: %+d (valor: %v)", positionsGainedAtStart*3, positionsGainedAtStart)
+		} else if positionsGainedAtStart, ok := positionsGainedAtStartVal.(string); ok && positionsGainedAtStart != "" && positionsGainedAtStart != "null" {
+			if positionsGainedAtStartInt, err := strconv.Atoi(positionsGainedAtStart); err == nil && positionsGainedAtStartInt != 0 {
+				bonusPoints += positionsGainedAtStartInt * 3
+				log.Printf("[SESSION-RESULT] Bonificación/penalización por posiciones en salida: %+d (valor: %v)", positionsGainedAtStartInt*3, positionsGainedAtStartInt)
+			}
+		} else {
+			log.Printf("[SESSION-RESULT] No se aplicó bonificación/penalización por posiciones en salida (valor: %v, tipo: %T)", positionsGainedAtStartVal, positionsGainedAtStartVal)
+		}
+
+		// Adelantamientos limpios (+2 cada uno)
+		if cleanOvertakes, ok := body["clean_overtakes"].(float64); ok && cleanOvertakes > 0 {
+			bonusPoints += int(cleanOvertakes) * 2
+			log.Printf("[SESSION-RESULT] Bonificación por adelantamientos limpios: +%d (valor: %v)", int(cleanOvertakes)*2, cleanOvertakes)
+		} else if cleanOvertakes, ok := body["clean_overtakes"].(int); ok && cleanOvertakes > 0 {
+			bonusPoints += cleanOvertakes * 2
+			log.Printf("[SESSION-RESULT] Bonificación por adelantamientos limpios: +%d (valor: %v)", cleanOvertakes*2, cleanOvertakes)
+		}
+
+		// Posiciones perdidas (-1 cada una)
+		if netPositionsLost, ok := body["net_positions_lost"].(float64); ok && netPositionsLost > 0 {
+			bonusPoints -= int(netPositionsLost)
+			log.Printf("[SESSION-RESULT] Penalización por posiciones perdidas: -%d (valor: %v)", int(netPositionsLost), netPositionsLost)
+		} else if netPositionsLost, ok := body["net_positions_lost"].(int); ok && netPositionsLost > 0 {
+			bonusPoints -= netPositionsLost
+			log.Printf("[SESSION-RESULT] Penalización por posiciones perdidas: -%d (valor: %v)", netPositionsLost, netPositionsLost)
+		}
+
+		// Vuelta rápida (+5 si termina P1-10)
+		if fastestLap, ok := body["fastest_lap"].(bool); ok && fastestLap && finishPosition <= 10 {
+			bonusPoints += 5
+			log.Printf("[SESSION-RESULT] Bonificación por vuelta rápida: +5")
+		}
+
+		// Causar VSC (-5)
+		if causedVsc, ok := body["caused_vsc"].(bool); ok && causedVsc {
+			bonusPoints -= 5
+			log.Printf("[SESSION-RESULT] Penalización por causar VSC: -5")
+		}
+
+		// Causar SC (-8)
+		if causedSc, ok := body["caused_sc"].(bool); ok && causedSc {
+			bonusPoints -= 8
+			log.Printf("[SESSION-RESULT] Penalización por causar SC: -8")
+		}
+
+		// Causar bandera roja (-12)
+		if causedRedFlag, ok := body["caused_red_flag"].(bool); ok && causedRedFlag {
+			bonusPoints -= 12
+			log.Printf("[SESSION-RESULT] Penalización por causar bandera roja: -12")
+		}
+
+		// DNF por error del piloto (-10)
+		if dnfDriverError, ok := body["dnf_driver_error"].(bool); ok && dnfDriverError {
+			bonusPoints -= 10
+			log.Printf("[SESSION-RESULT] Penalización por DNF error piloto: -10")
+		}
+
+		// DNF sin culpa (-3)
+		if dnfNoFault, ok := body["dnf_no_fault"].(bool); ok && dnfNoFault {
+			bonusPoints -= 3
+			log.Printf("[SESSION-RESULT] Penalización por DNF sin culpa: -3")
+		}
+
+		// Total: delta + puntos por posición + bonificaciones
+		totalPoints := realDelta + positionPoints + bonusPoints
+
+		log.Printf("[SESSION-RESULT] Piloto %s (Mode: %s, Pos: %d): Delta=%d + Position=%d + Bonus=%d = Total=%d",
+			pilot.DriverName, pilot.Mode, finishPosition, realDelta, positionPoints, bonusPoints, totalPoints)
+		log.Printf("[SESSION-RESULT] Valores extraídos - finishPosition: %v, expectedPosition: %v, realDelta: %v, positionPoints: %v, bonusPoints: %v",
+			finishPosition, expectedPosition, realDelta, positionPoints, bonusPoints)
+		log.Printf("[SESSION-RESULT] CÁLCULO DETALLADO: %d + %d + %d = %d", realDelta, positionPoints, bonusPoints, totalPoints)
+
+		// Actualizar el campo points con el total calculado
 		body["points"] = totalPoints
+
+		// También actualizar delta_position para consistencia
+		body["delta_position"] = realDelta
 
 		var table string
 		switch mode {
@@ -6522,6 +6612,7 @@ func main() {
 			"points_breakdown": gin.H{
 				"delta_points":    realDelta,
 				"position_points": positionPoints,
+				"bonus_points":    bonusPoints,
 				"total_points":    totalPoints,
 				"position":        finishPosition,
 				"mode":            pilot.Mode,
@@ -6817,8 +6908,8 @@ func main() {
 		leagueID := c.Query("league_id")
 		gpIndex := c.Query("gp_index")
 
-		if playerID == "" || leagueID == "" || gpIndex == "" {
-			c.JSON(400, gin.H{"error": "Faltan parámetros player_id, league_id o gp_index"})
+		if playerID == "" || leagueID == "" {
+			c.JSON(400, gin.H{"error": "Faltan parámetros player_id o league_id"})
 			return
 		}
 
@@ -6834,20 +6925,77 @@ func main() {
 			return
 		}
 
-		gpIndexUint, err := strconv.ParseUint(gpIndex, 10, 64)
-		if err != nil {
-			c.JSON(400, gin.H{"error": "gp_index inválido"})
-			return
+		// Si no se proporciona gp_index, buscar el último GP con start_date más reciente
+		var targetGPIndex uint64
+		if gpIndex == "" {
+			// Buscar el GP más reciente que haya comenzado
+			now := time.Now()
+			var latestGP models.GrandPrix
+			if err := database.DB.Where("start_date <= ?", now).Order("start_date DESC").First(&latestGP).Error; err != nil {
+				c.JSON(404, gin.H{"error": "No se encontró ningún GP"})
+				return
+			}
+			targetGPIndex = latestGP.GPIndex
+		} else {
+			gpIndexUint, err := strconv.ParseUint(gpIndex, 10, 64)
+			if err != nil {
+				c.JSON(400, gin.H{"error": "gp_index inválido"})
+				return
+			}
+			targetGPIndex = gpIndexUint
 		}
 
 		var lineup models.Lineup
-		if err := database.DB.Where("player_id = ? AND league_id = ? AND gp_index = ?", playerIDUint, leagueIDUint, gpIndexUint).First(&lineup).Error; err != nil {
-			c.JSON(404, gin.H{"error": "Alineación no encontrada"})
+		if err := database.DB.Where("player_id = ? AND league_id = ? AND gp_index = ?", playerIDUint, leagueIDUint, targetGPIndex).First(&lineup).Error; err != nil {
+			// Si no hay alineación, devolver 0 puntos pero con información del GP
+			var gp models.GrandPrix
+			if err := database.DB.Where("gp_index = ?", targetGPIndex).First(&gp).Error; err != nil {
+				c.JSON(404, gin.H{"error": "GP no encontrado"})
+				return
+			}
+
+			c.JSON(200, gin.H{
+				"lineup_points": 0,
+				"gp_index":      targetGPIndex,
+				"gp_name":       gp.Name,
+				"gp_country":    gp.Country,
+				"gp_date":       gp.StartDate,
+				"gp_flag":       gp.Flag,
+				"has_lineup":    false,
+			})
+			return
+		}
+
+		// Obtener información del GP
+		var gp models.GrandPrix
+		if err := database.DB.Where("gp_index = ?", targetGPIndex).First(&gp).Error; err != nil {
+			c.JSON(404, gin.H{"error": "GP no encontrado"})
 			return
 		}
 
 		c.JSON(200, gin.H{
 			"lineup_points": lineup.LineupPoints,
+			"gp_index":      targetGPIndex,
+			"gp_name":       gp.Name,
+			"gp_country":    gp.Country,
+			"gp_date":       gp.StartDate,
+			"gp_flag":       gp.Flag,
+			"has_lineup":    true,
+		})
+	})
+
+	// Endpoint para obtener todos los GPs que ya han empezado
+	router.GET("/api/gp/started", authMiddleware(), func(c *gin.Context) {
+		now := time.Now()
+		var gps []models.GrandPrix
+
+		if err := database.DB.Where("start_date <= ?", now).Order("start_date DESC").Find(&gps).Error; err != nil {
+			c.JSON(500, gin.H{"error": "Error al obtener GPs"})
+			return
+		}
+
+		c.JSON(200, gin.H{
+			"gps": gps,
 		})
 	})
 
@@ -6867,12 +7015,14 @@ func main() {
 			return
 		}
 
-		// Obtener el GP index actual basado en start_date
-		// Primero intentar obtener el GP que ha empezado más recientemente (start_date <= now)
+		// LÓGICA MEJORADA: Obtener el GP correcto para mostrar alineación
+		now := time.Now()
 		var currentGP models.GrandPrix
-		if err := database.DB.Where("start_date <= ?", time.Now()).Order("start_date DESC").First(&currentGP).Error; err != nil {
-			// Si no hay ningún GP que haya empezado, buscar el próximo
-			if err := database.DB.Where("start_date > ?", time.Now()).Order("start_date ASC").First(&currentGP).Error; err != nil {
+
+		// Buscar el próximo GP que NO haya comenzado aún (para alineaciones activas)
+		if err := database.DB.Where("start_date > ?", now).Order("start_date ASC").First(&currentGP).Error; err != nil {
+			// Si no hay próximos GPs, buscar el último GP que haya comenzado
+			if err := database.DB.Where("start_date <= ?", now).Order("start_date DESC").First(&currentGP).Error; err != nil {
 				c.JSON(404, gin.H{"error": "No Grand Prix found"})
 				return
 			}
@@ -6922,8 +7072,177 @@ func main() {
 				"chief_engineer_id":   lineup.ChiefEngineerID,
 				"track_engineers":     trackEngineers,
 			},
-			"gp_index": currentGP.GPIndex,
-			"gp_name":  currentGP.Name,
+			"gp_index":      currentGP.GPIndex,
+			"gp_name":       currentGP.Name,
+			"gp_start_date": currentGP.StartDate,
+			"is_gp_started": currentGP.StartDate.Before(time.Now()) || currentGP.StartDate.Equal(time.Now()),
+		})
+	})
+
+	// Endpoint para obtener información detallada del GP actual y próximo
+	router.GET("/api/gp/status", authMiddleware(), func(c *gin.Context) {
+		now := time.Now()
+
+		// Buscar el GP actual (el que ha comenzado más recientemente)
+		var currentGP models.GrandPrix
+		if err := database.DB.Where("start_date <= ?", now).Order("start_date DESC").First(&currentGP).Error; err != nil {
+			c.JSON(404, gin.H{"error": "No Grand Prix found"})
+			return
+		}
+
+		// Buscar el próximo GP
+		var nextGP models.GrandPrix
+		if err := database.DB.Where("start_date > ?", now).Order("start_date ASC").First(&nextGP).Error; err != nil {
+			// No hay próximos GPs
+			c.JSON(200, gin.H{
+				"current_gp": gin.H{
+					"gp_index":   currentGP.GPIndex,
+					"name":       currentGP.Name,
+					"start_date": currentGP.StartDate,
+					"is_started": true,
+				},
+				"next_gp":         nil,
+				"can_save_lineup": false,
+				"message":         "No hay próximos GPs disponibles para alineaciones",
+			})
+			return
+		}
+
+		c.JSON(200, gin.H{
+			"current_gp": gin.H{
+				"gp_index":   currentGP.GPIndex,
+				"name":       currentGP.Name,
+				"start_date": currentGP.StartDate,
+				"is_started": true,
+			},
+			"next_gp": gin.H{
+				"gp_index":   nextGP.GPIndex,
+				"name":       nextGP.Name,
+				"start_date": nextGP.StartDate,
+				"is_started": false,
+			},
+			"can_save_lineup": true,
+			"target_gp": gin.H{
+				"gp_index":   nextGP.GPIndex,
+				"name":       nextGP.Name,
+				"start_date": nextGP.StartDate,
+			},
+		})
+	})
+
+	// Endpoint para obtener alineaciones guardadas de GPs pasados
+	router.GET("/api/lineup/history", authMiddleware(), func(c *gin.Context) {
+		userID := c.GetUint("user_id")
+		leagueIDStr := c.Query("league_id")
+
+		if leagueIDStr == "" {
+			c.JSON(400, gin.H{"error": "league_id is required"})
+			return
+		}
+
+		leagueID, err := strconv.ParseUint(leagueIDStr, 10, 32)
+		if err != nil {
+			c.JSON(400, gin.H{"error": "Invalid league_id"})
+			return
+		}
+
+		// Obtener todos los GPs que ya han comenzado
+		now := time.Now()
+		var pastGPs []models.GrandPrix
+		if err := database.DB.Where("start_date <= ?", now).Order("start_date ASC").Find(&pastGPs).Error; err != nil {
+			c.JSON(500, gin.H{"error": "Error fetching past GPs"})
+			return
+		}
+
+		// Para cada GP pasado, obtener la alineación guardada
+		var history []gin.H
+		for _, gp := range pastGPs {
+			var lineup models.Lineup
+			if err := database.DB.Where("player_id = ? AND league_id = ? AND gp_index = ?", userID, leagueID, gp.GPIndex).First(&lineup).Error; err != nil {
+				// No hay alineación guardada para este GP
+				continue
+			}
+
+			// Parsear los arrays de IDs
+			var racePilots, qualifyingPilots, practicePilots, trackEngineers []uint
+			if len(lineup.RacePilots) > 0 {
+				json.Unmarshal(lineup.RacePilots, &racePilots)
+			}
+			if len(lineup.QualifyingPilots) > 0 {
+				json.Unmarshal(lineup.QualifyingPilots, &qualifyingPilots)
+			}
+			if len(lineup.PracticePilots) > 0 {
+				json.Unmarshal(lineup.PracticePilots, &practicePilots)
+			}
+			if len(lineup.TrackEngineers) > 0 {
+				json.Unmarshal(lineup.TrackEngineers, &trackEngineers)
+			}
+
+			history = append(history, gin.H{
+				"gp_index":            gp.GPIndex,
+				"gp_name":             gp.Name,
+				"gp_start_date":       gp.StartDate,
+				"gp_date":             gp.Date,
+				"gp_country":          gp.Country,
+				"gp_flag":             gp.Flag,
+				"lineup_points":       lineup.LineupPoints,
+				"race_pilots":         racePilots,
+				"qualifying_pilots":   qualifyingPilots,
+				"practice_pilots":     practicePilots,
+				"team_constructor_id": lineup.TeamConstructorID,
+				"chief_engineer_id":   lineup.ChiefEngineerID,
+				"track_engineers":     trackEngineers,
+			})
+		}
+
+		c.JSON(200, gin.H{
+			"history": history,
+		})
+	})
+
+	// Endpoint para obtener puntos de un elemento específico en un GP
+	router.GET("/api/lineup/element-points", authMiddleware(), func(c *gin.Context) {
+		gpIndexStr := c.Query("gp_index")
+		elementType := c.Query("element_type") // "pilot", "team_constructor", "chief_engineer", "track_engineer"
+		elementIDStr := c.Query("element_id")
+
+		if gpIndexStr == "" || elementType == "" || elementIDStr == "" {
+			c.JSON(400, gin.H{"error": "gp_index, element_type, and element_id are required"})
+			return
+		}
+
+		gpIndex, err := strconv.ParseUint(gpIndexStr, 10, 64)
+		if err != nil {
+			c.JSON(400, gin.H{"error": "Invalid gp_index"})
+			return
+		}
+
+		elementID, err := strconv.ParseUint(elementIDStr, 10, 32)
+		if err != nil {
+			c.JSON(400, gin.H{"error": "Invalid element_id"})
+			return
+		}
+
+		var points int
+		switch elementType {
+		case "pilot":
+			points = getPilotPoints(uint(elementID), gpIndex)
+		case "team_constructor":
+			points = getTeamConstructorPoints(uint(elementID), gpIndex)
+		case "chief_engineer":
+			points = getChiefEngineerPoints(uint(elementID), gpIndex)
+		case "track_engineer":
+			points = getTrackEngineerPoints(uint(elementID), gpIndex)
+		default:
+			c.JSON(400, gin.H{"error": "Invalid element_type"})
+			return
+		}
+
+		c.JSON(200, gin.H{
+			"gp_index":     gpIndex,
+			"element_type": elementType,
+			"element_id":   elementID,
+			"points":       points,
 		})
 	})
 
@@ -6938,6 +7257,7 @@ func main() {
 			TeamConstructorID *uint  `json:"team_constructor_id"`
 			ChiefEngineerID   *uint  `json:"chief_engineer_id"`
 			TrackEngineers    []uint `json:"track_engineers"`
+			GPIndex           *uint  `json:"gp_index"` // Opcional para admins
 		}
 
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -6945,20 +7265,39 @@ func main() {
 			return
 		}
 
-		// Obtener el GP index actual basado en start_date
-		// Primero intentar obtener el GP que ha empezado más recientemente (start_date <= now)
-		var currentGP models.GrandPrix
-		if err := database.DB.Where("start_date <= ?", time.Now()).Order("start_date DESC").First(&currentGP).Error; err != nil {
-			// Si no hay ningún GP que haya empezado, buscar el próximo
-			if err := database.DB.Where("start_date > ?", time.Now()).Order("start_date ASC").First(&currentGP).Error; err != nil {
-				c.JSON(404, gin.H{"error": "No Grand Prix found"})
+		// LÓGICA MEJORADA: Determinar el GP correcto para guardar alineación
+		var targetGP models.GrandPrix
+		now := time.Now()
+
+		// Si se proporciona un GP index específico (para admins), usarlo
+		if req.GPIndex != nil {
+			if err := database.DB.Where("gp_index = ?", *req.GPIndex).First(&targetGP).Error; err != nil {
+				c.JSON(404, gin.H{"error": "GP index no encontrado"})
 				return
+			}
+		} else {
+			// Buscar el próximo GP que NO haya comenzado aún
+			if err := database.DB.Where("start_date > ?", now).Order("start_date ASC").First(&targetGP).Error; err != nil {
+				// Si no hay próximos GPs, buscar el último GP que haya comenzado
+				if err := database.DB.Where("start_date <= ?", now).Order("start_date DESC").First(&targetGP).Error; err != nil {
+					c.JSON(404, gin.H{"error": "No Grand Prix found"})
+					return
+				}
+			}
+
+			// Verificar si el GP objetivo ya ha comenzado
+			if targetGP.StartDate.Before(now) || targetGP.StartDate.Equal(now) {
+				// El GP ya comenzó, buscar el próximo GP disponible
+				if err := database.DB.Where("start_date > ?", now).Order("start_date ASC").First(&targetGP).Error; err != nil {
+					c.JSON(400, gin.H{"error": "No se pueden guardar alineaciones. El GP ya ha comenzado y no hay próximos GPs disponibles."})
+					return
+				}
 			}
 		}
 
-		// Buscar alineación existente
+		// Buscar alineación existente para el GP objetivo
 		var lineup models.Lineup
-		exists := database.DB.Where("player_id = ? AND league_id = ? AND gp_index = ?", userID, req.LeagueID, currentGP.GPIndex).First(&lineup).Error == nil
+		exists := database.DB.Where("player_id = ? AND league_id = ? AND gp_index = ?", userID, req.LeagueID, targetGP.GPIndex).First(&lineup).Error == nil
 
 		// Convertir arrays de IDs a JSON
 		racePilotsJSON, _ := json.Marshal(req.RacePilots)
@@ -6984,7 +7323,7 @@ func main() {
 			lineup = models.Lineup{
 				PlayerID:          userID,
 				LeagueID:          req.LeagueID,
-				GPIndex:           currentGP.GPIndex,
+				GPIndex:           targetGP.GPIndex,
 				RacePilots:        racePilotsJSON,
 				QualifyingPilots:  qualifyingPilotsJSON,
 				PracticePilots:    practicePilotsJSON,
@@ -6999,7 +7338,13 @@ func main() {
 			}
 		}
 
-		c.JSON(200, gin.H{"message": "Lineup saved successfully", "gp_index": currentGP.GPIndex})
+		c.JSON(200, gin.H{
+			"message":       "Lineup saved successfully",
+			"gp_index":      targetGP.GPIndex,
+			"gp_name":       targetGP.Name,
+			"gp_start_date": targetGP.StartDate,
+			"is_next_gp":    targetGP.StartDate.After(now),
+		})
 	})
 
 	// Endpoint para calcular puntos de Track Engineers después de guardar resultados de piloto

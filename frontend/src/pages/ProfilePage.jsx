@@ -266,7 +266,7 @@ export default function ProfilePage() {
                         if (originalKey) {
                           switch (originalKey) {
                             case 'points': points = crit.value || 0; break;
-                            case 'positions_gained_at_start': points = crit.value > 1 ? 3 : 0; break;
+                            case 'positions_gained_at_start': points = crit.value != 0 ? crit.value * 3 : 0; break;
                             case 'clean_overtakes': points = crit.value * 2; break;
                             case 'net_positions_lost': points = crit.value * -1; break;
                             case 'fastest_lap': points = crit.value ? 5 : 0; break;
@@ -277,18 +277,13 @@ export default function ProfilePage() {
                             case 'dnf_no_fault': points = crit.value ? -3 : 0; break;
                             case 'expected_position': points = 0; break;
                             case 'finish_position': 
-                              // Calcular puntos del delta de posición
+                              // Calcular puntos del delta de posición (sin multiplicadores)
                               const expectedPos = scoring_criteria.expected_position?.[selectedGP];
                               const finishPos = crit.value;
                               if (expectedPos && finishPos) {
                                 const delta = expectedPos - finishPos;
-                                const mode = pilot_by_league?.mode?.toLowerCase();
-                                const multiplier = mode === 'r' || mode === 'race' ? 10 : 
-                                                 mode === 'q' || mode === 'qualy' ? 6 : 2;
-                                const cap = mode === 'r' || mode === 'race' ? 50 : 
-                                           mode === 'q' || mode === 'qualy' ? 30 : 10;
-                                let deltaPoints = delta > 0 ? delta * multiplier : delta * (multiplier / 2);
-                                points = Math.max(-cap, Math.min(cap, deltaPoints));
+                                // Delta directo sin multiplicadores
+                                points = delta;
                               } else {
                                 points = 0;
                               }

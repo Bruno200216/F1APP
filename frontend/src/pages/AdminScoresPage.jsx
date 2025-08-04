@@ -292,35 +292,15 @@ export default function AdminScoresPage() {
 
   // Función para calcular puntos automáticamente según las fórmulas
   const calculatePoints = (expectedPosition, finishPosition, sessionType, bonuses = {}) => {
-    // Calcular delta: expected_position - actual_position
+    // Calcular delta: expected_position - actual_position (sin multiplicadores)
     const delta = expectedPosition - finishPosition;
     
-    // Multiplicadores por sesión según las reglas
-    const multipliers = {
-      race: { up: 10, down: -5, cap: 50 },
-      qualy: { up: 6, down: -3, cap: 30 },
-      practice: { up: 2, down: -1, cap: 10 }
-    };
-    
-    const sessionMultiplier = multipliers[sessionType];
-    if (!sessionMultiplier) return 0;
-    
-    // Calcular puntos base por delta
-    let points = 0;
-    if (delta > 0) {
-      // Mejor posición de la esperada
-      points = sessionMultiplier.up * delta;
-    } else if (delta < 0) {
-      // Peor posición de la esperada
-      points = sessionMultiplier.down * delta; // delta es negativo, down es negativo, resultado positivo
-    }
-    
-    // Aplicar límite (cap)
-    points = Math.max(-sessionMultiplier.cap, Math.min(sessionMultiplier.cap, points));
+    // Delta directo sin multiplicadores
+    let points = delta;
     
     // Añadir bonificaciones y penalizaciones por eventos
-    if (bonuses.positions_gained_at_start > 1) {
-      points += 3; // Posiciones ganadas en la salida
+    if (bonuses.positions_gained_at_start != 0) {
+      points += bonuses.positions_gained_at_start * 3; // Posiciones ganadas/perdidas en la salida (multiplicar por cantidad)
     }
     
     if (bonuses.clean_overtakes) {
@@ -439,29 +419,35 @@ export default function AdminScoresPage() {
       // Calcular delta position
       const deltaPosition = expectedPosition - finishPosition;
       
-      // Construir payload con tipos correctos
-      const payload = {
-        gp_index: parseInt(selectedGP),
-        mode: sessionType,
-        pilot_id: parseInt(selectedSessionPilot),
-        expected_position: expectedPosition,
-        delta_position: deltaPosition,
-        points: calculatedPoints || parseInt(sessionForm.points) || 0,
-        // Campos numéricos
-        start_position: parseInt(sessionForm.start_position) || null,
-        finish_position: parseInt(sessionForm.finish_position) || null,
-        positions_gained_at_start: parseInt(sessionForm.positions_gained_at_start) || null,
-        clean_overtakes: parseInt(sessionForm.clean_overtakes) || null,
-        net_positions_lost: parseInt(sessionForm.net_positions_lost) || null,
-        // Campos booleanos
-        fastest_lap: sessionForm.fastest_lap === true || sessionForm.fastest_lap === 'true' || false,
-        caused_vsc: sessionForm.caused_vsc === true || sessionForm.caused_vsc === 'true' || false,
-        caused_sc: sessionForm.caused_sc === true || sessionForm.caused_sc === 'true' || false,
-        caused_red_flag: sessionForm.caused_red_flag === true || sessionForm.caused_red_flag === 'true' || false,
-        dnf_driver_error: sessionForm.dnf_driver_error === true || sessionForm.dnf_driver_error === 'true' || false,
-        dnf_no_fault: sessionForm.dnf_no_fault === true || sessionForm.dnf_no_fault === 'true' || false
-      };
+              // Construir payload con tipos correctos (sin enviar points, el backend los calculará)
+        const payload = {
+          gp_index: parseInt(selectedGP),
+          mode: sessionType,
+          pilot_id: parseInt(selectedSessionPilot),
+          expected_position: expectedPosition,
+          // Campos numéricos - asegurar que sean números válidos
+          start_position: sessionForm.start_position ? parseInt(sessionForm.start_position) : null,
+          finish_position: sessionForm.finish_position ? parseInt(sessionForm.finish_position) : null,
+          positions_gained_at_start: sessionForm.positions_gained_at_start ? parseInt(sessionForm.positions_gained_at_start) : 0,
+          clean_overtakes: sessionForm.clean_overtakes ? parseInt(sessionForm.clean_overtakes) : 0,
+          net_positions_lost: sessionForm.net_positions_lost ? parseInt(sessionForm.net_positions_lost) : 0,
+          // Campos booleanos
+          fastest_lap: sessionForm.fastest_lap === true || sessionForm.fastest_lap === 'true' || false,
+          caused_vsc: sessionForm.caused_vsc === true || sessionForm.caused_vsc === 'true' || false,
+          caused_sc: sessionForm.caused_sc === true || sessionForm.caused_sc === 'true' || false,
+          caused_red_flag: sessionForm.caused_red_flag === true || sessionForm.caused_red_flag === 'true' || false,
+          dnf_driver_error: sessionForm.dnf_driver_error === true || sessionForm.dnf_driver_error === 'true' || false,
+          dnf_no_fault: sessionForm.dnf_no_fault === true || sessionForm.dnf_no_fault === 'true' || false
+        };
       
+      console.log('[FRONTEND] Enviando payload:', payload);
+      console.log('[FRONTEND] Valores específicos:', {
+        finish_position: sessionForm.finish_position,
+        positions_gained_at_start: sessionForm.positions_gained_at_start,
+        clean_overtakes: sessionForm.clean_overtakes,
+        net_positions_lost: sessionForm.net_positions_lost,
+        fastest_lap: sessionForm.fastest_lap
+      });
       const res = await fetch('/api/admin/session-result', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -485,11 +471,12 @@ export default function AdminScoresPage() {
           console.error('Error calculando puntos Track Engineer:', trackEngError);
         }
 
-        const deltaPoints = Math.round((expectedPosition - finishPosition) * (sessionType === 'race' ? 10 : sessionType === 'qualy' ? 6 : 2));
-        const eventPoints = calculatedPoints - deltaPoints;
+        // Obtener los puntos calculados por el backend
+        const pointsBreakdown = data.points_breakdown;
+        const savedPoints = pointsBreakdown?.total_points || calculatedPoints;
         setSessionSnackbar({ 
           open: true, 
-          message: `✅ Guardado. Total: ${calculatedPoints} (Delta: ${deltaPoints} + Eventos: ${eventPoints})`, 
+          message: `✅ Guardado. Puntos: ${savedPoints} (Delta: ${pointsBreakdown?.delta_points || 0} + Posición: ${pointsBreakdown?.position_points || 0} + Bonus: ${pointsBreakdown?.bonus_points || 0})`, 
           severity: 'success' 
         });
         setTimeout(() => setSessionSnackbar({ open: false, message: '', severity: 'success' }), 5000);
