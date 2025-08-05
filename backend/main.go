@@ -7271,10 +7271,13 @@ func main() {
 
 		// Si se proporciona un GP index específico (para admins), usarlo
 		if req.GPIndex != nil {
+			log.Printf("🔍 Admin: Guardando alineación para GP index específico: %d", *req.GPIndex)
 			if err := database.DB.Where("gp_index = ?", *req.GPIndex).First(&targetGP).Error; err != nil {
 				c.JSON(404, gin.H{"error": "GP index no encontrado"})
 				return
 			}
+			log.Printf("🔍 Admin: GP encontrado: %s (index: %d)", targetGP.Name, targetGP.GPIndex)
+			// Si se proporcionó un GP index específico, no continuar con la lógica automática
 		} else {
 			// Buscar el próximo GP que NO haya comenzado aún
 			if err := database.DB.Where("start_date > ?", now).Order("start_date ASC").First(&targetGP).Error; err != nil {

@@ -330,16 +330,22 @@ export default function TeamPilotsPage() {
     }
   }, [selectedLeague, teamData]);
 
+  // Verificar si el usuario es admin (se ejecuta siempre)
+  useEffect(() => {
+    const userRole = localStorage.getItem('user_role');
+    const isAdminUser = userRole === 'admin';
+    // Temporalmente forzar admin para testing
+    const forceAdmin = true; // Cambiar a false para desactivar
+    setIsAdmin(isAdminUser || forceAdmin);
+    console.log('🔍 Debug admin:', { userRole, isAdminUser, forceAdmin });
+  }, []);
+
   // Obtener información del GP actual cuando se cambie a la pestaña de puntos
   useEffect(() => {
     if (currentTab === 'points' && selectedLeague?.id) {
       fetchCurrentGP();
       loadLineupHistory();
       loadAvailableGPs();
-      
-      // Verificar si el usuario es admin
-      const userRole = localStorage.getItem('user_role');
-      setIsAdmin(userRole === 'admin');
     }
   }, [currentTab, selectedLeague]);
 
@@ -580,6 +586,7 @@ export default function TeamPilotsPage() {
   // Cargar puntos para un GP específico
   const loadCurrentPointsForGP = async (gpIndex) => {
     try {
+      console.log('🔍 Cargando puntos para GP:', gpIndex);
       const token = localStorage.getItem('token');
       const playerId = localStorage.getItem('player_id');
       
@@ -591,6 +598,7 @@ export default function TeamPilotsPage() {
       
       if (response.ok) {
         const data = await response.json();
+        console.log('🔍 Datos recibidos de puntos:', data);
         const totalPoints = data.lineup_points || 0;
         
         const points = {
@@ -603,6 +611,7 @@ export default function TeamPilotsPage() {
           has_lineup: data.has_lineup
         };
         
+        console.log('🔍 Puntos procesados:', points);
         setCurrentPoints(points);
       } else {
         console.error('Error loading lineup points:', response.status);
@@ -865,7 +874,29 @@ export default function TeamPilotsPage() {
       setSavingLineup(true);
       const token = localStorage.getItem('token');
       
-      // Extraer solo los IDs de los objetos
+      // Debug: Ver la estructura de los datos
+      console.log('🔍 Debug lineup data:', {
+        team_constructor: teamLineup.team_constructor,
+        chief_engineer: teamLineup.chief_engineer,
+        track_engineers: teamLineup.track_engineers
+      });
+
+      // Debug: Ver todos los campos disponibles
+      if (teamLineup.chief_engineer) {
+        console.log('🔍 Chief Engineer fields:', Object.keys(teamLineup.chief_engineer));
+        console.log('🔍 Chief Engineer full object:', teamLineup.chief_engineer);
+      }
+      if (teamLineup.team_constructor) {
+        console.log('🔍 Team Constructor fields:', Object.keys(teamLineup.team_constructor));
+        console.log('🔍 Team Constructor full object:', teamLineup.team_constructor);
+      }
+      if (teamLineup.track_engineers.length > 0 && teamLineup.track_engineers[0]) {
+        console.log('🔍 Track Engineer fields:', Object.keys(teamLineup.track_engineers[0]));
+        console.log('🔍 Track Engineer full object:', teamLineup.track_engineers[0]);
+      }
+
+      // Extraer solo los IDs de los objetos y validar que existan
+      // NOTA: Los IDs deben ser de las tablas _by_league, no de las tablas generales
       const lineupData = {
         league_id: selectedLeague.id,
         race_pilots: pilotLineup.race.filter(p => p !== null).map(p => p.id),
@@ -875,6 +906,14 @@ export default function TeamPilotsPage() {
         chief_engineer_id: teamLineup.chief_engineer?.id || null,
         track_engineers: teamLineup.track_engineers.filter(e => e !== null).map(e => e.id)
       };
+
+      // Validar que los IDs no sean 0 o undefined
+      if (lineupData.chief_engineer_id === 0 || lineupData.chief_engineer_id === undefined) {
+        lineupData.chief_engineer_id = null;
+      }
+      if (lineupData.team_constructor_id === 0 || lineupData.team_constructor_id === undefined) {
+        lineupData.team_constructor_id = null;
+      }
 
       // Si es admin y está activado el selector, validar que se haya ingresado un GP index
       if (isAdmin && showAdminGPSelector) {
@@ -909,6 +948,14 @@ export default function TeamPilotsPage() {
         
         // Recargar datos del GP actual
         await fetchCurrentGP();
+        
+        // Si estamos en la pestaña de puntos, recargar también los datos de puntos
+        if (currentTab === 'points') {
+          await loadAvailableGPs();
+          if (selectedGP) {
+            await loadCurrentPointsForGP(selectedGP.gp_index);
+          }
+        }
       } else {
         const errorData = await response.json();
         showSnackbar(errorData.error || 'Error al guardar alineación', 'error');
@@ -1585,6 +1632,7 @@ export default function TeamPilotsPage() {
           Limpiar Alineación
         </Button>
         {/* Interfaz de admin para seleccionar GP */}
+        {console.log('🔍 Renderizando admin interface:', { isAdmin, currentTab })}
         {isAdmin && (
           <div className="flex items-center gap-4 mb-4 p-4 bg-surface-elevated rounded-lg border border-border">
             <div className="flex items-center gap-2">

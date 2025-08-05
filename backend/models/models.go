@@ -351,17 +351,17 @@ type Lineup struct {
 	PlayerID          uint      `json:"player_id" gorm:"not null"`
 	LeagueID          uint      `json:"league_id" gorm:"not null"`
 	GPIndex           uint64    `json:"gp_index" gorm:"not null;column:gp_index"`
-	RacePilots        []byte    `json:"race_pilots" gorm:"type:json"`       // Array de pilot_by_league_id
-	QualifyingPilots  []byte    `json:"qualifying_pilots" gorm:"type:json"` // Array de pilot_by_league_id
-	PracticePilots    []byte    `json:"practice_pilots" gorm:"type:json"`   // Array de pilot_by_league_id
-	TeamConstructorID *uint     `json:"team_constructor_id" gorm:"column:team_constructor_id"`
-	ChiefEngineerID   *uint     `json:"chief_engineer_id" gorm:"column:chief_engineer_id"`
-	TrackEngineers    []byte    `json:"track_engineers" gorm:"type:json"` // Array de track_engineer_by_league_id
-	LineupPoints      int       `json:"lineup_points" gorm:"default:0"`   // Puntos totales de la alineación
+	RacePilots        []byte    `json:"race_pilots" gorm:"type:json"`                          // Array de pilot_by_league_id
+	QualifyingPilots  []byte    `json:"qualifying_pilots" gorm:"type:json"`                    // Array de pilot_by_league_id
+	PracticePilots    []byte    `json:"practice_pilots" gorm:"type:json"`                      // Array de pilot_by_league_id
+	TeamConstructorID *uint     `json:"team_constructor_id" gorm:"column:team_constructor_id"` // ID de teamconstructor_by_league
+	ChiefEngineerID   *uint     `json:"chief_engineer_id" gorm:"column:chief_engineer_id"`     // ID de chief_engineer_by_league
+	TrackEngineers    []byte    `json:"track_engineers" gorm:"type:json"`                      // Array de track_engineer_by_league_id
+	LineupPoints      int       `json:"lineup_points" gorm:"default:0"`                        // Puntos totales de la alineación
 	CreatedAt         time.Time `json:"created_at"`
 	UpdatedAt         time.Time `json:"updated_at"`
 
-	// Relaciones
+	// Relaciones (sin foreign keys automáticas para evitar conflictos)
 	Player    Player    `gorm:"foreignKey:PlayerID"`
 	League    League    `gorm:"foreignKey:LeagueID"`
 	GrandPrix GrandPrix `gorm:"foreignKey:GPIndex;references:GPIndex"`
