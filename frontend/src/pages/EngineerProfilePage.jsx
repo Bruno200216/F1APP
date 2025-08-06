@@ -23,6 +23,12 @@ export default function EngineerProfilePage() {
   const [grandPrix, setGrandPrix] = useState([]);
   const [selectedGP, setSelectedGP] = useState(0);
   const [playerMoney, setPlayerMoney] = useState(0);
+  const [chiefEngineerPoints, setChiefEngineerPoints] = useState({});
+  const [chiefEngineerCriteria, setChiefEngineerCriteria] = useState({});
+  const [trackEngineerPoints, setTrackEngineerPoints] = useState({});
+  const [trackEngineerCriteria, setTrackEngineerCriteria] = useState({});
+  const [trackEngineerPerformance, setTrackEngineerPerformance] = useState({});
+  const [loadingPoints, setLoadingPoints] = useState(false);
   const gpRefs = useRef([]);
 
   // Función para formatear números con puntos
@@ -72,6 +78,87 @@ export default function EngineerProfilePage() {
       .then(data => setGrandPrix(data.gps || []));
   }, []);
 
+  // Cargar puntos por GP según el tipo
+  useEffect(() => {
+    if (engineer && grandPrix.length > 0) {
+      if (type === 'chief') {
+        loadChiefEngineerPoints();
+      } else if (type === 'track') {
+        loadTrackEngineerPoints();
+      }
+    }
+  }, [type, engineer, grandPrix]);
+
+  const loadChiefEngineerPoints = async () => {
+    if (type !== 'chief' || !engineer) return;
+    
+    setLoadingPoints(true);
+    const points = {};
+    const criteria = {};
+    
+    try {
+      for (const gp of grandPrix) {
+        const response = await fetch(`/api/chief-engineer-gp-points?chief_engineer_id=${engineer.id}&gp_index=${gp.gp_index}`);
+        if (response.ok) {
+          const data = await response.json();
+          points[gp.gp_index] = data.points || 0;
+          criteria[gp.gp_index] = data.scoring_criteria || {};
+        } else {
+          points[gp.gp_index] = 0;
+          criteria[gp.gp_index] = {};
+        }
+      }
+      setChiefEngineerPoints(points);
+      setChiefEngineerCriteria(criteria);
+    } catch (error) {
+      console.error('Error loading chief engineer points:', error);
+    } finally {
+      setLoadingPoints(false);
+    }
+  };
+
+  const loadTrackEngineerPoints = async () => {
+    if (type !== 'track' || !engineer) return;
+    
+    setLoadingPoints(true);
+    const points = {};
+    const criteria = {};
+    const performance = {};
+    
+    try {
+      for (const gp of grandPrix) {
+        const response = await fetch(`/api/track-engineer-gp-points?track_engineer_id=${engineer.track_engineer_id || engineer.id}&gp_index=${gp.gp_index}`);
+        if (response.ok) {
+          const data = await response.json();
+          points[gp.gp_index] = data.points || 0;
+          criteria[gp.gp_index] = data.scoring_criteria || [];
+          performance[gp.gp_index] = data.performance || 'No';
+        } else {
+          points[gp.gp_index] = 0;
+          criteria[gp.gp_index] = [];
+          performance[gp.gp_index] = 'No';
+        }
+      }
+      setTrackEngineerPoints(points);
+      setTrackEngineerCriteria(criteria);
+      setTrackEngineerPerformance(performance);
+    } catch (error) {
+      console.error('Error loading track engineer points:', error);
+    } finally {
+      setLoadingPoints(false);
+    }
+  };
+
+  // Función para obtener el color de los puntos
+  const getPointsColor = (points) => {
+    if (points === 0) return '#6B7280'; // Gris
+    if (points > 0 && points <= 10) return '#10B981'; // Verde claro
+    if (points > 10 && points <= 20) return '#059669'; // Verde medio
+    if (points > 20 && points <= 30) return '#047857'; // Verde oscuro
+    if (points > 30) return '#9D4EDD'; // Morado
+    return '#EF4444'; // Rojo para puntos negativos
+  };
+
   useEffect(() => {
     // Obtener dinero del jugador
     const fetchPlayerMoney = async () => {
@@ -91,6 +178,7 @@ export default function EngineerProfilePage() {
 
   if (loading) return <div className="min-h-screen bg-background flex items-center justify-center"><p className="text-body text-text-primary">Cargando perfil...</p></div>;
   if (error || !engineer) return <div className="min-h-screen bg-background flex items-center justify-center"><h2 className="text-h2 font-semibold text-state-error">{error || 'Ingeniero no encontrado'}</h2></div>;
+  if (type === 'chief' && loadingPoints) return <div className="min-h-screen bg-background flex items-center justify-center"><p className="text-body text-text-primary">Cargando puntos...</p></div>;
 
   // Datos principales
   const data = type === 'track' ? trackEngineer : chiefEngineer;
@@ -286,9 +374,23 @@ export default function EngineerProfilePage() {
               <h3 className="text-subtitle font-bold mb-2" style={{ color: teamColor.primary }}>
                 Puntos en este GP
               </h3>
-              <div className="text-4xl font-black text-accent-main">
-                {pointsByGP && pointsByGP[selectedGP] !== undefined ? pointsByGP[selectedGP] : 0}
-              </div>
+              {loadingPoints ? (
+                <div className="text-2xl text-text-secondary">Cargando...</div>
+              ) : (
+                <div 
+                  className="text-4xl font-black"
+                  style={{ 
+                    color: type === 'chief' 
+                      ? getPointsColor(chiefEngineerPoints[grandPrix[selectedGP]?.gp_index] || 0)
+                      : getPointsColor(trackEngineerPoints[grandPrix[selectedGP]?.gp_index] || 0)
+                  }}
+                >
+                  {type === 'chief' 
+                    ? (chiefEngineerPoints[grandPrix[selectedGP]?.gp_index] || 0)
+                    : (trackEngineerPoints[grandPrix[selectedGP]?.gp_index] || 0)
+                  }
+                </div>
+              )}
             </div>
 
             {/* Scoring Criteria Table */}
@@ -300,23 +402,91 @@ export default function EngineerProfilePage() {
                 <table className="w-full text-text-primary">
                   <thead>
                     <tr className="border-b border-border bg-surface">
-                      <th className="text-left py-3 px-4 text-small font-semibold text-text-secondary">Cantidad</th>
-                      <th className="text-left py-3 px-4 text-small font-semibold text-text-secondary">Criterio</th>
-                      <th className="text-right py-3 px-4 text-small font-semibold text-text-secondary">Valor</th>
+                      <th className="text-left py-3 px-4 text-small font-semibold text-text-secondary">Amount</th>
+                      <th className="text-left py-3 px-4 text-small font-semibold text-text-secondary">Standard</th>
+                      <th className="text-right py-3 px-4 text-small font-semibold text-text-secondary">Points</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {Object.entries(readableCriteria).map(([key, label]) => (
-                      <tr key={key} className="border-b border-border last:border-b-0 hover:bg-surface transition-colors">
-                        <td className="py-3 px-4 text-small text-center font-medium">
-                          {data[key] !== undefined && data[key] !== null ? data[key] : 0}
-                        </td>
-                        <td className="py-3 px-4 text-small">{label}</td>
-                        <td className="py-3 px-4 text-small text-right font-medium">
-                          {data[key] !== undefined && data[key] !== null ? data[key] : '-'}
-                        </td>
-                      </tr>
-                    ))}
+                    {type === 'chief' ? (
+                      // Criterios específicos para Chief Engineers
+                      (() => {
+                        const currentGP = grandPrix && selectedGP >= 0 && selectedGP < grandPrix.length ? grandPrix[selectedGP] : null;
+                        const criteria = currentGP && chiefEngineerCriteria && chiefEngineerCriteria[currentGP.gp_index] ? chiefEngineerCriteria[currentGP.gp_index] : {};
+                        
+                        return [
+                          {
+                            key: 'expected_position',
+                            label: 'Posición esperada equipo',
+                            value: criteria && criteria.expected_position !== undefined ? criteria.expected_position : 0
+                          },
+                          {
+                            key: 'finish_position',
+                            label: 'Posición real equipo',
+                            value: criteria && criteria.finish_position !== undefined ? criteria.finish_position : 0
+                          },
+                          {
+                            key: 'delta_position',
+                            label: 'Delta equipo',
+                            value: criteria && criteria.delta_position !== undefined ? criteria.delta_position : 0
+                          },
+                          {
+                            key: 'total_points',
+                            label: 'Puntos totales',
+                            value: criteria && criteria.total_points !== undefined ? criteria.total_points : 0
+                          }
+                        ].map((item) => (
+                          <tr key={item.key} className="border-b border-border last:border-b-0 hover:bg-surface transition-colors">
+                            <td className="py-3 px-4 text-small text-center font-medium">
+                              {item.value}
+                            </td>
+                            <td className="py-3 px-4 text-small">{item.label}</td>
+                            <td className="py-3 px-4 text-small text-right font-medium">
+                              {item.value}
+                            </td>
+                          </tr>
+                        ));
+                      })()
+                    ) : (
+                      // Criterios para Track Engineers (nueva lógica con datos de la tabla track_engineer_points)
+                      (() => {
+                        const currentGP = grandPrix && selectedGP >= 0 && selectedGP < grandPrix.length ? grandPrix[selectedGP] : null;
+                        const criteriaList = currentGP && trackEngineerCriteria && trackEngineerCriteria[currentGP.gp_index] ? trackEngineerCriteria[currentGP.gp_index] : [];
+                        const currentPerformance = currentGP && trackEngineerPerformance && trackEngineerPerformance[currentGP.gp_index] ? trackEngineerPerformance[currentGP.gp_index] : 'No';
+                        
+                        // Fila de Performance
+                        const performanceRow = (
+                          <tr key="performance" className="border-b border-border hover:bg-surface transition-colors">
+                            <td className="py-3 px-4 text-small text-center font-medium">
+                              <span className={`px-2 py-1 rounded text-xs font-bold ${currentPerformance === 'Yes' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+                                {currentPerformance}
+                              </span>
+                            </td>
+                            <td className="py-3 px-4 text-small">Performance</td>
+                            <td className="py-3 px-4 text-small text-right font-medium">
+                              {currentPerformance === 'Yes' ? 'Multiplicador ×0.5' : 'Multiplicador ×0.2'}
+                            </td>
+                          </tr>
+                        );
+
+                        // Filas de puntos por sesión
+                        const sessionRows = criteriaList.map((criteria, index) => (
+                          <tr key={`session-${index}`} className="border-b border-border last:border-b-0 hover:bg-surface transition-colors">
+                            <td className="py-3 px-4 text-small text-center font-medium">
+                              {criteria.total_points || 0}
+                            </td>
+                            <td className="py-3 px-4 text-small">
+                              Puntos {(criteria.session_type || 'race').charAt(0).toUpperCase() + (criteria.session_type || 'race').slice(1)}
+                            </td>
+                            <td className="py-3 px-4 text-small text-right font-medium">
+                              {criteria.base_points || 0} × {criteria.multiplier || 1} = {criteria.total_points || 0}
+                            </td>
+                          </tr>
+                        ));
+
+                        return [performanceRow, ...sessionRows];
+                      })()
+                    )}
                   </tbody>
                 </table>
               </div>

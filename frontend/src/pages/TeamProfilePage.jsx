@@ -308,9 +308,9 @@ export default function TeamProfilePage() {
                 <table className="w-full text-text-primary">
                   <thead>
                     <tr className="border-b border-border bg-surface">
-                      <th className="text-left py-3 px-4 text-small font-semibold text-text-secondary">Cantidad</th>
-                      <th className="text-left py-3 px-4 text-small font-semibold text-text-secondary">Criterio</th>
-                      <th className="text-right py-3 px-4 text-small font-semibold text-text-secondary">Valor</th>
+                      <th className="text-left py-3 px-4 text-small font-semibold text-text-secondary">Amount</th>
+                      <th className="text-left py-3 px-4 text-small font-semibold text-text-secondary">Standard</th>
+                      <th className="text-right py-3 px-4 text-small font-semibold text-text-secondary">Points</th>
                     </tr>
                   </thead>
                   <tbody>

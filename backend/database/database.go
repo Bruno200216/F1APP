@@ -97,6 +97,7 @@ func Migrate() {
 		&models.ChiefEngineerByLeague{},
 		&models.TeamConstructor{},
 		&models.TeamConstructorByLeague{},
+		&models.TrackEngineerPoints{}, // Nueva tabla para puntos de track engineers
 		&models.MarketItem{},
 		&models.Lineup{},
 	)
@@ -106,6 +107,9 @@ func Migrate() {
 
 	// Migración específica para player_by_league
 	MigratePlayerByLeague()
+
+	// Migración específica para track_engineer_points
+	MigrateTrackEngineerPoints()
 
 	log.Println("Migraciones completadas")
 }
@@ -189,4 +193,18 @@ func MigratePlayerByLeague() {
 	}
 
 	log.Println("Migración de player_by_league completada")
+}
+
+// MigrateTrackEngineerPoints crea índices específicos para la tabla track_engineer_points
+func MigrateTrackEngineerPoints() {
+	// Crear índice único compuesto para evitar duplicados por track_engineer_id, gp_index y session_type
+	err := DB.Exec(`
+		CREATE UNIQUE INDEX IF NOT EXISTS uk_track_engineer_gp_session 
+		ON track_engineer_points (track_engineer_id, gp_index, session_type)
+	`).Error
+	if err != nil {
+		log.Printf("Error creando índice único para track_engineer_points: %v", err)
+	} else {
+		log.Println("Índice único para track_engineer_points creado exitosamente")
+	}
 }

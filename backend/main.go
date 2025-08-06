@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"math"
 	"net/http"
 	"os"
 	"strings"
@@ -1019,6 +1020,13 @@ func main() {
 		nGPS := len(gps)
 		scoring := map[string]interface{}{}
 		pointsArray := make([]int, nGPS)
+
+		// Crear un mapa para mapear gp_index a posición en el array ordenado por fecha
+		gpIndexToPosition := make(map[uint64]int)
+		for i, gp := range gps {
+			gpIndexToPosition[gp.GPIndex] = i
+		}
+
 		// Cambiar la fuente de datos según el modo
 		switch pilot.Mode {
 		case "practice", "P":
@@ -1032,8 +1040,7 @@ func main() {
 				scoring["caused_red_flag"] = make([]interface{}, nGPS)
 			}
 			for _, p := range practices {
-				idx := int(p.GPIndex) - 1
-				if idx >= 0 && idx < nGPS {
+				if idx, exists := gpIndexToPosition[p.GPIndex]; exists {
 					scoring["finish_position"].([]interface{})[idx] = p.FinishPosition
 					scoring["expected_position"].([]interface{})[idx] = p.ExpectedPosition
 					scoring["delta_position"].([]interface{})[idx] = p.DeltaPosition
@@ -1053,8 +1060,7 @@ func main() {
 				scoring["caused_red_flag"] = make([]interface{}, nGPS)
 			}
 			for _, q := range qualies {
-				idx := int(q.GPIndex) - 1
-				if idx >= 0 && idx < nGPS {
+				if idx, exists := gpIndexToPosition[q.GPIndex]; exists {
 					scoring["finish_position"].([]interface{})[idx] = q.FinishPosition
 					scoring["expected_position"].([]interface{})[idx] = q.ExpectedPosition
 					scoring["delta_position"].([]interface{})[idx] = q.DeltaPosition
@@ -1082,8 +1088,7 @@ func main() {
 				scoring["dnf_no_fault"] = make([]interface{}, nGPS)
 			}
 			for _, r := range races {
-				idx := int(r.GPIndex) - 1
-				if idx >= 0 && idx < nGPS {
+				if idx, exists := gpIndexToPosition[r.GPIndex]; exists {
 					scoring["finish_position"].([]interface{})[idx] = r.FinishPosition
 					scoring["expected_position"].([]interface{})[idx] = r.ExpectedPosition
 					scoring["delta_position"].([]interface{})[idx] = r.DeltaPosition
@@ -2857,13 +2862,29 @@ func main() {
 				pl.TeamValue = totalTeamValue
 			}
 
-			// Usar directamente la columna totalpoints y team_value recalculado
+			// Calcular puntos totales y por GP
+			totalPoints := 0
+			pointsByGP := make(map[uint64]int)
+
+			// Obtener solo los GPs donde el jugador tiene alineaciones
+			var playerLineups []models.Lineup
+			leagueIDUint, _ := strconv.ParseUint(leagueID, 10, 64)
+			if err := database.DB.Where("player_id = ? AND league_id = ?", playerID, leagueIDUint).Find(&playerLineups).Error; err == nil {
+				for _, lineup := range playerLineups {
+					points := calculatePlayerTotalPoints(playerID, leagueIDUint, lineup.GPIndex)
+					totalPoints += points
+					pointsByGP[lineup.GPIndex] = points
+				}
+			}
+
+			// Usar puntos calculados en tiempo real en lugar de la columna estática
 			item := map[string]interface{}{
-				"player_id":  pl.PlayerID,
-				"name":       player.Name,
-				"points":     pl.TotalPoints,
-				"money":      pl.Money,
-				"team_value": pl.TeamValue,
+				"player_id":    pl.PlayerID,
+				"name":         player.Name,
+				"points":       totalPoints,
+				"points_by_gp": pointsByGP,
+				"money":        pl.Money,
+				"team_value":   pl.TeamValue,
 			}
 			result = append(result, item)
 		}
@@ -5774,12 +5795,18 @@ func main() {
 			return
 		}
 
-		// Obtener puntos de la tabla team_constructors
+		// Obtener puntos de la tabla team_races
 		var result map[string]interface{}
 		points := 0
-		if err := database.DB.Table("team_constructors").Where("id = ? AND gp_index = ?", teamConstructor.TeamConstructorID, gpIndex).Take(&result).Error; err == nil {
-			if pointsVal, ok := result["total_points"].(float64); ok {
-				points = int(pointsVal)
+		if err := database.DB.Table("team_races").Where("teamconstructor_id = ? AND gp_index = ?", teamConstructor.TeamConstructorID, gpIndex).Take(&result).Error; err == nil {
+			if pointsRaw := result["points"]; pointsRaw != nil {
+				if pointsVal, ok := pointsRaw.(float64); ok {
+					points = int(pointsVal)
+				} else if pointsVal, ok := pointsRaw.(int); ok {
+					points = pointsVal
+				} else if pointsVal, ok := pointsRaw.(int64); ok {
+					points = int(pointsVal)
+				}
 			}
 		}
 
@@ -5796,19 +5823,39 @@ func main() {
 			return
 		}
 
-		// Obtener el chief engineer
-		var chiefEngineer models.ChiefEngineerByLeague
-		if err := database.DB.First(&chiefEngineer, chiefEngineerID).Error; err != nil {
+		// Obtener el chief engineer by league
+		var chiefEngineerByLeague models.ChiefEngineerByLeague
+		if err := database.DB.First(&chiefEngineerByLeague, chiefEngineerID).Error; err != nil {
 			c.JSON(404, gin.H{"error": "Chief engineer no encontrado"})
 			return
 		}
 
-		// Obtener puntos de la tabla chief_engineers
+		// Obtener el chief engineer para conocer su equipo
+		var chiefEngineer models.ChiefEngineer
+		if err := database.DB.First(&chiefEngineer, chiefEngineerByLeague.ChiefEngineerID).Error; err != nil {
+			c.JSON(404, gin.H{"error": "Chief engineer details no encontrado"})
+			return
+		}
+
+		// Buscar el team constructor correspondiente al equipo del chief engineer
+		var teamConstructor models.TeamConstructor
+		if err := database.DB.Where("name = ? AND gp_index = ?", chiefEngineer.Team, gpIndex).First(&teamConstructor).Error; err != nil {
+			c.JSON(404, gin.H{"error": "Team constructor no encontrado para el equipo del chief engineer"})
+			return
+		}
+
+		// Obtener puntos de la tabla team_races basándose en el team constructor
 		var result map[string]interface{}
 		points := 0
-		if err := database.DB.Table("chief_engineers").Where("id = ? AND gp_index = ?", chiefEngineer.ChiefEngineerID, gpIndex).Take(&result).Error; err == nil {
-			if pointsVal, ok := result["total_points"].(float64); ok {
-				points = int(pointsVal)
+		if err := database.DB.Table("team_races").Where("teamconstructor_id = ? AND gp_index = ?", teamConstructor.ID, gpIndex).Take(&result).Error; err == nil {
+			if pointsRaw := result["points"]; pointsRaw != nil {
+				if pointsVal, ok := pointsRaw.(float64); ok {
+					points = int(pointsVal)
+				} else if pointsVal, ok := pointsRaw.(int); ok {
+					points = pointsVal
+				} else if pointsVal, ok := pointsRaw.(int64); ok {
+					points = int(pointsVal)
+				}
 			}
 		}
 
@@ -5816,6 +5863,183 @@ func main() {
 	})
 
 	// Endpoint para obtener puntos actuales de un track engineer en un GP específico
+	router.GET("/api/track-engineers", func(c *gin.Context) {
+		var trackEngineers []models.TrackEngineer
+		if err := database.DB.Find(&trackEngineers).Error; err != nil {
+			log.Printf("[TRACK-ENG-API] Error obteniendo track engineers: %v", err)
+			c.JSON(500, gin.H{"error": "Error obteniendo track engineers"})
+			return
+		}
+
+		// Enriquecer con información del piloto asociado
+		type TrackEngineerWithPilot struct {
+			models.TrackEngineer
+			PilotName string `json:"pilot_name"`
+		}
+
+		var enrichedTrackEngineers []TrackEngineerWithPilot
+		for _, te := range trackEngineers {
+			enriched := TrackEngineerWithPilot{
+				TrackEngineer: te,
+				PilotName:     "Sin piloto",
+			}
+
+			// Buscar el piloto asociado
+			var pilot models.Pilot
+			if err := database.DB.Where("track_engineer_id = ?", te.ID).First(&pilot).Error; err == nil {
+				enriched.PilotName = pilot.DriverName
+			}
+
+			enrichedTrackEngineers = append(enrichedTrackEngineers, enriched)
+		}
+
+		log.Printf("[TRACK-ENG-API] Track engineers encontrados: %d", len(enrichedTrackEngineers))
+		for _, te := range enrichedTrackEngineers {
+			log.Printf("[TRACK-ENG-API] - ID: %d, Name: %s, Pilot: %s", te.ID, te.Name, te.PilotName)
+		}
+
+		c.JSON(200, gin.H{"track_engineers": enrichedTrackEngineers})
+	})
+
+	// Endpoint para obtener datos existentes de track engineer points (filtrado por modo opcional)
+	router.GET("/api/admin/track-engineer-points-existing", func(c *gin.Context) {
+		gpIndex := c.Query("gp_index")
+		trackEngineerID := c.Query("track_engineer_id")
+		mode := c.Query("mode") // Opcional
+
+		if gpIndex == "" || trackEngineerID == "" {
+			c.JSON(400, gin.H{"error": "Faltan parámetros gp_index o track_engineer_id"})
+			return
+		}
+
+		var existingRecords []models.TrackEngineerPoints
+		query := database.DB.Where("track_engineer_id = ? AND gp_index = ?", trackEngineerID, gpIndex)
+
+		// Si se especifica modo, filtrar por él
+		if mode != "" {
+			query = query.Where("session_type = ?", mode)
+		}
+
+		err := query.Find(&existingRecords).Error
+
+		if err != nil || len(existingRecords) == 0 {
+			c.JSON(200, gin.H{"exists": false, "records": []models.TrackEngineerPoints{}})
+		} else {
+			c.JSON(200, gin.H{
+				"exists":  true,
+				"records": existingRecords,
+				"count":   len(existingRecords),
+			})
+		}
+	})
+
+	// Endpoint temporal para debug: ver track engineers y sus pilotos asociados
+	router.GET("/api/debug/track-engineers-pilots", func(c *gin.Context) {
+		var trackEngineers []models.TrackEngineer
+		database.DB.Find(&trackEngineers)
+
+		var pilots []models.Pilot
+		database.DB.Find(&pilots)
+
+		result := make(map[string]interface{})
+		result["track_engineers"] = trackEngineers
+		result["pilots"] = pilots
+
+		// Asociaciones
+		associations := []map[string]interface{}{}
+		for _, te := range trackEngineers {
+			for _, pilot := range pilots {
+				if pilot.TrackEngineerID == te.ID {
+					associations = append(associations, map[string]interface{}{
+						"track_engineer_id":   te.ID,
+						"track_engineer_name": te.Name,
+						"pilot_id":            pilot.ID,
+						"pilot_name":          pilot.DriverName,
+						"pilot_team":          pilot.Team,
+						"pilot_mode":          pilot.Mode,
+					})
+				}
+			}
+		}
+		result["associations"] = associations
+
+		c.JSON(200, result)
+	})
+
+	// Endpoint para asignar track engineers a pilotos (FIX)
+	router.POST("/api/admin/fix-track-engineer-assignments", func(c *gin.Context) {
+		// Asignaciones basadas en F1 2025
+		assignments := map[string]uint{
+			"Max Verstappen":    1,  // Gianpiero Lambiase
+			"Yuki Tsunoda":      2,  // Richard Wood
+			"George Russell":    7,  // Marcus Dudley
+			"Kimi Antonelli":    8,  // Peter Bonnington
+			"Oscar Piastri":     5,  // Will Joseph
+			"Lando Norris":      6,  // Tom Stallard
+			"Charles Leclerc":   4,  // Bryan Bozzi
+			"Lewis Hamilton":    3,  // Riccardo Adami
+			"Fernando Alonso":   9,  // Andrew Vizard
+			"Lance Stroll":      10, // Gary Gannon
+			"Pierre Gasly":      11, // John Howard
+			"Franco Colapinto":  12, // Laura Mueller
+			"Nico Hulkenberg":   13, // Ronan Ohare
+			"Gabriel Bortoleto": 14, // Steven Petrik
+			"Esteban Ocon":      15, // Jose M Lopez
+			"Oliver Bearman":    16, // Pierre Hamelin
+			"Alexander Albon":   17, // Ernesto Desiderio
+			"Carlos Sainz":      18, // Gaetan Jego
+			"Isack Hadjar":      19, // James Urwin
+			"Liam Lawson":       1,  // Reutilizar Gianpiero Lambiase
+		}
+
+		updated := 0
+		for driverName, trackEngineerID := range assignments {
+			result := database.DB.Model(&models.Pilot{}).
+				Where("driver_name = ?", driverName).
+				Update("track_engineer_id", trackEngineerID)
+
+			if result.Error != nil {
+				log.Printf("Error actualizando %s: %v", driverName, result.Error)
+			} else {
+				updated += int(result.RowsAffected)
+				log.Printf("✅ %s -> Track Engineer %d", driverName, trackEngineerID)
+			}
+		}
+
+		c.JSON(200, gin.H{
+			"message":        "Asignaciones completadas",
+			"updated_pilots": updated,
+		})
+	})
+
+	// Endpoint para poblar datos de ejemplo de track engineers (solo para desarrollo)
+	router.POST("/api/admin/seed-track-engineers", func(c *gin.Context) {
+		// Verificar si ya existen datos
+		var count int64
+		database.DB.Model(&models.TrackEngineer{}).Count(&count)
+		if count > 0 {
+			c.JSON(200, gin.H{"message": fmt.Sprintf("Ya existen %d track engineers", count)})
+			return
+		}
+
+		// Crear datos de ejemplo
+		sampleTrackEngineers := []models.TrackEngineer{
+			{Name: "Gianpiero Lambiase", Value: 5.0, ImageURL: "/images/ingenierosdepista/Gianpiero _Lambiase.png", Team: "Red Bull Racing", GPIndex: 1},
+			{Name: "Peter Bonnington", Value: 4.8, ImageURL: "/images/ingenierosdepista/Peter_Bonnington.png", Team: "Mercedes", GPIndex: 1},
+			{Name: "Riccardo Adami", Value: 4.5, ImageURL: "/images/ingenierosdepista/Riccardo_Adami.png", Team: "Ferrari", GPIndex: 1},
+			{Name: "Tom Stallard", Value: 4.3, ImageURL: "/images/ingenierosdepista/Tom_Stallard.png", Team: "McLaren", GPIndex: 1},
+			{Name: "Josh Peckett", Value: 4.0, ImageURL: "/images/ingenierosdepista/Josh_Peckett.png", Team: "Aston Martin", GPIndex: 1},
+		}
+
+		for _, te := range sampleTrackEngineers {
+			if err := database.DB.Create(&te).Error; err != nil {
+				log.Printf("Error creando track engineer %s: %v", te.Name, err)
+			}
+		}
+
+		c.JSON(200, gin.H{"message": fmt.Sprintf("Creados %d track engineers de ejemplo", len(sampleTrackEngineers))})
+	})
+
 	router.GET("/api/track-engineer-points", func(c *gin.Context) {
 		trackEngineerID := c.Query("track_engineer_id")
 		gpIndex := c.Query("gp_index")
@@ -5842,6 +6066,145 @@ func main() {
 		}
 
 		c.JSON(200, gin.H{"points": points})
+	})
+
+	// Endpoint para obtener puntos de track engineer por GP
+	router.GET("/api/track-engineer-gp-points", func(c *gin.Context) {
+		trackEngineerID := c.Query("track_engineer_id")
+		gpIndex := c.Query("gp_index")
+
+		if trackEngineerID == "" || gpIndex == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "track_engineer_id y gp_index son requeridos"})
+			return
+		}
+
+		var trackEngineerPoints []models.TrackEngineerPoints
+		if err := database.DB.Where("track_engineer_id = ? AND gp_index = ?", trackEngineerID, gpIndex).Find(&trackEngineerPoints).Error; err != nil {
+			log.Printf("[TRACK-ENG-GP-POINTS] ❌ Error al buscar puntos: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Error al obtener puntos"})
+			return
+		}
+
+		// Calcular puntos totales y crear criterios de puntuación
+		totalPoints := 0
+		performance := "No"
+		var scoringCriteria []map[string]interface{}
+
+		for _, point := range trackEngineerPoints {
+			totalPoints += point.TotalPoints
+
+			// Si algún multiplicador es 0.5, significa que tuvo buen performance
+			if point.Multiplier == 0.5 {
+				performance = "Yes"
+			}
+
+			// Agregar criterio de puntuación para cada sesión
+			sessionType := point.SessionType
+			if sessionType == "" {
+				sessionType = "race"
+			}
+
+			scoringCriteria = append(scoringCriteria, map[string]interface{}{
+				"session_type":      sessionType,
+				"pilot_position":    point.PilotPosition,
+				"teammate_position": point.TeammatePosition,
+				"base_points":       point.BasePoints,
+				"multiplier":        point.Multiplier,
+				"total_points":      point.TotalPoints,
+			})
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"points":           totalPoints,
+			"performance":      performance,
+			"scoring_criteria": scoringCriteria,
+		})
+	})
+
+	// Endpoint para obtener puntos de chief engineers por GP (para la pestaña de puntos)
+	router.GET("/api/chief-engineer-gp-points", func(c *gin.Context) {
+		chiefEngineerID := c.Query("chief_engineer_id")
+		gpIndex := c.Query("gp_index")
+
+		if chiefEngineerID == "" || gpIndex == "" {
+			c.JSON(400, gin.H{"error": "Faltan parámetros chief_engineer_id o gp_index"})
+			return
+		}
+
+		// Obtener el chief engineer by league
+		var chiefEngineerByLeague models.ChiefEngineerByLeague
+		if err := database.DB.First(&chiefEngineerByLeague, chiefEngineerID).Error; err != nil {
+			c.JSON(404, gin.H{"error": "Chief engineer no encontrado"})
+			return
+		}
+
+		// Obtener el chief engineer para conocer su equipo
+		var chiefEngineer models.ChiefEngineer
+		if err := database.DB.First(&chiefEngineer, chiefEngineerByLeague.ChiefEngineerID).Error; err != nil {
+			c.JSON(404, gin.H{"error": "Chief engineer details no encontrado"})
+			return
+		}
+
+		// Buscar el team constructor correspondiente al equipo del chief engineer
+		var teamConstructor models.TeamConstructor
+		if err := database.DB.Where("name = ? AND gp_index = ?", chiefEngineer.Team, gpIndex).First(&teamConstructor).Error; err != nil {
+			c.JSON(404, gin.H{"error": "Team constructor no encontrado para el equipo del chief engineer"})
+			return
+		}
+
+		// Obtener puntos de la tabla team_races basándose en el team constructor
+		var result map[string]interface{}
+		points := 0
+		if err := database.DB.Table("team_races").Where("teamconstructor_id = ? AND gp_index = ?", teamConstructor.ID, gpIndex).Take(&result).Error; err == nil {
+			if pointsRaw := result["points"]; pointsRaw != nil {
+				if pointsVal, ok := pointsRaw.(float64); ok {
+					points = int(pointsVal)
+				} else if pointsVal, ok := pointsRaw.(int); ok {
+					points = pointsVal
+				} else if pointsVal, ok := pointsRaw.(int64); ok {
+					points = int(pointsVal)
+				}
+			}
+		}
+
+		// Obtener información adicional del GP
+		var grandPrix models.GrandPrix
+		database.DB.Where("gp_index = ?", gpIndex).First(&grandPrix)
+
+		// Obtener criterios de puntuación de team_races
+		var teamRaceResult map[string]interface{}
+		expectedPosition := 0.0
+		finishPosition := 0.0
+		deltaPosition := 0.0
+
+		if err := database.DB.Table("team_races").Where("teamconstructor_id = ? AND gp_index = ?", teamConstructor.ID, gpIndex).Take(&teamRaceResult).Error; err == nil {
+			// Obtener posición esperada
+			if expPos, ok := teamRaceResult["expected_position"].(float64); ok {
+				expectedPosition = expPos
+			}
+
+			// Obtener posición final
+			if finPos, ok := teamRaceResult["finish_position"].(float64); ok {
+				finishPosition = finPos
+			}
+
+			// Calcular delta
+			deltaPosition = expectedPosition - finishPosition
+		}
+
+		c.JSON(200, gin.H{
+			"points":              points,
+			"gp_name":             grandPrix.Name,
+			"gp_index":            gpIndex,
+			"chief_engineer_name": chiefEngineer.Name,
+			"team":                chiefEngineer.Team,
+			"scoring_criteria": gin.H{
+				"expected_position": expectedPosition,
+				"finish_position":   finishPosition,
+				"delta_position":    deltaPosition,
+				"total_points":      points,
+			},
+		})
 	})
 
 	// Endpoint de prueba para verificar datos en pilot_races
@@ -6122,6 +6485,8 @@ func main() {
 
 		log.Printf("[TEAM-EXPECTED-POSITIONS] Request recibido: gp_index=%d, positions=%+v", req.GPIndex, req.Positions)
 
+		updatedCount := 0
+		createdCount := 0
 		for _, pos := range req.Positions {
 			// Buscar el team constructor por nombre
 			var teamConstructor models.TeamConstructor
@@ -6132,24 +6497,37 @@ func main() {
 
 			// Buscar si ya existe un registro en team_races
 			var teamRace models.TeamRace
-			result := database.DB.Where("teamconstructor_id = ? AND gp_index = ?", teamConstructor.ID, req.GPIndex).First(&teamRace)
-
-			if result.Error != nil {
-				// Crear nuevo registro
+			if err := database.DB.Where("teamconstructor_id = ? AND gp_index = ?", teamConstructor.ID, req.GPIndex).First(&teamRace).Error; err != nil {
+				// No existe, crear nuevo registro
 				teamRace = models.TeamRace{
 					TeamConstructorID: teamConstructor.ID,
 					GPIndex:           req.GPIndex,
 					ExpectedPosition:  &pos.ExpectedPosition,
 				}
-				database.DB.Create(&teamRace)
+				if err := database.DB.Create(&teamRace).Error; err != nil {
+					log.Printf("[TEAM-EXPECTED-POSITIONS] Error creando registro para %s: %v", pos.Team, err)
+					continue
+				}
+				createdCount++
+				log.Printf("[TEAM-EXPECTED-POSITIONS] Creado registro para %s", pos.Team)
 			} else {
-				// Actualizar registro existente
+				// Existe, actualizar
 				teamRace.ExpectedPosition = &pos.ExpectedPosition
-				database.DB.Save(&teamRace)
+				if err := database.DB.Save(&teamRace).Error; err != nil {
+					log.Printf("[TEAM-EXPECTED-POSITIONS] Error actualizando registro para %s: %v", pos.Team, err)
+					continue
+				}
+				updatedCount++
+				log.Printf("[TEAM-EXPECTED-POSITIONS] Actualizado registro para %s", pos.Team)
 			}
 		}
 
-		c.JSON(200, gin.H{"message": "Posiciones esperadas de equipos guardadas"})
+		c.JSON(200, gin.H{
+			"message":       fmt.Sprintf("Procesados %d registros de posiciones esperadas de equipos (%d creados, %d actualizados)", createdCount+updatedCount, createdCount, updatedCount),
+			"created_count": createdCount,
+			"updated_count": updatedCount,
+			"gp_index":      req.GPIndex,
+		})
 	})
 
 	// Endpoint para obtener posiciones finales de equipos para un GP
@@ -6197,6 +6575,8 @@ func main() {
 
 		log.Printf("[TEAM-FINISH-POSITIONS] Request recibido: gp_index=%d, positions=%+v", req.GPIndex, req.Positions)
 
+		updatedCount := 0
+		createdCount := 0
 		for _, pos := range req.Positions {
 			// Buscar el team constructor por nombre
 			var teamConstructor models.TeamConstructor
@@ -6205,28 +6585,124 @@ func main() {
 				continue
 			}
 
-			// Buscar si ya existe un registro en team_races
+			// Buscar el registro existente en team_races
 			var teamRace models.TeamRace
-			result := database.DB.Where("teamconstructor_id = ? AND gp_index = ?", teamConstructor.ID, req.GPIndex).First(&teamRace)
-
-			if result.Error != nil {
-				// Crear nuevo registro
+			if err := database.DB.Where("teamconstructor_id = ? AND gp_index = ?", teamConstructor.ID, req.GPIndex).First(&teamRace).Error; err != nil {
+				// No existe, crear nuevo registro con solo finish_position
 				finishPos := int(pos.FinishPosition)
 				teamRace = models.TeamRace{
 					TeamConstructorID: teamConstructor.ID,
 					GPIndex:           req.GPIndex,
 					FinishPosition:    &finishPos,
+					ExpectedPosition:  nil,                              // No hay expected_position
+					DeltaPosition:     nil,                              // No se puede calcular sin expected
+					Points:            getTeamPositionPoints(finishPos), // Solo puntos por posición
 				}
-				database.DB.Create(&teamRace)
+				if err := database.DB.Create(&teamRace).Error; err != nil {
+					log.Printf("[TEAM-FINISH-POSITIONS] Error creando registro para %s: %v", pos.Team, err)
+					continue
+				}
+				createdCount++
+				log.Printf("[TEAM-FINISH-POSITIONS] Creado registro para %s (sin expected_position)", pos.Team)
 			} else {
-				// Actualizar registro existente
+				// Existe, actualizar
 				finishPos := int(pos.FinishPosition)
+				var deltaPosition int
+				if teamRace.ExpectedPosition != nil {
+					deltaPosition = int(*teamRace.ExpectedPosition) - finishPos
+				} else {
+					deltaPosition = 0
+					log.Printf("[TEAM-FINISH-POSITIONS] ADVERTENCIA: No hay expected_position para %s", pos.Team)
+				}
+
+				// Calcular puntos de posición (1º=10, 2º=9, ..., 10º=1)
+				positionPoints := getTeamPositionPoints(finishPos)
+
+				// Calcular puntos totales (delta + position points)
+				totalPoints := deltaPosition + positionPoints
+
+				// Actualizar registro
 				teamRace.FinishPosition = &finishPos
-				database.DB.Save(&teamRace)
+				teamRace.DeltaPosition = &deltaPosition
+				teamRace.Points = totalPoints
+
+				if err := database.DB.Save(&teamRace).Error; err != nil {
+					log.Printf("[TEAM-FINISH-POSITIONS] Error guardando registro para %s: %v", pos.Team, err)
+					continue
+				}
+
+				log.Printf("[TEAM-FINISH-POSITIONS] %s: Finish=%d, Expected=%.1f, Delta=%d, PositionPoints=%d, Total=%d",
+					pos.Team, finishPos, *teamRace.ExpectedPosition, deltaPosition, positionPoints, totalPoints)
+				updatedCount++
 			}
 		}
 
-		c.JSON(200, gin.H{"message": "Posiciones finales de equipos guardadas"})
+		c.JSON(200, gin.H{
+			"message":       fmt.Sprintf("Procesados %d registros de posiciones finales de equipos (%d creados, %d actualizados)", createdCount+updatedCount, createdCount, updatedCount),
+			"created_count": createdCount,
+			"updated_count": updatedCount,
+			"gp_index":      req.GPIndex,
+		})
+	})
+
+	// Endpoint para resetear posiciones esperadas de equipos
+	router.POST("/api/admin/reset-team-expected-positions", func(c *gin.Context) {
+		var req struct {
+			GPIndex uint64 `json:"gp_index"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(400, gin.H{"error": "Datos inválidos"})
+			return
+		}
+
+		log.Printf("[RESET-TEAM-EXPECTED-POSITIONS] Reseteando expected_position para GP %d", req.GPIndex)
+
+		result := database.DB.Model(&models.TeamRace{}).
+			Where("gp_index = ?", req.GPIndex).
+			Update("expected_position", nil)
+
+		if result.Error != nil {
+			c.JSON(500, gin.H{"error": "Error reseteando posiciones esperadas"})
+			return
+		}
+
+		c.JSON(200, gin.H{
+			"message":     fmt.Sprintf("Reseteadas posiciones esperadas de %d equipos", result.RowsAffected),
+			"reset_count": result.RowsAffected,
+			"gp_index":    req.GPIndex,
+		})
+	})
+
+	// Endpoint para resetear posiciones finales de equipos
+	router.POST("/api/admin/reset-team-finish-positions", func(c *gin.Context) {
+		var req struct {
+			GPIndex uint64 `json:"gp_index"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(400, gin.H{"error": "Datos inválidos"})
+			return
+		}
+
+		log.Printf("[RESET-TEAM-FINISH-POSITIONS] Reseteando finish_position para GP %d", req.GPIndex)
+
+		result := database.DB.Model(&models.TeamRace{}).
+			Where("gp_index = ?", req.GPIndex).
+			Updates(map[string]interface{}{
+				"finish_position": nil,
+				"delta_position":  nil,
+				"points":          0,
+			})
+
+		if result.Error != nil {
+			c.JSON(500, gin.H{"error": "Error reseteando posiciones finales"})
+			return
+		}
+
+		c.JSON(200, gin.H{
+			"message":     fmt.Sprintf("Reseteadas posiciones finales de %d equipos", result.RowsAffected),
+			"reset_count": result.RowsAffected,
+			"gp_index":    req.GPIndex,
+		})
 	})
 
 	// Endpoint para obtener team constructors de un GP
@@ -6237,8 +6713,46 @@ func main() {
 			return
 		}
 
+		log.Printf("[TEAM-CONSTRUCTORS] Buscando equipos para GP %s", gpIndex)
+
 		var teamConstructors []models.TeamConstructor
 		database.DB.Where("gp_index = ?", gpIndex).Find(&teamConstructors)
+
+		log.Printf("[TEAM-CONSTRUCTORS] Encontrados %d equipos para GP %s", len(teamConstructors), gpIndex)
+
+		// Si no hay equipos para este GP, crear automáticamente basándose en el GP 1
+		if len(teamConstructors) == 0 {
+			log.Printf("[TEAM-CONSTRUCTORS] No hay equipos para GP %s, creando automáticamente...", gpIndex)
+
+			// Obtener equipos del GP 1 como plantilla
+			var templateTeamConstructors []models.TeamConstructor
+			database.DB.Where("gp_index = ?", 1).Find(&templateTeamConstructors)
+
+			if len(templateTeamConstructors) > 0 {
+				// Crear equipos para el GP actual basándose en el GP 1
+				for _, template := range templateTeamConstructors {
+					gpIndexUint, _ := strconv.ParseUint(gpIndex, 10, 64)
+					newTeamConstructor := models.TeamConstructor{
+						Name:     template.Name,
+						Value:    template.Value,
+						GPIndex:  gpIndexUint,
+						ImageURL: template.ImageURL,
+					}
+
+					if err := database.DB.Create(&newTeamConstructor).Error; err != nil {
+						log.Printf("[TEAM-CONSTRUCTORS] Error creando equipo %s para GP %s: %v", template.Name, gpIndex, err)
+					} else {
+						log.Printf("[TEAM-CONSTRUCTORS] Creado equipo %s para GP %s", template.Name, gpIndex)
+					}
+				}
+
+				// Volver a buscar los equipos recién creados
+				database.DB.Where("gp_index = ?", gpIndex).Find(&teamConstructors)
+				log.Printf("[TEAM-CONSTRUCTORS] Creados %d equipos para GP %s", len(teamConstructors), gpIndex)
+			} else {
+				log.Printf("[TEAM-CONSTRUCTORS] No hay plantilla de equipos en GP 1")
+			}
+		}
 
 		var result []map[string]interface{}
 		for _, tc := range teamConstructors {
@@ -6607,6 +7121,12 @@ func main() {
 		// Actualizar puntos de todos los jugadores que tengan este piloto alineado
 		go updatePlayerPointsForPilot(uint(pilotID), uint64(gpIndex), totalPoints, mode)
 
+		// Calcular automáticamente puntos de track engineers para este piloto
+		go func() {
+			log.Printf("[AUTO-TRACK-ENG] Calculando puntos automáticamente para piloto %d, GP %d, mode %s", uint(pilotID), uint64(gpIndex), mode)
+			calculateTrackEngineerPointsForPilot(uint(pilotID), uint64(gpIndex), mode)
+		}()
+
 		c.JSON(200, gin.H{
 			"message": "Resultado guardado y puntos de jugadores actualizados",
 			"points_breakdown": gin.H{
@@ -6770,7 +7290,15 @@ func main() {
 		// Buscar por ID del registro ChiefEngineerByLeague con preload completo
 		var ceb models.ChiefEngineerByLeague
 		if err := database.DB.Preload("ChiefEngineer.GrandPrix").First(&ceb, idUint).Error; err != nil {
+			log.Printf("[CHIEF-ENGINEER-PROFILE] Error buscando ChiefEngineerByLeague ID %d: %v", idUint, err)
 			c.JSON(404, gin.H{"error": "ChiefEngineerByLeague no encontrado"})
+			return
+		}
+
+		// Verificar que el chief engineer existe
+		if ceb.ChiefEngineer.ID == 0 {
+			log.Printf("[CHIEF-ENGINEER-PROFILE] ChiefEngineer no encontrado para ID %d", ceb.ChiefEngineerID)
+			c.JSON(404, gin.H{"error": "ChiefEngineer no encontrado"})
 			return
 		}
 
@@ -6790,6 +7318,7 @@ func main() {
 				"team_expected_position": ceb.ChiefEngineer.TeamExpectedPosition,
 				"team_finish_position":   ceb.ChiefEngineer.TeamFinishPosition,
 				"total_points":           ceb.ChiefEngineer.TotalPoints,
+				"points_by_gp":           ceb.ChiefEngineer.PointsByGP,
 			},
 			"engineer": gin.H{
 				"id":                      ceb.ID,
@@ -6809,6 +7338,7 @@ func main() {
 			"pilots": pilots,
 		}
 
+		log.Printf("[CHIEF-ENGINEER-PROFILE] Respuesta exitosa para ID %d: %+v", idUint, response)
 		c.JSON(200, response)
 	})
 
@@ -6902,6 +7432,92 @@ func main() {
 		c.JSON(200, response)
 	})
 
+	// Endpoint para obtener puntos de team constructors por GP (para la pestaña de puntos)
+	router.GET("/api/team-constructor-gp-points", func(c *gin.Context) {
+		teamConstructorID := c.Query("team_constructor_id")
+		gpIndex := c.Query("gp_index")
+
+		if teamConstructorID == "" || gpIndex == "" {
+			c.JSON(400, gin.H{"error": "Faltan parámetros team_constructor_id o gp_index"})
+			return
+		}
+
+		// Obtener el team constructor by league
+		var teamConstructorByLeague models.TeamConstructorByLeague
+		if err := database.DB.First(&teamConstructorByLeague, teamConstructorID).Error; err != nil {
+			c.JSON(404, gin.H{"error": "Team constructor no encontrado"})
+			return
+		}
+
+		// Obtener el team constructor para conocer su nombre
+		var teamConstructor models.TeamConstructor
+		if err := database.DB.First(&teamConstructor, teamConstructorByLeague.TeamConstructorID).Error; err != nil {
+			c.JSON(404, gin.H{"error": "Team constructor details no encontrado"})
+			return
+		}
+
+		// Buscar el team constructor correspondiente al GP específico
+		var teamConstructorForGP models.TeamConstructor
+		if err := database.DB.Where("name = ? AND gp_index = ?", teamConstructor.Name, gpIndex).First(&teamConstructorForGP).Error; err != nil {
+			c.JSON(404, gin.H{"error": "Team constructor no encontrado para el GP específico"})
+			return
+		}
+
+		// Obtener puntos de la tabla team_races basándose en el team constructor
+		var result map[string]interface{}
+		points := 0
+		if err := database.DB.Table("team_races").Where("teamconstructor_id = ? AND gp_index = ?", teamConstructorForGP.ID, gpIndex).Take(&result).Error; err == nil {
+			if pointsRaw := result["points"]; pointsRaw != nil {
+				if pointsVal, ok := pointsRaw.(float64); ok {
+					points = int(pointsVal)
+				} else if pointsVal, ok := pointsRaw.(int); ok {
+					points = pointsVal
+				} else if pointsVal, ok := pointsRaw.(int64); ok {
+					points = int(pointsVal)
+				}
+			}
+		}
+
+		// Obtener información adicional del GP
+		var grandPrix models.GrandPrix
+		database.DB.Where("gp_index = ?", gpIndex).First(&grandPrix)
+
+		// Obtener criterios de puntuación de team_races
+		var teamRaceResult map[string]interface{}
+		expectedPosition := 0.0
+		finishPosition := 0.0
+		deltaPosition := 0.0
+
+		if err := database.DB.Table("team_races").Where("teamconstructor_id = ? AND gp_index = ?", teamConstructorForGP.ID, gpIndex).Take(&teamRaceResult).Error; err == nil {
+			// Obtener posición esperada
+			if expPos, ok := teamRaceResult["expected_position"].(float64); ok {
+				expectedPosition = expPos
+			}
+
+			// Obtener posición final
+			if finPos, ok := teamRaceResult["finish_position"].(float64); ok {
+				finishPosition = finPos
+			}
+
+			// Calcular delta
+			deltaPosition = expectedPosition - finishPosition
+		}
+
+		c.JSON(200, gin.H{
+			"points":                points,
+			"gp_name":               grandPrix.Name,
+			"gp_index":              gpIndex,
+			"team_constructor_name": teamConstructor.Name,
+			"team":                  teamConstructor.Name,
+			"scoring_criteria": gin.H{
+				"expected_position": expectedPosition,
+				"finish_position":   finishPosition,
+				"delta_position":    deltaPosition,
+				"total_points":      points,
+			},
+		})
+	})
+
 	// Endpoint para obtener los puntos de una alineación específica
 	router.GET("/api/lineup/points", authMiddleware(), func(c *gin.Context) {
 		playerID := c.Query("player_id")
@@ -6973,8 +7589,11 @@ func main() {
 			return
 		}
 
+		// Calcular puntos dinámicamente usando la nueva lógica
+		totalPoints := calculatePlayerTotalPoints(uint(playerIDUint), leagueIDUint, targetGPIndex)
+
 		c.JSON(200, gin.H{
-			"lineup_points": lineup.LineupPoints,
+			"lineup_points": totalPoints,
 			"gp_index":      targetGPIndex,
 			"gp_name":       gp.Name,
 			"gp_country":    gp.Country,
@@ -7205,6 +7824,8 @@ func main() {
 		gpIndexStr := c.Query("gp_index")
 		elementType := c.Query("element_type") // "pilot", "team_constructor", "chief_engineer", "track_engineer"
 		elementIDStr := c.Query("element_id")
+		playerIDStr := c.Query("player_id") // Requerido para track engineers
+		leagueIDStr := c.Query("league_id") // Requerido para track engineers
 
 		if gpIndexStr == "" || elementType == "" || elementIDStr == "" {
 			c.JSON(400, gin.H{"error": "gp_index, element_type, and element_id are required"})
@@ -7223,6 +7844,161 @@ func main() {
 			return
 		}
 
+		// Para track engineers necesitamos información del jugador
+		if elementType == "track_engineer" {
+			if playerIDStr == "" || leagueIDStr == "" {
+				c.JSON(400, gin.H{"error": "player_id and league_id are required for track_engineer"})
+				return
+			}
+
+			playerID, err := strconv.ParseUint(playerIDStr, 10, 64)
+			if err != nil {
+				c.JSON(400, gin.H{"error": "Invalid player_id"})
+				return
+			}
+
+			leagueID, err := strconv.ParseUint(leagueIDStr, 10, 64)
+			if err != nil {
+				c.JSON(400, gin.H{"error": "Invalid league_id"})
+				return
+			}
+
+			// Obtener la alineación del jugador para este GP
+			var lineup models.Lineup
+			if err := database.DB.Where("player_id = ? AND league_id = ? AND gp_index = ?", playerID, leagueID, gpIndex).First(&lineup).Error; err != nil {
+				c.JSON(200, gin.H{
+					"gp_index":     gpIndex,
+					"element_type": elementType,
+					"element_id":   elementID,
+					"points":       0,
+					"sessions":     map[string]int{},
+					"message":      "No lineup found for this GP",
+				})
+				return
+			}
+
+			// Usar la nueva función que verifica si tiene el piloto asociado
+			totalPoints := getTrackEngineerPointsWithLineup(uint(elementID), gpIndex, lineup)
+
+			// También obtener puntos desglosados por sesión
+			var trackEngineerByLeague models.TrackEngineerByLeague
+			if err := database.DB.First(&trackEngineerByLeague, elementID).Error; err != nil {
+				c.JSON(404, gin.H{"error": "Track engineer not found"})
+				return
+			}
+
+			// Obtener el track engineer para saber qué piloto está asociado
+			var trackEngineer models.TrackEngineer
+			if err := database.DB.First(&trackEngineer, trackEngineerByLeague.TrackEngineerID).Error; err != nil {
+				c.JSON(404, gin.H{"error": "Track engineer details not found"})
+				return
+			}
+
+			// Buscar qué piloto tiene este track engineer asignado
+			var associatedPilots []models.Pilot
+			database.DB.Where("track_engineer_id = ?", trackEngineer.ID).Find(&associatedPilots)
+
+			sessions := map[string]int{
+				"race":     0,
+				"qualy":    0,
+				"practice": 0,
+			}
+
+			if len(associatedPilots) > 0 {
+				// Obtener los pilotos que tiene el jugador en su lineup
+				var racePilots []uint
+				var qualifyingPilots []uint
+				var practicePilots []uint
+
+				if len(lineup.RacePilots) > 0 {
+					json.Unmarshal(lineup.RacePilots, &racePilots)
+				}
+				if len(lineup.QualifyingPilots) > 0 {
+					json.Unmarshal(lineup.QualifyingPilots, &qualifyingPilots)
+				}
+				if len(lineup.PracticePilots) > 0 {
+					json.Unmarshal(lineup.PracticePilots, &practicePilots)
+				}
+
+				// Obtener los PilotByLeague IDs para cada piloto asociado al track engineer
+				var associatedPilotByLeagueIDs []uint
+				for _, pilot := range associatedPilots {
+					var pilotByLeague models.PilotByLeague
+					if err := database.DB.Where("pilot_id = ? AND league_id = ?", pilot.ID, leagueID).First(&pilotByLeague).Error; err == nil {
+						associatedPilotByLeagueIDs = append(associatedPilotByLeagueIDs, pilotByLeague.ID)
+					}
+				}
+
+				// Verificar si el jugador tiene alguno de los pilotos asociados en cada modo
+				hasRacePilot := false
+				hasQualyPilot := false
+				hasPracticePilot := false
+
+				for _, pilotByLeagueID := range associatedPilotByLeagueIDs {
+					// Verificar si está en race
+					for _, racePilotID := range racePilots {
+						if racePilotID == pilotByLeagueID {
+							hasRacePilot = true
+							break
+						}
+					}
+					// Verificar si está en qualifying
+					for _, qualyPilotID := range qualifyingPilots {
+						if qualyPilotID == pilotByLeagueID {
+							hasQualyPilot = true
+							break
+						}
+					}
+					// Verificar si está en practice
+					for _, practicePilotID := range practicePilots {
+						if practicePilotID == pilotByLeagueID {
+							hasPracticePilot = true
+							break
+						}
+					}
+				}
+
+				// Obtener puntos por sesión solo si tiene el piloto
+				if hasRacePilot {
+					var racePoints int
+					database.DB.Model(&models.TrackEngineerPoints{}).
+						Where("track_engineer_id = ? AND gp_index = ? AND session_type = ?", trackEngineer.ID, gpIndex, "race").
+						Select("COALESCE(SUM(total_points), 0)").
+						Scan(&racePoints)
+					sessions["race"] = racePoints
+				}
+
+				if hasQualyPilot {
+					var qualyPoints int
+					database.DB.Model(&models.TrackEngineerPoints{}).
+						Where("track_engineer_id = ? AND gp_index = ? AND session_type = ?", trackEngineer.ID, gpIndex, "qualy").
+						Select("COALESCE(SUM(total_points), 0)").
+						Scan(&qualyPoints)
+					sessions["qualy"] = qualyPoints
+				}
+
+				if hasPracticePilot {
+					var practicePoints int
+					database.DB.Model(&models.TrackEngineerPoints{}).
+						Where("track_engineer_id = ? AND gp_index = ? AND session_type = ?", trackEngineer.ID, gpIndex, "practice").
+						Select("COALESCE(SUM(total_points), 0)").
+						Scan(&practicePoints)
+					sessions["practice"] = practicePoints
+				}
+			}
+
+			c.JSON(200, gin.H{
+				"gp_index":            gpIndex,
+				"element_type":        elementType,
+				"element_id":          elementID,
+				"points":              totalPoints,
+				"sessions":            sessions,
+				"track_engineer_name": trackEngineer.Name,
+			})
+			return
+		}
+
+		// Para otros tipos de elementos, usar la lógica original
 		var points int
 		switch elementType {
 		case "pilot":
@@ -7231,8 +8007,6 @@ func main() {
 			points = getTeamConstructorPoints(uint(elementID), gpIndex)
 		case "chief_engineer":
 			points = getChiefEngineerPoints(uint(elementID), gpIndex)
-		case "track_engineer":
-			points = getTrackEngineerPoints(uint(elementID), gpIndex)
 		default:
 			c.JSON(400, gin.H{"error": "Invalid element_type"})
 			return
@@ -7350,160 +8124,192 @@ func main() {
 		})
 	})
 
-	// Endpoint para calcular puntos de Track Engineers después de guardar resultados de piloto
+	// Endpoint para calcular puntos de Track Engineers manualmente (formulario Admin Scores)
 	router.POST("/api/admin/calculate-track-engineer-points", func(c *gin.Context) {
 		var req struct {
-			GPIndex  uint64 `json:"gp_index"`
-			Mode     string `json:"mode"`
-			PilotID  uint   `json:"pilot_id"`
-			LeagueID uint   `json:"league_id"`
+			GPIndex            uint64 `json:"gp_index"`
+			Mode               string `json:"mode"`
+			TrackEngineerID    uint   `json:"track_engineer_id"`
+			TeammateComparison string `json:"teammate_comparison"` // "ahead" o "behind"
 		}
 		if err := c.ShouldBindJSON(&req); err != nil {
-			log.Printf("[TRACK-ENG-POINTS] Error ShouldBindJSON: %v", err)
+			log.Printf("[MANUAL-TRACK-ENG] Error ShouldBindJSON: %v", err)
 			c.JSON(400, gin.H{"error": "Datos inválidos"})
 			return
 		}
 
-		log.Printf("[TRACK-ENG-POINTS] Calculando puntos para piloto=%d, gp=%d, mode=%s, league=%d", req.PilotID, req.GPIndex, req.Mode, req.LeagueID)
+		log.Printf("[MANUAL-TRACK-ENG] Calculando puntos para track_engineer=%d, gp=%d, mode=%s", req.TrackEngineerID, req.GPIndex, req.Mode)
 
-		// 1. Obtener el track engineer asignado a este piloto
+		// 1. Obtener el track engineer y su piloto asociado
 		var trackEngineer models.TrackEngineer
-		if err := database.DB.Where("pilot_id = ?", req.PilotID).First(&trackEngineer).Error; err != nil {
-			log.Printf("[TRACK-ENG-POINTS] No hay track engineer asignado al piloto %d: %v", req.PilotID, err)
-			c.JSON(200, gin.H{"message": "No hay track engineer asignado"})
+		if err := database.DB.First(&trackEngineer, req.TrackEngineerID).Error; err != nil {
+			log.Printf("[MANUAL-TRACK-ENG] Track engineer %d no encontrado: %v", req.TrackEngineerID, err)
+			c.JSON(404, gin.H{"error": "Track engineer no encontrado"})
 			return
 		}
 
-		log.Printf("[TRACK-ENG-POINTS] Track Engineer encontrado: ID=%d, Name=%s", trackEngineer.ID, trackEngineer.Name)
+		// 2. Buscar el piloto asociado a este track engineer para el modo específico
+		var pilot models.Pilot
+		modeCode := map[string]string{"race": "R", "qualy": "Q", "practice": "P"}[req.Mode]
+		log.Printf("[MANUAL-TRACK-ENG] 🔍 Buscando piloto con track_engineer_id = %d y mode = %s", req.TrackEngineerID, modeCode)
 
-		// 2. Buscar todas las alineaciones de esta liga y GP que incluyan este track engineer
-		var lineups []models.Lineup
-		database.DB.Where("league_id = ? AND gp_index = ?", req.LeagueID, req.GPIndex).Find(&lineups)
-
-		log.Printf("[TRACK-ENG-POINTS] Alineaciones encontradas: %d", len(lineups))
-
-		pointsCalculated := false
-		for _, lineup := range lineups {
-			// 3. Verificar si este track engineer está en la alineación
-			var trackEngineers []uint
-			if len(lineup.TrackEngineers) > 0 {
-				json.Unmarshal(lineup.TrackEngineers, &trackEngineers)
-			}
-
-			// Buscar el TrackEngineerByLeague correspondiente
-			var trackEngineerByLeague models.TrackEngineerByLeague
-			found := false
-			for _, teID := range trackEngineers {
-				if err := database.DB.First(&trackEngineerByLeague, teID).Error; err == nil {
-					if trackEngineerByLeague.TrackEngineerID == trackEngineer.ID {
-						found = true
-						break
-					}
-				}
-			}
-
-			if !found {
-				continue
-			}
-
-			// 4. Verificar si el piloto también está en la alineación
-			var pilots []uint
-			switch req.Mode {
-			case "race":
-				if len(lineup.RacePilots) > 0 {
-					json.Unmarshal(lineup.RacePilots, &pilots)
-				}
-			case "qualy":
-				if len(lineup.QualifyingPilots) > 0 {
-					json.Unmarshal(lineup.QualifyingPilots, &pilots)
-				}
-			case "practice":
-				if len(lineup.PracticePilots) > 0 {
-					json.Unmarshal(lineup.PracticePilots, &pilots)
-				}
-			}
-
-			// Buscar el piloto en la alineación
-			var pilotByLeague models.PilotByLeague
-			pilotInLineup := false
-			for _, pID := range pilots {
-				if err := database.DB.First(&pilotByLeague, pID).Error; err == nil {
-					if pilotByLeague.PilotID == req.PilotID {
-						pilotInLineup = true
-						break
-					}
-				}
-			}
-
-			if !pilotInLineup {
-				continue
-			}
-
-			log.Printf("[TRACK-ENG-POINTS] ✅ Track Engineer %d y Piloto %d están ambos en la alineación del jugador %d", trackEngineer.ID, req.PilotID, lineup.PlayerID)
-
-			// 5. Obtener los puntos del piloto antes del multiplicador
-			var table string
-			switch req.Mode {
-			case "race":
-				table = "pilot_races"
-			case "qualy":
-				table = "pilot_qualies"
-			case "practice":
-				table = "pilot_practices"
-			}
-
-			var pilotResult map[string]interface{}
-			database.DB.Table(table).Where("pilot_id = ? AND gp_index = ?", req.PilotID, req.GPIndex).Take(&pilotResult)
-
-			if pilotResult == nil {
-				continue
-			}
-
-			basePoints := 0
-			if points, ok := pilotResult["points"].(float64); ok {
-				basePoints = int(points)
-			}
-
-			// Obtener posición final para comparar con compañero
-			finishPos := 0
-			if fin, ok := pilotResult["finish_position"].(float64); ok {
-				finishPos = int(fin)
-			}
-
-			// Buscar compañero de equipo y calcular multiplicador
-			var pilotInfo models.Pilot
-			database.DB.First(&pilotInfo, req.PilotID)
-
-			var teammate models.Pilot
-			modeCode := map[string]string{"race": "R", "qualy": "Q", "practice": "P"}[req.Mode]
-			database.DB.Where("team = ? AND mode = ? AND id != ?", pilotInfo.Team, modeCode, req.PilotID).First(&teammate)
-
-			var teammateResult map[string]interface{}
-			database.DB.Table(table).Where("pilot_id = ? AND gp_index = ?", teammate.ID, req.GPIndex).Take(&teammateResult)
-
-			multiplier := 1.2 // Default
-			if teammateResult != nil {
-				if teammateFinish, ok := teammateResult["finish_position"].(float64); ok {
-					if finishPos > 0 && finishPos < int(teammateFinish) {
-						multiplier = 1.5
-					}
-				}
-			}
-
-			// Calcular puntos del Track Engineer como la diferencia
-			finalPoints := int(float64(basePoints) * multiplier)
-			trackEngineerPoints := finalPoints - basePoints
-
-			log.Printf("[TRACK-ENG-POINTS] Piloto: %d pts base → %d pts final (×%.1f) | Track Engineer: %d pts", basePoints, finalPoints, multiplier, trackEngineerPoints)
-
-			pointsCalculated = true
+		if err := database.DB.Where("track_engineer_id = ? AND mode = ?", req.TrackEngineerID, modeCode).First(&pilot).Error; err != nil {
+			log.Printf("[MANUAL-TRACK-ENG] No hay piloto asociado al track engineer %d: %v", req.TrackEngineerID, err)
+			c.JSON(404, gin.H{"error": "No hay piloto asociado a este track engineer"})
+			return
 		}
 
-		if pointsCalculated {
-			c.JSON(200, gin.H{"message": "Puntos de Track Engineer calculados correctamente"})
+		log.Printf("[MANUAL-TRACK-ENG] 🔍 Piloto asociado encontrado: ID=%d, Name=%s, Team=%s, Mode=%s", pilot.ID, pilot.DriverName, pilot.Team, pilot.Mode)
+
+		// 3. Buscar el compañero de equipo
+		var teammate models.Pilot
+		log.Printf("[MANUAL-TRACK-ENG] 🔍 Buscando compañero: team=%s, mode=%s (código=%s), pilot_id_diferente_de=%d", pilot.Team, req.Mode, modeCode, pilot.ID)
+
+		if err := database.DB.Where("team = ? AND mode = ? AND id != ?", pilot.Team, modeCode, pilot.ID).First(&teammate).Error; err != nil {
+			log.Printf("[MANUAL-TRACK-ENG] No se encontró compañero de equipo para piloto %d: %v", pilot.ID, err)
+			c.JSON(404, gin.H{"error": "No se encontró compañero de equipo"})
+			return
+		}
+
+		log.Printf("[MANUAL-TRACK-ENG] 🔍 Compañero encontrado: ID=%d, Name=%s, Team=%s, Mode=%s", teammate.ID, teammate.DriverName, teammate.Team, teammate.Mode)
+
+		// 4. Calcular puntos para AMBOS pilotos directamente aquí
+		log.Printf("[CALCULATE-TRACK-ENG] 🚀 INICIANDO cálculo para ambos pilotos...")
+
+		// Determinar multiplicadores según la comparación
+		var pilotMultiplier, teammateMultiplier float64
+		if req.TeammateComparison == "ahead" {
+			// Piloto original quedó DELANTE
+			pilotMultiplier = 0.5
+			teammateMultiplier = 0.2
 		} else {
-			c.JSON(200, gin.H{"message": "Track Engineer no aplicable en ninguna alineación"})
+			// Piloto original quedó DETRÁS
+			pilotMultiplier = 0.2
+			teammateMultiplier = 0.5
 		}
+
+		// Calcular puntos para el piloto original
+		pilotResult := calculateSingleTrackEngineerPointsManually(pilot.TrackEngineerID, pilot.ID, req.GPIndex, req.Mode, pilotMultiplier)
+
+		// Calcular puntos para el compañero
+		teammateResult := calculateSingleTrackEngineerPointsManually(teammate.TrackEngineerID, teammate.ID, req.GPIndex, req.Mode, teammateMultiplier)
+
+		log.Printf("[CALCULATE-TRACK-ENG] ✅ TERMINADO cálculo para ambos pilotos")
+
+		// 4. Devolver información de ambos pilotos calculados
+		response := gin.H{
+			"message": "Puntos de Track Engineer calculados correctamente para ambos pilotos",
+		}
+
+		if pilotResult != nil {
+			response["pilot_details"] = pilotResult
+		}
+
+		if teammateResult != nil {
+			response["teammate_details"] = teammateResult
+		}
+
+		// Información adicional
+		response["summary"] = gin.H{
+			"pilots_processed": 2,
+			"gp_index":         req.GPIndex,
+			"session_type":     req.Mode,
+			"comparison":       req.TeammateComparison,
+		}
+
+		c.JSON(200, response)
+	})
+
+	// Endpoint para recalcular puntos de jugadores en player_points_by_gp para un GP
+	router.POST("/api/admin/recalculate-player-points", authMiddleware(), func(c *gin.Context) {
+		var req struct {
+			GPIndex  uint64 `json:"gp_index"`
+			LeagueID *uint  `json:"league_id,omitempty"` // Opcional, si no se especifica se hace para todas las ligas
+		}
+		if err := c.ShouldBindJSON(&req); err != nil {
+			log.Printf("[RECALC-PLAYER-POINTS] Error ShouldBindJSON: %v", err)
+			c.JSON(400, gin.H{"error": "Datos inválidos"})
+			return
+		}
+
+		log.Printf("[RECALC-PLAYER-POINTS] Recalculando puntos para GP %d", req.GPIndex)
+
+		// Obtener todas las alineaciones para este GP (filtrar por liga si se especifica)
+		var lineups []models.Lineup
+		query := database.DB.Where("gp_index = ?", req.GPIndex)
+		if req.LeagueID != nil {
+			query = query.Where("league_id = ?", *req.LeagueID)
+		}
+		query.Find(&lineups)
+
+		updatedCount := 0
+		for _, lineup := range lineups {
+			// Calcular puntos usando la nueva lógica
+			totalPoints := calculatePlayerTotalPoints(lineup.PlayerID, uint64(lineup.LeagueID), req.GPIndex)
+
+			// Actualizar player_points_by_gp
+			var existingRecord struct {
+				ID uint `gorm:"primaryKey"`
+			}
+			err := database.DB.Table("player_points_by_gp").Where("player_id = ? AND league_id = ? AND gp_index = ?", lineup.PlayerID, lineup.LeagueID, req.GPIndex).First(&existingRecord).Error
+
+			if err != nil {
+				// No existe, crear nuevo registro
+				err = database.DB.Exec("INSERT INTO player_points_by_gp (player_id, league_id, gp_index, points) VALUES (?, ?, ?, ?)",
+					lineup.PlayerID, lineup.LeagueID, req.GPIndex, totalPoints).Error
+				if err != nil {
+					log.Printf("[RECALC-PLAYER-POINTS] Error creando registro para player_id=%d, league_id=%d: %v", lineup.PlayerID, lineup.LeagueID, err)
+					continue
+				}
+			} else {
+				// Existe, actualizar
+				err = database.DB.Exec("UPDATE player_points_by_gp SET points = ? WHERE player_id = ? AND league_id = ? AND gp_index = ?",
+					totalPoints, lineup.PlayerID, lineup.LeagueID, req.GPIndex).Error
+				if err != nil {
+					log.Printf("[RECALC-PLAYER-POINTS] Error actualizando registro para player_id=%d, league_id=%d: %v", lineup.PlayerID, lineup.LeagueID, err)
+					continue
+				}
+			}
+
+			// También actualizar lineup_points en la tabla lineups
+			lineup.LineupPoints = totalPoints
+			database.DB.Save(&lineup)
+
+			log.Printf("[RECALC-PLAYER-POINTS] Player %d (Liga %d): %d puntos", lineup.PlayerID, lineup.LeagueID, totalPoints)
+			updatedCount++
+		}
+
+		// Recalcular puntos totales de todos los jugadores afectados
+		var affectedPlayers []struct {
+			PlayerID uint
+			LeagueID uint
+		}
+
+		query = database.DB.Table("lineups").Select("DISTINCT player_id, league_id").Where("gp_index = ?", req.GPIndex)
+		if req.LeagueID != nil {
+			query = query.Where("league_id = ?", *req.LeagueID)
+		}
+		query.Find(&affectedPlayers)
+
+		for _, player := range affectedPlayers {
+			// Recalcular puntos totales sumando todos los GPs
+			var totalPoints int
+			err := database.DB.Raw("SELECT COALESCE(SUM(points), 0) FROM player_points_by_gp WHERE player_id = ? AND league_id = ?", player.PlayerID, player.LeagueID).Scan(&totalPoints).Error
+			if err == nil {
+				// Actualizar TotalPoints en PlayerByLeague
+				database.DB.Model(&models.PlayerByLeague{}).Where("player_id = ? AND league_id = ?", player.PlayerID, player.LeagueID).Update("total_points", totalPoints)
+			}
+		}
+
+		message := fmt.Sprintf("Recalculados puntos para %d jugadores en GP %d", updatedCount, req.GPIndex)
+		if req.LeagueID != nil {
+			message += fmt.Sprintf(" (Liga %d)", *req.LeagueID)
+		}
+
+		c.JSON(200, gin.H{
+			"message":       message,
+			"updated_count": updatedCount,
+		})
 	})
 
 	// Endpoint para actualizar puntos de alineaciones (solo administradores)
@@ -7553,16 +8359,23 @@ func main() {
 
 		// Verificar si ya se han calculado puntos para alguna alineación
 		alreadyCalculatedCount := 0
+		lineupsToUpdate := []models.Lineup{}
+
 		for _, lineup := range lineups {
 			if lineup.LineupPoints > 0 {
 				alreadyCalculatedCount++
+			} else {
+				lineupsToUpdate = append(lineupsToUpdate, lineup)
 			}
 		}
 
 		if alreadyCalculatedCount > 0 {
-			log.Printf("[UPDATE-LINEUP-POINTS] ADVERTENCIA: %d alineaciones ya tienen puntos calculados", alreadyCalculatedCount)
+			log.Printf("[UPDATE-LINEUP-POINTS] ADVERTENCIA: %d alineaciones ya tienen puntos calculados, actualizando solo %d alineaciones", alreadyCalculatedCount, len(lineupsToUpdate))
+		}
+
+		if len(lineupsToUpdate) == 0 {
 			c.JSON(400, gin.H{
-				"error":                    fmt.Sprintf("No se pueden recalcular puntos. %d alineaciones ya tienen puntos calculados (lineup_points > 0). Si necesitas recalcular, primero resetea los puntos a 0.", alreadyCalculatedCount),
+				"error":                    fmt.Sprintf("Todas las alineaciones (%d) ya tienen puntos calculados. Si necesitas recalcular, primero resetea los puntos a 0.", len(lineups)),
 				"already_calculated_count": alreadyCalculatedCount,
 				"total_lineups":            len(lineups),
 				"league_id":                req.LeagueID,
@@ -7572,7 +8385,7 @@ func main() {
 		}
 
 		updatedCount := 0
-		for _, lineup := range lineups {
+		for _, lineup := range lineupsToUpdate {
 			totalPoints := 0
 
 			// Calcular puntos de pilotos de carrera
@@ -7627,7 +8440,7 @@ func main() {
 			if len(lineup.TrackEngineers) > 0 {
 				json.Unmarshal(lineup.TrackEngineers, &trackEngineers)
 				for _, trackEngineerByLeagueID := range trackEngineers {
-					points := getTrackEngineerPoints(trackEngineerByLeagueID, uint64(req.GPIndex))
+					points := getTrackEngineerPointsWithLineup(trackEngineerByLeagueID, uint64(req.GPIndex), lineup)
 					totalPoints += points
 					log.Printf("[UPDATE-LINEUP-POINTS] Track Engineer ID %d: %d pts", trackEngineerByLeagueID, points)
 				}
@@ -7644,11 +8457,18 @@ func main() {
 			updatedCount++
 		}
 
+		message := fmt.Sprintf("Actualizadas %d alineaciones con sus puntos totales", updatedCount)
+		if alreadyCalculatedCount > 0 {
+			message = fmt.Sprintf("Actualizadas %d alineaciones con sus puntos totales (%d alineaciones ya tenían puntos calculados)", updatedCount, alreadyCalculatedCount)
+		}
+
 		c.JSON(200, gin.H{
-			"message":       fmt.Sprintf("Actualizadas %d alineaciones con sus puntos totales", updatedCount),
-			"updated_count": updatedCount,
-			"league_id":     req.LeagueID,
-			"gp_index":      req.GPIndex,
+			"message":                  message,
+			"updated_count":            updatedCount,
+			"already_calculated_count": alreadyCalculatedCount,
+			"total_lineups":            len(lineups),
+			"league_id":                req.LeagueID,
+			"gp_index":                 req.GPIndex,
 		})
 	})
 
@@ -8755,6 +9575,15 @@ func generateFIAOffer(saleValue float64) float64 {
 	return result
 }
 
+// Función para calcular puntos de posición de equipos (1º=10, 2º=9, ..., 10º=1)
+func getTeamPositionPoints(position int) int {
+	if position < 1 || position > 10 {
+		return 0
+	}
+	// 1º = 10 pts, 2º = 9 pts, ..., 10º = 1 pt
+	return 11 - position
+}
+
 // Función para actualizar puntos de jugadores que tengan un piloto alineado
 func updatePlayerPointsForPilot(pilotID uint, gpIndex uint64, points int, sessionType string) {
 	// Buscar todas las alineaciones que incluyan este piloto en este GP
@@ -8803,60 +9632,84 @@ func calculatePlayerTotalPoints(playerID uint, leagueID uint64, gpIndex uint64) 
 		return 0
 	}
 
+	log.Printf("[DEBUG-POINTS] === CALCULANDO PUNTOS PARA PLAYER %d EN GP %d ===", playerID, gpIndex)
 	totalPoints := 0
 
 	// Calcular puntos de pilotos de carrera
 	var racePilots []uint
+	racePilotPoints := 0
 	if len(lineup.RacePilots) > 0 {
 		json.Unmarshal(lineup.RacePilots, &racePilots)
-		for _, pilotByLeagueID := range racePilots {
+		for i, pilotByLeagueID := range racePilots {
 			points := getPilotPoints(pilotByLeagueID, gpIndex)
-			totalPoints += points
+			racePilotPoints += points
+			log.Printf("[DEBUG-POINTS] Piloto Carrera %d (ID: %d): %d puntos", i+1, pilotByLeagueID, points)
 		}
 	}
+	totalPoints += racePilotPoints
+	log.Printf("[DEBUG-POINTS] Total Pilotos Carrera: %d", racePilotPoints)
 
 	// Calcular puntos de pilotos de clasificación
 	var qualifyingPilots []uint
+	qualifyingPilotPoints := 0
 	if len(lineup.QualifyingPilots) > 0 {
 		json.Unmarshal(lineup.QualifyingPilots, &qualifyingPilots)
-		for _, pilotByLeagueID := range qualifyingPilots {
+		for i, pilotByLeagueID := range qualifyingPilots {
 			points := getPilotPoints(pilotByLeagueID, gpIndex)
-			totalPoints += points
+			qualifyingPilotPoints += points
+			log.Printf("[DEBUG-POINTS] Piloto Qualy %d (ID: %d): %d puntos", i+1, pilotByLeagueID, points)
 		}
 	}
+	totalPoints += qualifyingPilotPoints
+	log.Printf("[DEBUG-POINTS] Total Pilotos Qualy: %d", qualifyingPilotPoints)
 
 	// Calcular puntos de pilotos de práctica
 	var practicePilots []uint
+	practicePilotPoints := 0
 	if len(lineup.PracticePilots) > 0 {
 		json.Unmarshal(lineup.PracticePilots, &practicePilots)
-		for _, pilotByLeagueID := range practicePilots {
+		for i, pilotByLeagueID := range practicePilots {
 			points := getPilotPoints(pilotByLeagueID, gpIndex)
-			totalPoints += points
+			practicePilotPoints += points
+			log.Printf("[DEBUG-POINTS] Piloto Practice %d (ID: %d): %d puntos", i+1, pilotByLeagueID, points)
 		}
 	}
+	totalPoints += practicePilotPoints
+	log.Printf("[DEBUG-POINTS] Total Pilotos Practice: %d", practicePilotPoints)
 
 	// Calcular puntos del constructor
+	constructorPoints := 0
 	if lineup.TeamConstructorID != nil {
-		points := getTeamConstructorPoints(*lineup.TeamConstructorID, gpIndex)
-		totalPoints += points
+		constructorPoints = getTeamConstructorPoints(*lineup.TeamConstructorID, gpIndex)
+		totalPoints += constructorPoints
+		log.Printf("[DEBUG-POINTS] Constructor (ID: %d): %d puntos", *lineup.TeamConstructorID, constructorPoints)
 	}
 
 	// Calcular puntos del chief engineer
+	chiefEngineerPoints := 0
 	if lineup.ChiefEngineerID != nil {
-		points := getChiefEngineerPoints(*lineup.ChiefEngineerID, gpIndex)
-		totalPoints += points
+		chiefEngineerPoints = getChiefEngineerPoints(*lineup.ChiefEngineerID, gpIndex)
+		totalPoints += chiefEngineerPoints
+		log.Printf("[DEBUG-POINTS] Chief Engineer (ID: %d): %d puntos", *lineup.ChiefEngineerID, chiefEngineerPoints)
 	}
 
 	// Calcular puntos de track engineers
 	var trackEngineers []uint
+	trackEngineerPoints := 0
 	if len(lineup.TrackEngineers) > 0 {
 		json.Unmarshal(lineup.TrackEngineers, &trackEngineers)
-		for _, trackEngineerByLeagueID := range trackEngineers {
-			points := getTrackEngineerPoints(trackEngineerByLeagueID, gpIndex)
-			totalPoints += points
+		for i, trackEngineerByLeagueID := range trackEngineers {
+			points := getTrackEngineerPointsWithLineup(trackEngineerByLeagueID, gpIndex, lineup)
+			trackEngineerPoints += points
+			log.Printf("[DEBUG-POINTS] Track Engineer %d (ID: %d): %d puntos", i+1, trackEngineerByLeagueID, points)
 		}
 	}
+	totalPoints += trackEngineerPoints
+	log.Printf("[DEBUG-POINTS] Total Track Engineers: %d", trackEngineerPoints)
 
+	log.Printf("[DEBUG-POINTS] TOTAL FINAL: %d", totalPoints)
+	log.Printf("[DEBUG-POINTS] DESGLOSE: Race(%d) + Qualy(%d) + Practice(%d) + Constructor(%d) + ChiefEng(%d) + TrackEng(%d) = %d",
+		racePilotPoints, qualifyingPilotPoints, practicePilotPoints, constructorPoints, chiefEngineerPoints, trackEngineerPoints, totalPoints)
 	return totalPoints
 }
 
@@ -8966,17 +9819,25 @@ func getTeamConstructorPoints(teamConstructorByLeagueID uint, gpIndex uint64) in
 		return 0
 	}
 
+	// Obtener puntos de la tabla team_races basándose en el team constructor
 	var result map[string]interface{}
-	if err := database.DB.Table("team_constructors").Where("id = ? AND gp_index = ?", teamConstructorByLeague.TeamConstructorID, gpIndex).Take(&result).Error; err != nil {
+	if err := database.DB.Table("team_races").Where("teamconstructor_id = ? AND gp_index = ?", teamConstructorByLeague.TeamConstructorID, gpIndex).Take(&result).Error; err != nil {
+		log.Printf("[TEAM-CONSTRUCTOR-POINTS] No se encontraron datos en team_races para team constructor %d en GP %d", teamConstructorByLeague.TeamConstructorID, gpIndex)
 		return 0
 	}
 
 	points := 0
-	if pointsRaw := result["total_points"]; pointsRaw != nil {
+	if pointsRaw := result["points"]; pointsRaw != nil {
 		if pointsVal, ok := pointsRaw.(float64); ok {
+			points = int(pointsVal)
+		} else if pointsVal, ok := pointsRaw.(int); ok {
+			points = pointsVal
+		} else if pointsVal, ok := pointsRaw.(int64); ok {
 			points = int(pointsVal)
 		}
 	}
+
+	log.Printf("[TEAM-CONSTRUCTOR-POINTS] Team Constructor ID %d - Puntos: %d", teamConstructorByLeague.TeamConstructorID, points)
 
 	return points
 }
@@ -8988,41 +9849,637 @@ func getChiefEngineerPoints(chiefEngineerByLeagueID uint, gpIndex uint64) int {
 		return 0
 	}
 
+	// Obtener el chief engineer para conocer su equipo
+	var chiefEngineer models.ChiefEngineer
+	if err := database.DB.First(&chiefEngineer, chiefEngineerByLeague.ChiefEngineerID).Error; err != nil {
+		return 0
+	}
+
+	// Buscar el team constructor correspondiente al equipo del chief engineer
+	var teamConstructor models.TeamConstructor
+	if err := database.DB.Where("name = ? AND gp_index = ?", chiefEngineer.Team, gpIndex).First(&teamConstructor).Error; err != nil {
+		log.Printf("[CHIEF-ENGINEER-POINTS] No se encontró team constructor para equipo %s en GP %d", chiefEngineer.Team, gpIndex)
+		return 0
+	}
+
+	// Obtener puntos de la tabla team_races basándose en el team constructor
 	var result map[string]interface{}
-	if err := database.DB.Table("chief_engineers").Where("id = ? AND gp_index = ?", chiefEngineerByLeague.ChiefEngineerID, gpIndex).Take(&result).Error; err != nil {
+	if err := database.DB.Table("team_races").Where("teamconstructor_id = ? AND gp_index = ?", teamConstructor.ID, gpIndex).Take(&result).Error; err != nil {
+		log.Printf("[CHIEF-ENGINEER-POINTS] No se encontraron datos en team_races para team constructor %d en GP %d", teamConstructor.ID, gpIndex)
 		return 0
 	}
 
 	points := 0
-	if pointsRaw := result["total_points"]; pointsRaw != nil {
+	if pointsRaw := result["points"]; pointsRaw != nil {
 		if pointsVal, ok := pointsRaw.(float64); ok {
+			points = int(pointsVal)
+		} else if pointsVal, ok := pointsRaw.(int); ok {
+			points = pointsVal
+		} else if pointsVal, ok := pointsRaw.(int64); ok {
 			points = int(pointsVal)
 		}
 	}
 
+	log.Printf("[CHIEF-ENGINEER-POINTS] Chief Engineer %s (Team: %s) - Team Constructor ID: %d - Puntos: %d",
+		chiefEngineer.Name, chiefEngineer.Team, teamConstructor.ID, points)
+
 	return points
 }
 
-// Función auxiliar para obtener puntos de un track engineer
+// Función auxiliar para obtener puntos de un track engineer (versión original)
 func getTrackEngineerPoints(trackEngineerByLeagueID uint, gpIndex uint64) int {
 	var trackEngineerByLeague models.TrackEngineerByLeague
 	if err := database.DB.First(&trackEngineerByLeague, trackEngineerByLeagueID).Error; err != nil {
 		return 0
 	}
 
-	var result map[string]interface{}
-	if err := database.DB.Table("track_engineers").Where("id = ? AND gp_index = ?", trackEngineerByLeague.TrackEngineerID, gpIndex).Take(&result).Error; err != nil {
+	// Sumar puntos de todas las sesiones (race, qualy, practice) para este GP
+	var totalPoints int
+	database.DB.Model(&models.TrackEngineerPoints{}).
+		Where("track_engineer_id = ? AND gp_index = ?", trackEngineerByLeague.TrackEngineerID, gpIndex).
+		Select("COALESCE(SUM(total_points), 0)").
+		Scan(&totalPoints)
+
+	return totalPoints
+}
+
+// Función auxiliar para obtener puntos de un track engineer verificando si el jugador tiene el piloto asociado
+func getTrackEngineerPointsWithLineup(trackEngineerByLeagueID uint, gpIndex uint64, lineup models.Lineup) int {
+	var trackEngineerByLeague models.TrackEngineerByLeague
+	if err := database.DB.First(&trackEngineerByLeague, trackEngineerByLeagueID).Error; err != nil {
 		return 0
 	}
 
-	points := 0
-	if pointsRaw := result["total_points"]; pointsRaw != nil {
-		if pointsVal, ok := pointsRaw.(float64); ok {
-			points = int(pointsVal)
+	// Obtener el track engineer para saber qué piloto está asociado
+	var trackEngineer models.TrackEngineer
+	if err := database.DB.First(&trackEngineer, trackEngineerByLeague.TrackEngineerID).Error; err != nil {
+		return 0
+	}
+
+	// Buscar qué piloto tiene este track engineer asignado
+	var associatedPilots []models.Pilot
+	database.DB.Where("track_engineer_id = ?", trackEngineer.ID).Find(&associatedPilots)
+
+	if len(associatedPilots) == 0 {
+		log.Printf("[TRACK-ENG-POINTS] No hay pilotos asociados al track engineer %d", trackEngineer.ID)
+		return 0
+	}
+
+	// Obtener los pilotos que tiene el jugador en su lineup
+	var racePilots []uint
+	var qualifyingPilots []uint
+	var practicePilots []uint
+
+	if len(lineup.RacePilots) > 0 {
+		json.Unmarshal(lineup.RacePilots, &racePilots)
+	}
+	if len(lineup.QualifyingPilots) > 0 {
+		json.Unmarshal(lineup.QualifyingPilots, &qualifyingPilots)
+	}
+	if len(lineup.PracticePilots) > 0 {
+		json.Unmarshal(lineup.PracticePilots, &practicePilots)
+	}
+
+	// Obtener los PilotByLeague IDs para cada piloto asociado al track engineer
+	var associatedPilotByLeagueIDs []uint
+	for _, pilot := range associatedPilots {
+		var pilotByLeague models.PilotByLeague
+		if err := database.DB.Where("pilot_id = ? AND league_id = ?", pilot.ID, lineup.LeagueID).First(&pilotByLeague).Error; err == nil {
+			associatedPilotByLeagueIDs = append(associatedPilotByLeagueIDs, pilotByLeague.ID)
 		}
 	}
 
-	return points
+	// Verificar si el jugador tiene alguno de los pilotos asociados en algún modo
+	totalPoints := 0
+	hasRacePilot := false
+	hasQualyPilot := false
+	hasPracticePilot := false
+
+	for _, pilotByLeagueID := range associatedPilotByLeagueIDs {
+		// Verificar si está en race
+		for _, racePilotID := range racePilots {
+			if racePilotID == pilotByLeagueID {
+				hasRacePilot = true
+				break
+			}
+		}
+		// Verificar si está en qualifying
+		for _, qualyPilotID := range qualifyingPilots {
+			if qualyPilotID == pilotByLeagueID {
+				hasQualyPilot = true
+				break
+			}
+		}
+		// Verificar si está en practice
+		for _, practicePilotID := range practicePilots {
+			if practicePilotID == pilotByLeagueID {
+				hasPracticePilot = true
+				break
+			}
+		}
+	}
+
+	// Sumar puntos solo de las sesiones donde el jugador tiene el piloto
+	if hasRacePilot {
+		var racePoints int
+		database.DB.Model(&models.TrackEngineerPoints{}).
+			Where("track_engineer_id = ? AND gp_index = ? AND session_type = ?", trackEngineer.ID, gpIndex, "race").
+			Select("COALESCE(SUM(total_points), 0)").
+			Scan(&racePoints)
+		totalPoints += racePoints
+		log.Printf("[TRACK-ENG-POINTS] Track Engineer %d tiene piloto en RACE: +%d puntos", trackEngineer.ID, racePoints)
+	}
+
+	if hasQualyPilot {
+		var qualyPoints int
+		database.DB.Model(&models.TrackEngineerPoints{}).
+			Where("track_engineer_id = ? AND gp_index = ? AND session_type = ?", trackEngineer.ID, gpIndex, "qualy").
+			Select("COALESCE(SUM(total_points), 0)").
+			Scan(&qualyPoints)
+		totalPoints += qualyPoints
+		log.Printf("[TRACK-ENG-POINTS] Track Engineer %d tiene piloto en QUALY: +%d puntos", trackEngineer.ID, qualyPoints)
+	}
+
+	if hasPracticePilot {
+		var practicePoints int
+		database.DB.Model(&models.TrackEngineerPoints{}).
+			Where("track_engineer_id = ? AND gp_index = ? AND session_type = ?", trackEngineer.ID, gpIndex, "practice").
+			Select("COALESCE(SUM(total_points), 0)").
+			Scan(&practicePoints)
+		totalPoints += practicePoints
+		log.Printf("[TRACK-ENG-POINTS] Track Engineer %d tiene piloto en PRACTICE: +%d puntos", trackEngineer.ID, practicePoints)
+	}
+
+	if !hasRacePilot && !hasQualyPilot && !hasPracticePilot {
+		log.Printf("[TRACK-ENG-POINTS] Track Engineer %d: jugador no tiene ningún piloto asociado, 0 puntos", trackEngineer.ID)
+	}
+
+	return totalPoints
+}
+
+// Función para calcular automáticamente puntos de track engineers cuando se guarda un resultado de piloto
+func calculateTrackEngineerPointsForPilot(pilotID uint, gpIndex uint64, mode string) {
+	log.Printf("[AUTO-TRACK-ENG] Iniciando cálculo para piloto %d, GP %d, mode %s", pilotID, gpIndex, mode)
+
+	// 1. Obtener el track engineer asignado a este piloto
+	// Primero buscar el piloto para obtener su track_engineer_id
+	var pilot models.Pilot
+	if err := database.DB.First(&pilot, pilotID).Error; err != nil {
+		log.Printf("[AUTO-TRACK-ENG] Error obteniendo información del piloto %d: %v", pilotID, err)
+		return
+	}
+
+	// Verificar que el piloto tenga un track engineer asignado
+	if pilot.TrackEngineerID == 0 {
+		log.Printf("[AUTO-TRACK-ENG] No hay track engineer asignado al piloto %d", pilotID)
+		return
+	}
+
+	var trackEngineer models.TrackEngineer
+	if err := database.DB.First(&trackEngineer, pilot.TrackEngineerID).Error; err != nil {
+		log.Printf("[AUTO-TRACK-ENG] Track engineer %d no encontrado: %v", pilot.TrackEngineerID, err)
+		return
+	}
+
+	log.Printf("[AUTO-TRACK-ENG] Track Engineer encontrado: ID=%d, Name=%s", trackEngineer.ID, trackEngineer.Name)
+
+	// 2. Obtener los puntos del piloto
+	var table string
+	switch mode {
+	case "race":
+		table = "pilot_races"
+	case "qualy":
+		table = "pilot_qualies"
+	case "practice":
+		table = "pilot_practices"
+	default:
+		log.Printf("[AUTO-TRACK-ENG] Modo inválido: %s", mode)
+		return
+	}
+
+	var pilotResult map[string]interface{}
+	if err := database.DB.Table(table).Where("pilot_id = ? AND gp_index = ?", pilotID, gpIndex).Take(&pilotResult).Error; err != nil {
+		log.Printf("[AUTO-TRACK-ENG] No se encontraron resultados del piloto %d en %s: %v", pilotID, table, err)
+		return
+	}
+
+	pilotPoints := 0
+	if points, ok := pilotResult["points"].(float64); ok {
+		pilotPoints = int(points)
+	}
+
+	// Obtener posición final para comparar con compañero
+	finishPos := 0
+	if fin, ok := pilotResult["finish_position"].(float64); ok {
+		finishPos = int(fin)
+	}
+
+	// 3. Buscar compañero de equipo y calcular multiplicador
+	var teammate models.Pilot
+	modeCode := map[string]string{"race": "R", "qualy": "Q", "practice": "P"}[mode]
+	if err := database.DB.Where("team = ? AND mode = ? AND id != ?", pilot.Team, modeCode, pilotID).First(&teammate).Error; err != nil {
+		log.Printf("[AUTO-TRACK-ENG] No se encontró compañero de equipo para piloto %d: %v", pilotID, err)
+		return
+	}
+
+	var teammateResult map[string]interface{}
+	database.DB.Table(table).Where("pilot_id = ? AND gp_index = ?", teammate.ID, gpIndex).Take(&teammateResult)
+
+	// 4. Calcular multiplicador según las reglas correctas
+	multiplier := 0.2 // Default: detrás del compañero
+	teammatePos := 0
+	if teammateResult != nil {
+		if teammateFinish, ok := teammateResult["finish_position"].(float64); ok {
+			teammatePos = int(teammateFinish)
+			if finishPos > 0 && teammatePos > 0 {
+				if finishPos < teammatePos {
+					// Piloto acabó DELANTE del compañero: ×0.5
+					multiplier = 0.5
+				} else {
+					// Piloto acabó DETRÁS del compañero: ×0.2
+					multiplier = 0.2
+				}
+			}
+		}
+	}
+
+	// 5. Calcular puntos del Track Engineer
+	var trackEngineerPoints int
+	if pilotPoints < 0 {
+		// Si los puntos son negativos, SIEMPRE usar valor absoluto × 0.2 (independiente del multiplicador)
+		result := float64(-pilotPoints) * 0.2
+		trackEngineerPoints = int(math.Ceil(result))
+	} else {
+		// Si los puntos son positivos, usar multiplicador normal y redondear hacia arriba
+		result := float64(pilotPoints) * multiplier
+		trackEngineerPoints = int(math.Ceil(result))
+	}
+
+	log.Printf("[AUTO-TRACK-ENG] Piloto: %d pts | Pos: %d | Compañero Pos: %d | Multiplicador: ×%.1f | Track Engineer: %d pts",
+		pilotPoints, finishPos, teammatePos, multiplier, trackEngineerPoints)
+
+	// 5.1 También calcular puntos del track engineer del compañero si tiene uno
+	if teammateResult != nil && teammatePos > 0 {
+		// Verificar si el compañero tiene track engineer
+		if teammate.TrackEngineerID != 0 {
+			var teammateTrackEngineer models.TrackEngineer
+			if err := database.DB.First(&teammateTrackEngineer, teammate.TrackEngineerID).Error; err == nil {
+				// Obtener puntos del compañero
+				teammatePoints := 0
+				if points, ok := teammateResult["points"].(float64); ok {
+					teammatePoints = int(points)
+				}
+
+				// Calcular multiplicador del compañero (inverso del piloto original)
+				teammateMultiplier := 0.2 // Default: detrás
+				if teammatePos < finishPos {
+					// Compañero acabó DELANTE del piloto original: ×0.5
+					teammateMultiplier = 0.5
+				} else {
+					// Compañero acabó DETRÁS del piloto original: ×0.2
+					teammateMultiplier = 0.2
+				}
+
+				// Calcular puntos del track engineer del compañero con redondeo hacia arriba
+				var teammateTrackEngineerPoints int
+				if teammatePoints < 0 {
+					// Si los puntos son negativos, SIEMPRE usar valor absoluto × 0.2
+					result := float64(-teammatePoints) * 0.2
+					teammateTrackEngineerPoints = int(math.Ceil(result))
+				} else {
+					// Si los puntos son positivos, usar multiplicador normal y redondear hacia arriba
+					result := float64(teammatePoints) * teammateMultiplier
+					teammateTrackEngineerPoints = int(math.Ceil(result))
+				}
+
+				log.Printf("[AUTO-TRACK-ENG] Compañero: %d pts | Pos: %d | Multiplicador: ×%.1f | Track Engineer: %d pts",
+					teammatePoints, teammatePos, teammateMultiplier, teammateTrackEngineerPoints)
+
+				// Guardar puntos del track engineer del compañero
+				var teammateRecord models.TrackEngineerPoints
+				err := database.DB.Where("track_engineer_id = ? AND gp_index = ? AND session_type = ?",
+					teammateTrackEngineer.ID, gpIndex, mode).First(&teammateRecord).Error
+
+				if err != nil {
+					// No existe, crear nuevo registro para el compañero
+					newTeammateRecord := models.TrackEngineerPoints{
+						TrackEngineerID:  teammateTrackEngineer.ID,
+						GPIndex:          gpIndex,
+						PilotID:          &teammate.ID,
+						PilotPosition:    &teammatePos,
+						TeammatePosition: &finishPos,
+						SessionType:      mode,
+						Multiplier:       teammateMultiplier,
+						BasePoints:       teammatePoints,
+						TotalPoints:      teammateTrackEngineerPoints,
+					}
+
+					if err := database.DB.Create(&newTeammateRecord).Error; err != nil {
+						log.Printf("[AUTO-TRACK-ENG] Error creando registro del compañero: %v", err)
+					} else {
+						log.Printf("[AUTO-TRACK-ENG] ✅ Creado registro para Track Engineer del compañero %d, GP %d: %d pts", teammateTrackEngineer.ID, gpIndex, teammateTrackEngineerPoints)
+					}
+				} else {
+					// Existe, actualizar registro del compañero
+					teammateRecord.PilotID = &teammate.ID
+					teammateRecord.PilotPosition = &teammatePos
+					teammateRecord.TeammatePosition = &finishPos
+					teammateRecord.Multiplier = teammateMultiplier
+					teammateRecord.BasePoints = teammatePoints
+					teammateRecord.TotalPoints = teammateTrackEngineerPoints
+
+					if err := database.DB.Save(&teammateRecord).Error; err != nil {
+						log.Printf("[AUTO-TRACK-ENG] Error actualizando registro del compañero: %v", err)
+					} else {
+						log.Printf("[AUTO-TRACK-ENG] ✅ Actualizado registro para Track Engineer del compañero %d, GP %d: %d pts", teammateTrackEngineer.ID, gpIndex, teammateTrackEngineerPoints)
+					}
+				}
+			}
+		}
+	}
+
+	// 6. Guardar los puntos en la tabla track_engineer_points
+	var existingRecord models.TrackEngineerPoints
+	err := database.DB.Where("track_engineer_id = ? AND gp_index = ? AND session_type = ?",
+		trackEngineer.ID, gpIndex, mode).First(&existingRecord).Error
+
+	if err != nil {
+		// No existe, crear nuevo registro
+		newRecord := models.TrackEngineerPoints{
+			TrackEngineerID: trackEngineer.ID,
+			GPIndex:         gpIndex,
+			PilotID:         &pilotID,
+			PilotPosition:   &finishPos,
+			TeammatePosition: func() *int {
+				if teammatePos > 0 {
+					return &teammatePos
+				}
+				return nil
+			}(),
+			SessionType: mode,
+			Multiplier:  multiplier,
+			BasePoints:  pilotPoints,
+			TotalPoints: trackEngineerPoints,
+		}
+
+		if err := database.DB.Create(&newRecord).Error; err != nil {
+			log.Printf("[AUTO-TRACK-ENG] Error creando registro: %v", err)
+		} else {
+			log.Printf("[AUTO-TRACK-ENG] ✅ Creado registro para Track Engineer %d, GP %d: %d pts", trackEngineer.ID, gpIndex, trackEngineerPoints)
+		}
+	} else {
+		// Existe, actualizar
+		existingRecord.PilotID = &pilotID
+		existingRecord.PilotPosition = &finishPos
+		if teammatePos > 0 {
+			existingRecord.TeammatePosition = &teammatePos
+		}
+		existingRecord.Multiplier = multiplier
+		existingRecord.BasePoints = pilotPoints
+		existingRecord.TotalPoints = trackEngineerPoints
+
+		if err := database.DB.Save(&existingRecord).Error; err != nil {
+			log.Printf("[AUTO-TRACK-ENG] Error actualizando registro: %v", err)
+		} else {
+			log.Printf("[AUTO-TRACK-ENG] ✅ Actualizado registro para Track Engineer %d, GP %d: %d pts", trackEngineer.ID, gpIndex, trackEngineerPoints)
+		}
+	}
+}
+
+// Función para calcular puntos de track engineers manualmente desde el formulario
+func calculateTrackEngineerPointsManually(trackEngineerID uint, pilotID uint, gpIndex uint64, mode string, teammateComparison string) {
+	log.Printf("[MANUAL-TRACK-ENG] Calculando manualmente para track engineer %d, piloto %d, GP %d, mode %s, comparison %s",
+		trackEngineerID, pilotID, gpIndex, mode, teammateComparison)
+
+	// 1. Obtener los puntos del piloto
+	var table string
+	switch mode {
+	case "race":
+		table = "pilot_races"
+	case "qualy":
+		table = "pilot_qualies"
+	case "practice":
+		table = "pilot_practices"
+	default:
+		log.Printf("[MANUAL-TRACK-ENG] Modo inválido: %s", mode)
+		return
+	}
+
+	var pilotResult map[string]interface{}
+	if err := database.DB.Table(table).Where("pilot_id = ? AND gp_index = ?", pilotID, gpIndex).Take(&pilotResult).Error; err != nil {
+		log.Printf("[MANUAL-TRACK-ENG] No se encontraron resultados del piloto %d en %s: %v", pilotID, table, err)
+		return
+	}
+
+	pilotPoints := 0
+	if points, ok := pilotResult["points"].(float64); ok {
+		pilotPoints = int(points)
+	}
+
+	// 2. Calcular multiplicador basado en la selección del formulario
+	multiplier := 0.2 // Default: detrás
+	if teammateComparison == "ahead" {
+		multiplier = 0.5 // Delante del compañero
+	} else {
+		multiplier = 0.2 // Detrás del compañero
+	}
+
+	// 3. Calcular puntos base del Track Engineer (puntos del piloto × multiplicador)
+	baseTrackEngineerPoints := int(float64(pilotPoints) * multiplier)
+
+	// Los puntos finales son los mismos que los base en este caso
+	trackEngineerPoints := baseTrackEngineerPoints
+
+	log.Printf("[MANUAL-TRACK-ENG] Piloto: %d pts | Comparación: %s | Multiplicador: ×%.1f | Track Engineer: %d pts",
+		pilotPoints, teammateComparison, multiplier, trackEngineerPoints)
+
+	// 4. Guardar los puntos en la tabla track_engineer_points
+	var existingRecord models.TrackEngineerPoints
+	err := database.DB.Where("track_engineer_id = ? AND gp_index = ? AND session_type = ?",
+		trackEngineerID, gpIndex, mode).First(&existingRecord).Error
+
+	if err != nil {
+		// No existe, crear nuevo registro
+		newRecord := models.TrackEngineerPoints{
+			TrackEngineerID:  trackEngineerID,
+			GPIndex:          gpIndex,
+			PilotID:          &pilotID,
+			PilotPosition:    nil, // No tenemos posiciones exactas en el formulario manual
+			TeammatePosition: nil,
+			SessionType:      mode,
+			Multiplier:       multiplier,
+			BasePoints:       pilotPoints, // Puntos originales del piloto SIN multiplicar
+			TotalPoints:      trackEngineerPoints,
+		}
+
+		if err := database.DB.Create(&newRecord).Error; err != nil {
+			log.Printf("[MANUAL-TRACK-ENG] Error creando registro: %v", err)
+		} else {
+			log.Printf("[MANUAL-TRACK-ENG] ✅ Creado registro para Track Engineer %d, GP %d: %d pts", trackEngineerID, gpIndex, trackEngineerPoints)
+		}
+	} else {
+		// Existe, actualizar
+		existingRecord.PilotID = &pilotID
+		existingRecord.Multiplier = multiplier
+		existingRecord.BasePoints = pilotPoints // Puntos originales del piloto SIN multiplicar
+		existingRecord.TotalPoints = trackEngineerPoints
+
+		if err := database.DB.Save(&existingRecord).Error; err != nil {
+			log.Printf("[MANUAL-TRACK-ENG] Error actualizando registro: %v", err)
+		} else {
+			log.Printf("[MANUAL-TRACK-ENG] ✅ Actualizado registro para Track Engineer %d, GP %d: %d pts", trackEngineerID, gpIndex, trackEngineerPoints)
+		}
+	}
+}
+
+// Función para calcular puntos de AMBOS track engineers manualmente desde el formulario
+func calculateBothTrackEngineerPointsManually(pilotID uint, teammateID uint, gpIndex uint64, mode string, teammateComparison string) {
+	log.Printf("[MANUAL-BOTH-TRACK-ENG] Calculando para ambos pilotos: %d y %d, GP %d, mode %s, comparison %s",
+		pilotID, teammateID, gpIndex, mode, teammateComparison)
+
+	// Obtener información de ambos pilotos
+	var pilot, teammate models.Pilot
+	database.DB.First(&pilot, pilotID)
+	database.DB.First(&teammate, teammateID)
+
+	// Verificar que ambos tengan track engineers
+	if pilot.TrackEngineerID == 0 {
+		log.Printf("[MANUAL-BOTH-TRACK-ENG] Piloto %d no tiene track engineer asignado", pilotID)
+		return
+	}
+	if teammate.TrackEngineerID == 0 {
+		log.Printf("[MANUAL-BOTH-TRACK-ENG] Compañero %d no tiene track engineer asignado", teammateID)
+		return
+	}
+
+	// Determinar multiplicadores según la comparación
+	var pilotMultiplier, teammateMultiplier float64
+	if teammateComparison == "ahead" {
+		// Piloto original quedó DELANTE
+		pilotMultiplier = 0.5
+		teammateMultiplier = 0.2
+	} else {
+		// Piloto original quedó DETRÁS
+		pilotMultiplier = 0.2
+		teammateMultiplier = 0.5
+	}
+
+	// Calcular puntos para AMBOS pilotos en el modo seleccionado únicamente
+	log.Printf("[MANUAL-BOTH-TRACK-ENG] Procesando modo seleccionado: %s", mode)
+
+	// Calcular puntos para el piloto original
+	calculateSingleTrackEngineerPointsManually(pilot.TrackEngineerID, pilotID, gpIndex, mode, pilotMultiplier)
+
+	// Calcular puntos para el compañero
+	calculateSingleTrackEngineerPointsManually(teammate.TrackEngineerID, teammateID, gpIndex, mode, teammateMultiplier)
+}
+
+// Función para calcular puntos de un solo track engineer
+func calculateSingleTrackEngineerPointsManually(trackEngineerID uint, pilotID uint, gpIndex uint64, mode string, multiplier float64) map[string]interface{} {
+	// 1. Obtener los puntos del piloto desde la tabla correspondiente
+	var table string
+	switch mode {
+	case "race":
+		table = "pilot_races"
+	case "qualy":
+		table = "pilot_qualies"
+	case "practice":
+		table = "pilot_practices"
+	default:
+		log.Printf("[SINGLE-TRACK-ENG] Modo inválido: %s", mode)
+		return nil
+	}
+
+	var pilotResult map[string]interface{}
+	if err := database.DB.Table(table).Where("pilot_id = ? AND gp_index = ?", pilotID, gpIndex).Take(&pilotResult).Error; err != nil {
+		log.Printf("[SINGLE-TRACK-ENG] ⚠️  No se encontraron resultados del piloto %d en %s (GP %d): %v", pilotID, table, gpIndex, err)
+		log.Printf("[SINGLE-TRACK-ENG] ⚠️  Saltando cálculo para este piloto y modo")
+		return nil
+	}
+
+	pilotPoints := 0
+	if points, ok := pilotResult["points"].(float64); ok {
+		pilotPoints = int(points)
+	} else if points, ok := pilotResult["points"].(int64); ok {
+		pilotPoints = int(points)
+	} else if points, ok := pilotResult["points"].(int); ok {
+		pilotPoints = points
+	}
+
+	log.Printf("[SINGLE-TRACK-ENG] 🔍 Piloto %d en %s (GP %d): %d puntos encontrados", pilotID, table, gpIndex, pilotPoints)
+	log.Printf("[SINGLE-TRACK-ENG] 📊 SQL ejecutado: SELECT * FROM %s WHERE pilot_id = %d AND gp_index = %d", table, pilotID, gpIndex)
+
+	// 2. Calcular puntos base del Track Engineer
+	var baseTrackEngineerPoints int
+
+	if pilotPoints < 0 {
+		// Si los puntos son negativos, SIEMPRE usar valor absoluto × 0.2 (independiente del multiplicador)
+		result := float64(-pilotPoints) * 0.2
+		baseTrackEngineerPoints = int(math.Ceil(result))
+		log.Printf("[SINGLE-TRACK-ENG] 📊 Puntos negativos: %d → |%d| × 0.2 = %.2f → ceil = %d",
+			pilotPoints, -pilotPoints, result, baseTrackEngineerPoints)
+	} else {
+		// Si los puntos son positivos, usar multiplicador normal (0.5 o 0.2) y redondear hacia arriba
+		result := float64(pilotPoints) * multiplier
+		baseTrackEngineerPoints = int(math.Ceil(result))
+		log.Printf("[SINGLE-TRACK-ENG] 📊 Puntos positivos: %d × %.1f = %.2f → ceil = %d",
+			pilotPoints, multiplier, result, baseTrackEngineerPoints)
+	}
+
+	trackEngineerPoints := baseTrackEngineerPoints
+
+	log.Printf("[SINGLE-TRACK-ENG] 📊 Piloto %d: %d pts | Track Engineer %d: %d pts CALCULADOS",
+		pilotID, pilotPoints, trackEngineerID, trackEngineerPoints)
+
+	// 3. Guardar los puntos en la tabla track_engineer_points
+	var existingRecord models.TrackEngineerPoints
+	err := database.DB.Where("track_engineer_id = ? AND gp_index = ? AND session_type = ?",
+		trackEngineerID, gpIndex, mode).First(&existingRecord).Error
+
+	if err != nil {
+		// No existe, crear nuevo registro
+		newRecord := models.TrackEngineerPoints{
+			TrackEngineerID:  trackEngineerID,
+			GPIndex:          gpIndex,
+			PilotID:          &pilotID,
+			PilotPosition:    nil,
+			TeammatePosition: nil,
+			SessionType:      mode,
+			Multiplier:       multiplier,
+			BasePoints:       pilotPoints, // Puntos originales del piloto SIN multiplicar
+			TotalPoints:      trackEngineerPoints,
+		}
+
+		if err := database.DB.Create(&newRecord).Error; err != nil {
+			log.Printf("[SINGLE-TRACK-ENG] Error creando registro: %v", err)
+		} else {
+			log.Printf("[SINGLE-TRACK-ENG] ✅ Creado registro para Track Engineer %d, GP %d: %d pts", trackEngineerID, gpIndex, trackEngineerPoints)
+		}
+	} else {
+		// Existe, actualizar
+		existingRecord.PilotID = &pilotID
+		existingRecord.Multiplier = multiplier
+		existingRecord.BasePoints = pilotPoints // Puntos originales del piloto SIN multiplicar
+		existingRecord.TotalPoints = trackEngineerPoints
+
+		if err := database.DB.Save(&existingRecord).Error; err != nil {
+			log.Printf("[SINGLE-TRACK-ENG] Error actualizando registro: %v", err)
+		} else {
+			log.Printf("[SINGLE-TRACK-ENG] ✅ Actualizado registro para Track Engineer %d, GP %d: %d pts", trackEngineerID, gpIndex, trackEngineerPoints)
+		}
+	}
+
+	// Devolver información del cálculo
+	return map[string]interface{}{
+		"track_engineer_id": trackEngineerID,
+		"pilot_id":          pilotID,
+		"gp_index":          gpIndex,
+		"session_type":      mode,
+		"base_points":       baseTrackEngineerPoints,
+		"total_points":      trackEngineerPoints,
+		"multiplier":        multiplier,
+		"pilot_points":      pilotPoints,
+	}
 }
 
 // Función para actualizar puntos totales de un jugador
@@ -9034,13 +10491,49 @@ func updatePlayerTotalPoints(playerID uint, leagueID uint, gpIndex uint64, point
 		return
 	}
 
-	// Sumar los puntos directamente al total
-	playerLeague.TotalPoints += pointsToAdd
+	// Calcular los puntos totales del jugador para este GP específico
+	totalPointsForGP := calculatePlayerTotalPoints(playerID, uint64(leagueID), gpIndex)
 
-	if err := database.DB.Save(&playerLeague).Error; err != nil {
-		log.Printf("Error guardando puntos para player_id=%d, league_id=%d: %v", playerID, leagueID, err)
+	// Actualizar o crear registro en player_points_by_gp
+	var existingRecord struct {
+		ID uint `gorm:"primaryKey"`
+	}
+	err := database.DB.Table("player_points_by_gp").Where("player_id = ? AND league_id = ? AND gp_index = ?", playerID, leagueID, gpIndex).First(&existingRecord).Error
+
+	if err != nil {
+		// No existe, crear nuevo registro
+		err = database.DB.Exec("INSERT INTO player_points_by_gp (player_id, league_id, gp_index, points) VALUES (?, ?, ?, ?)",
+			playerID, leagueID, gpIndex, totalPointsForGP).Error
+		if err != nil {
+			log.Printf("Error creando registro en player_points_by_gp para player_id=%d, league_id=%d, gp_index=%d: %v", playerID, leagueID, gpIndex, err)
+		} else {
+			log.Printf("Creado registro en player_points_by_gp para player_id=%d, league_id=%d, gp_index=%d: %d pts", playerID, leagueID, gpIndex, totalPointsForGP)
+		}
 	} else {
-		log.Printf("Puntos totales actualizados para player_id=%d, league_id=%d: +%d pts (total: %d)", playerID, leagueID, pointsToAdd, playerLeague.TotalPoints)
+		// Existe, actualizar
+		err = database.DB.Exec("UPDATE player_points_by_gp SET points = ? WHERE player_id = ? AND league_id = ? AND gp_index = ?",
+			totalPointsForGP, playerID, leagueID, gpIndex).Error
+		if err != nil {
+			log.Printf("Error actualizando registro en player_points_by_gp para player_id=%d, league_id=%d, gp_index=%d: %v", playerID, leagueID, gpIndex, err)
+		} else {
+			log.Printf("Actualizado registro en player_points_by_gp para player_id=%d, league_id=%d, gp_index=%d: %d pts", playerID, leagueID, gpIndex, totalPointsForGP)
+		}
+	}
+
+	// Recalcular puntos totales sumando todos los GPs
+	var totalPoints int
+	err = database.DB.Raw("SELECT COALESCE(SUM(points), 0) FROM player_points_by_gp WHERE player_id = ? AND league_id = ?", playerID, leagueID).Scan(&totalPoints).Error
+	if err != nil {
+		log.Printf("Error calculando puntos totales para player_id=%d, league_id=%d: %v", playerID, leagueID, err)
+		return
+	}
+
+	// Actualizar TotalPoints en PlayerByLeague
+	playerLeague.TotalPoints = totalPoints
+	if err := database.DB.Save(&playerLeague).Error; err != nil {
+		log.Printf("Error guardando puntos totales para player_id=%d, league_id=%d: %v", playerID, leagueID, err)
+	} else {
+		log.Printf("Puntos totales actualizados para player_id=%d, league_id=%d: %d pts", playerID, leagueID, totalPoints)
 	}
 }
 

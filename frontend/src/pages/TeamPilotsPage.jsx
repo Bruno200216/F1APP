@@ -613,6 +613,26 @@ export default function TeamPilotsPage() {
         
         console.log('🔍 Puntos procesados:', points);
         setCurrentPoints(points);
+        
+        // Cargar puntos individuales de elementos si hay alineación
+        if (data.has_lineup) {
+          // Buscar la alineación correspondiente en el historial
+          let lineupData = lineupHistory.find(l => l.gp_index === gpIndex);
+          
+          // Si no hay historial cargado, cargarlo primero
+          if (!lineupData && lineupHistory.length === 0) {
+            console.log('🔍 Cargando historial de alineaciones...');
+            await loadLineupHistory();
+            lineupData = lineupHistory.find(l => l.gp_index === gpIndex);
+          }
+          
+          if (lineupData) {
+            console.log('🔍 Cargando puntos individuales para GP:', gpIndex);
+            await loadElementPoints(lineupData);
+          } else {
+            console.log('❌ No se encontró alineación para GP:', gpIndex);
+          }
+        }
       } else {
         console.error('Error loading lineup points:', response.status);
         setCurrentPoints({ total: 0 });
@@ -718,6 +738,7 @@ export default function TeamPilotsPage() {
   // Cargar puntos de elementos específicos
   const loadElementPoints = async (gpData) => {
     try {
+      console.log('🚀 Iniciando loadElementPoints para GP:', gpData.gp_index);
       const token = localStorage.getItem('token');
       const points = {};
 
@@ -728,59 +749,100 @@ export default function TeamPilotsPage() {
         ...(gpData.practice_pilots || [])
       ];
 
-      for (const pilotId of allPilots) {
-        const response = await fetch(`/api/lineup/element-points?gp_index=${gpData.gp_index}&element_type=pilot&element_id=${pilotId}`, {
-          headers: {
-            'Authorization': `Bearer ${token}`
-          }
-        });
-        if (response.ok) {
-          const data = await response.json();
-          points[`pilot_${pilotId}`] = data.points;
-        }
-      }
-
-      // Cargar puntos de equipo constructor
-      if (gpData.team_constructor_id) {
-        const response = await fetch(`/api/lineup/element-points?gp_index=${gpData.gp_index}&element_type=team_constructor&element_id=${gpData.team_constructor_id}`, {
-          headers: {
-            'Authorization': `Bearer ${token}`
-          }
-        });
-        if (response.ok) {
-          const data = await response.json();
-          points[`team_constructor_${gpData.team_constructor_id}`] = data.points;
-        }
-      }
-
-      // Cargar puntos de ingeniero jefe
-      if (gpData.chief_engineer_id) {
-        const response = await fetch(`/api/lineup/element-points?gp_index=${gpData.gp_index}&element_type=chief_engineer&element_id=${gpData.chief_engineer_id}`, {
-          headers: {
-            'Authorization': `Bearer ${token}`
-          }
-        });
-        if (response.ok) {
-          const data = await response.json();
-          points[`chief_engineer_${gpData.chief_engineer_id}`] = data.points;
-        }
-      }
-
-      // Cargar puntos de ingenieros de pista
-      if (gpData.track_engineers) {
-        for (const engineerId of gpData.track_engineers) {
-          const response = await fetch(`/api/lineup/element-points?gp_index=${gpData.gp_index}&element_type=track_engineer&element_id=${engineerId}`, {
+      for (const pilotByLeagueId of allPilots) {
+        // Encontrar el piloto base usando el ID de PilotByLeague
+        const pilotByLeague = teamData.pilots.find(p => p.id === pilotByLeagueId);
+        if (pilotByLeague) {
+          console.log(`🔍 Cargando puntos para piloto ${pilotByLeagueId} en GP ${gpData.gp_index}`);
+          const response = await fetch(`/api/lineup/element-points?gp_index=${gpData.gp_index}&element_type=pilot&element_id=${pilotByLeagueId}`, {
             headers: {
               'Authorization': `Bearer ${token}`
             }
           });
           if (response.ok) {
             const data = await response.json();
-            points[`track_engineer_${engineerId}`] = data.points;
+            points[`pilot_${pilotByLeagueId}`] = data.points;
+            console.log(`✅ Piloto ${pilotByLeagueId}: ${data.points} puntos`);
+          } else {
+            console.log(`❌ Error cargando puntos para piloto ${pilotByLeagueId}`);
+          }
+        } else {
+          console.log(`❌ No se encontró piloto con ID ${pilotByLeagueId}`);
+        }
+      }
+
+      // Cargar puntos de equipo constructor
+      if (gpData.team_constructor_id) {
+        // Encontrar el team constructor base usando el ID de TeamConstructorByLeague
+        const teamConstructorByLeague = teamData.team_constructors.find(t => t.id === gpData.team_constructor_id);
+        if (teamConstructorByLeague) {
+          console.log(`🔍 Cargando puntos para team constructor ${gpData.team_constructor_id} en GP ${gpData.gp_index}`);
+          const response = await fetch(`/api/lineup/element-points?gp_index=${gpData.gp_index}&element_type=team_constructor&element_id=${gpData.team_constructor_id}`, {
+            headers: {
+              'Authorization': `Bearer ${token}`
+            }
+          });
+          if (response.ok) {
+            const data = await response.json();
+            points[`team_constructor_${gpData.team_constructor_id}`] = data.points;
+            console.log(`✅ Team Constructor ${gpData.team_constructor_id}: ${data.points} puntos`);
+          } else {
+            console.log(`❌ Error cargando puntos para team constructor ${gpData.team_constructor_id}`);
+          }
+        } else {
+          console.log(`❌ No se encontró team constructor con ID ${gpData.team_constructor_id}`);
+        }
+      }
+
+      // Cargar puntos de ingeniero jefe
+      if (gpData.chief_engineer_id) {
+        // Encontrar el chief engineer base usando el ID de ChiefEngineerByLeague
+        const chiefEngineerByLeague = teamData.chief_engineers.find(e => e.id === gpData.chief_engineer_id);
+        if (chiefEngineerByLeague) {
+          console.log(`🔍 Cargando puntos para chief engineer ${gpData.chief_engineer_id} en GP ${gpData.gp_index}`);
+          const response = await fetch(`/api/lineup/element-points?gp_index=${gpData.gp_index}&element_type=chief_engineer&element_id=${gpData.chief_engineer_id}`, {
+            headers: {
+              'Authorization': `Bearer ${token}`
+            }
+          });
+          if (response.ok) {
+            const data = await response.json();
+            points[`chief_engineer_${gpData.chief_engineer_id}`] = data.points;
+            console.log(`✅ Chief Engineer ${gpData.chief_engineer_id}: ${data.points} puntos`);
+          } else {
+            console.log(`❌ Error cargando puntos para chief engineer ${gpData.chief_engineer_id}`);
+          }
+        } else {
+          console.log(`❌ No se encontró chief engineer con ID ${gpData.chief_engineer_id}`);
+        }
+      }
+
+      // Cargar puntos de ingenieros de pista
+      if (gpData.track_engineers) {
+        for (const engineerByLeagueId of gpData.track_engineers) {
+          // Encontrar el track engineer base usando el ID de TrackEngineerByLeague
+          const trackEngineerByLeague = teamData.track_engineers.find(e => e.id === engineerByLeagueId);
+          if (trackEngineerByLeague) {
+            console.log(`🔍 Cargando puntos para track engineer ${engineerByLeagueId} en GP ${gpData.gp_index}`);
+            const response = await fetch(`/api/lineup/element-points?gp_index=${gpData.gp_index}&element_type=track_engineer&element_id=${engineerByLeagueId}`, {
+              headers: {
+                'Authorization': `Bearer ${token}`
+              }
+            });
+            if (response.ok) {
+              const data = await response.json();
+              points[`track_engineer_${engineerByLeagueId}`] = data.points;
+              console.log(`✅ Track Engineer ${engineerByLeagueId}: ${data.points} puntos`);
+            } else {
+              console.log(`❌ Error cargando puntos para track engineer ${engineerByLeagueId}`);
+            }
+          } else {
+            console.log(`❌ No se encontró track engineer con ID ${engineerByLeagueId}`);
           }
         }
       }
 
+      console.log('📊 ElementPoints cargados:', points);
       setElementPoints(points);
     } catch (error) {
       console.error('Error loading element points:', error);
@@ -2169,117 +2231,156 @@ export default function TeamPilotsPage() {
                   {/* Pilotos de Carrera */}
                   <div>
                     <h4 className="text-small font-semibold text-text-primary mb-3">Carrera</h4>
-                    <div className="space-y-3">
-                      <div className="flex justify-center gap-4">
-                        {currentPoints.has_lineup ? (
-                          // Si hay alineación guardada, mostrar pilotos
-                          historyLineup.race.map((pilot, index) => (
-                            <div key={index} className="w-24 h-24 bg-surface-elevated border-2 border-border rounded-lg flex flex-col items-center justify-center">
-                              {pilot ? (
-                                <>
-                                  <div className="w-12 h-12 rounded-full overflow-hidden mb-2">
-                                    <img
-                                      src={getImageUrl(pilot, 'pilot')}
-                                      alt={pilot.driver_name}
-                                      className="w-full h-full object-cover"
-                                    />
+                    <div className="flex justify-center gap-4">
+                      {currentPoints.has_lineup ? (
+                        [0, 1].map((index) => {
+                          const pilot = historyLineup.race[index] || null;
+                          const pilotId = selectedHistoryGP?.race_pilots?.[index];
+                          const points = pilot && pilotId ? (elementPoints[`pilot_${pilotId}`] || 0) : 0;
+                          console.log(`🔍 Race pilot ${index}: pilotId=${pilotId}, points=${points}, elementPoints key=pilot_${pilotId}`);
+                          console.log(`🔍 selectedHistoryGP:`, selectedHistoryGP);
+                          console.log(`🔍 elementPoints:`, elementPoints);
+                          const getBorderColor = (points) => {
+                            if (points === 0) return '#6B7280'; // Gris
+                            if (points > 0 && points <= 10) return '#10B981'; // Verde claro
+                            if (points > 10 && points <= 20) return '#059669'; // Verde medio
+                            if (points > 20 && points <= 30) return '#047857'; // Verde oscuro
+                            if (points > 30) return '#9D4EDD'; // Morado
+                            return '#EF4444'; // Rojo para puntos negativos
+                          };
+                          
+                          return (
+                            <div key={index} className="flex flex-col items-center">
+                              <div 
+                                className="w-24 h-24 rounded-lg overflow-hidden mb-2"
+                                style={{
+                                  background: pilot ? `linear-gradient(135deg, ${getBorderColor(points)}20, ${getBorderColor(points)}40)` : 'linear-gradient(135deg, #6B728020, #6B728040)',
+                                  border: `2px solid ${pilot ? getBorderColor(points) : '#6B7280'}`,
+                                  boxShadow: `0 0 15px ${pilot ? getBorderColor(points) : '#6B7280'}30`
+                                }}
+                              >
+                                {pilot ? (
+                                  <div className="w-full h-full flex items-center justify-center p-2">
+                                    <div className="w-16 h-16 rounded-full overflow-hidden">
+                                      <img
+                                        src={getImageUrl(pilot, 'pilot')}
+                                        alt={pilot.driver_name}
+                                        className="w-full h-full object-cover"
+                                      />
+                                    </div>
                                   </div>
-                                  <p className="text-caption font-medium text-text-primary text-center">
-                                    {pilot.driver_name || 'Sin piloto'}
-                                  </p>
-                                  <p className="text-caption text-text-secondary text-center">
-                                    {pilot.team || ''}
-                                  </p>
-                                  <p className={`text-caption font-bold mt-1 ${
-                                    elementPoints[`pilot_${selectedHistoryGP?.race_pilots?.[index]}`] > 0
-                                      ? 'text-state-success'
-                                      : elementPoints[`pilot_${selectedHistoryGP?.race_pilots?.[index]}`] < 0
-                                      ? 'text-state-error'
-                                      : 'text-text-secondary'
-                                  }`}>
-                                    {elementPoints[`pilot_${selectedHistoryGP?.race_pilots?.[index]}`] || 0} pts
-                                  </p>
-                                </>
-                              ) : (
-                                <div className="text-center">
-                                  <div className="w-12 h-12 rounded-full bg-surface flex items-center justify-center mb-2">
-                                    <span className="text-text-secondary text-caption">Sin piloto</span>
+                                ) : (
+                                  <div className="w-full h-full flex items-center justify-center">
+                                    <div className="w-16 h-16 rounded-full bg-surface-elevated flex items-center justify-center">
+                                      <span className="text-text-secondary text-caption font-medium"></span>
+                                    </div>
                                   </div>
-                                  <p className="text-caption text-text-secondary">Sin piloto</p>
-                                  <p className="text-caption text-text-secondary">0 pts</p>
-                                </div>
-                              )}
+                                )}
+                              </div>
+                              <p className="text-caption font-bold text-text-primary">
+                                {pilot ? `${points} pts` : '0 pts'}
+                              </p>
                             </div>
-                          ))
-                        ) : (
-                          // Si no hay alineación, mostrar slots vacíos
-                                                  <>
-                          <div className="w-24 h-24 bg-surface-elevated border-2 border-border rounded-lg flex flex-col items-center justify-center">
-                            {/* Cuadrado vacío sin texto */}
+                          );
+                        })
+                      ) : (
+                        // Si no hay alineación, mostrar 2 slots vacíos
+                        [0, 1].map((index) => (
+                          <div key={index} className="flex flex-col items-center">
+                            <div 
+                              className="w-24 h-24 rounded-lg overflow-hidden mb-2"
+                              style={{
+                                background: 'linear-gradient(135deg, #6B728020, #6B728040)',
+                                border: '2px solid #6B7280',
+                                boxShadow: '0 0 15px #6B728030'
+                              }}
+                            >
+                              <div className="w-full h-full flex items-center justify-center">
+                                <div className="w-16 h-16 rounded-full bg-surface-elevated flex items-center justify-center">
+                                  <span className="text-text-secondary text-caption font-medium"></span>
+                                </div>
+                              </div>
+                            </div>
+                            <p className="text-caption font-bold text-text-primary">0 pts</p>
                           </div>
-                          <div className="w-24 h-24 bg-surface-elevated border-2 border-border rounded-lg flex flex-col items-center justify-center">
-                            {/* Cuadrado vacío sin texto */}
-                          </div>
-                        </>
-                        )}
-                      </div>
+                        ))
+                      )}
                     </div>
                   </div>
 
-                                    {/* Pilotos de Clasificación */}
+                  {/* Pilotos de Clasificación */}
                   <div>
                     <h4 className="text-small font-semibold text-text-primary mb-3">Clasificación</h4>
                     <div className="flex justify-center gap-4">
                       {currentPoints.has_lineup ? (
-                        // Si hay alineación guardada, mostrar pilotos
-                        historyLineup.qualifying.map((pilot, index) => (
-                          <div key={index} className="w-24 h-24 bg-surface-elevated border-2 border-border rounded-lg flex flex-col items-center justify-center">
-                            {pilot ? (
-                              <>
-                                <div className="w-12 h-12 rounded-full overflow-hidden mb-2">
-                                  <img
-                                    src={getImageUrl(pilot, 'pilot')}
-                                    alt={pilot.driver_name}
-                                    className="w-full h-full object-cover"
-                                  />
-                                </div>
-                                <p className="text-caption font-medium text-text-primary text-center">
-                                  {pilot.driver_name || 'Sin piloto'}
-                                </p>
-                                <p className="text-caption text-text-secondary text-center">
-                                  {pilot.team || ''}
-                                </p>
-                                <p className={`text-caption font-bold mt-1 ${
-                                  elementPoints[`pilot_${selectedHistoryGP?.qualifying_pilots?.[index]}`] > 0
-                                    ? 'text-state-success'
-                                    : elementPoints[`pilot_${selectedHistoryGP?.qualifying_pilots?.[index]}`] < 0
-                                    ? 'text-state-error'
-                                    : 'text-text-secondary'
-                                }`}>
-                                  {elementPoints[`pilot_${selectedHistoryGP?.qualifying_pilots?.[index]}`] || 0} pts
-                                </p>
-                              </>
-                            ) : (
-                              <div className="text-center">
-                                <div className="w-12 h-12 rounded-full bg-surface flex items-center justify-center mb-2">
-                                  <span className="text-text-secondary text-caption">Sin piloto</span>
-                                </div>
-                                <p className="text-caption text-text-secondary">Sin piloto</p>
-                                <p className="text-caption text-text-secondary">0 pts</p>
+                        [0, 1].map((index) => {
+                          const pilot = historyLineup.qualifying[index] || null;
+                          const pilotId = selectedHistoryGP?.qualifying_pilots?.[index];
+                          const points = pilot && pilotId ? (elementPoints[`pilot_${pilotId}`] || 0) : 0;
+                          const getBorderColor = (points) => {
+                            if (points === 0) return '#6B7280'; // Gris
+                            if (points > 0 && points <= 10) return '#10B981'; // Verde claro
+                            if (points > 10 && points <= 20) return '#059669'; // Verde medio
+                            if (points > 20 && points <= 30) return '#047857'; // Verde oscuro
+                            if (points > 30) return '#9D4EDD'; // Morado
+                            return '#EF4444'; // Rojo para puntos negativos
+                          };
+                          
+                          return (
+                            <div key={index} className="flex flex-col items-center">
+                              <div 
+                                className="w-24 h-24 rounded-lg overflow-hidden mb-2"
+                                style={{
+                                  background: pilot ? `linear-gradient(135deg, ${getBorderColor(points)}20, ${getBorderColor(points)}40)` : 'linear-gradient(135deg, #6B728020, #6B728040)',
+                                  border: `2px solid ${pilot ? getBorderColor(points) : '#6B7280'}`,
+                                  boxShadow: `0 0 15px ${pilot ? getBorderColor(points) : '#6B7280'}30`
+                                }}
+                              >
+                                {pilot ? (
+                                  <div className="w-full h-full flex items-center justify-center p-2">
+                                    <div className="w-16 h-16 rounded-full overflow-hidden">
+                                      <img
+                                        src={getImageUrl(pilot, 'pilot')}
+                                        alt={pilot.driver_name}
+                                        className="w-full h-full object-cover"
+                                      />
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <div className="w-full h-full flex items-center justify-center">
+                                    <div className="w-16 h-16 rounded-full bg-surface-elevated flex items-center justify-center">
+                                      <span className="text-text-secondary text-caption font-medium"></span>
+                                    </div>
+                                  </div>
+                                )}
                               </div>
-                            )}
+                              <p className="text-caption font-bold text-text-primary">
+                                {pilot ? `${points} pts` : '0 pts'}
+                              </p>
+                            </div>
+                          );
+                        })
+                      ) : (
+                        // Si no hay alineación, mostrar 2 slots vacíos
+                        [0, 1].map((index) => (
+                          <div key={index} className="flex flex-col items-center">
+                            <div 
+                              className="w-24 h-24 rounded-lg overflow-hidden mb-2"
+                              style={{
+                                background: 'linear-gradient(135deg, #6B728020, #6B728040)',
+                                border: '2px solid #6B7280',
+                                boxShadow: '0 0 15px #6B728030'
+                              }}
+                            >
+                              <div className="w-full h-full flex items-center justify-center">
+                                <div className="w-16 h-16 rounded-full bg-surface-elevated flex items-center justify-center">
+                                  <span className="text-text-secondary text-caption font-medium"></span>
+                                </div>
+                              </div>
+                            </div>
+                            <p className="text-caption font-bold text-text-primary">0 pts</p>
                           </div>
                         ))
-                      ) : (
-                        // Si no hay alineación, mostrar slots vacíos
-                        <>
-                          <div className="w-24 h-24 bg-surface-elevated border-2 border-border rounded-lg flex flex-col items-center justify-center">
-                            {/* Cuadrado vacío sin texto */}
-                          </div>
-                          <div className="w-24 h-24 bg-surface-elevated border-2 border-border rounded-lg flex flex-col items-center justify-center">
-                            {/* Cuadrado vacío sin texto */}
-                          </div>
-                        </>
                       )}
                     </div>
                   </div>
@@ -2289,55 +2390,74 @@ export default function TeamPilotsPage() {
                     <h4 className="text-small font-semibold text-text-primary mb-3">Práctica</h4>
                     <div className="flex justify-center gap-4">
                       {currentPoints.has_lineup ? (
-                        // Si hay alineación guardada, mostrar pilotos
-                        historyLineup.practice.map((pilot, index) => (
-                          <div key={index} className="w-24 h-24 bg-surface-elevated border-2 border-border rounded-lg flex flex-col items-center justify-center">
-                            {pilot ? (
-                              <>
-                                <div className="w-12 h-12 rounded-full overflow-hidden mb-2">
-                                  <img
-                                    src={getImageUrl(pilot, 'pilot')}
-                                    alt={pilot.driver_name}
-                                    className="w-full h-full object-cover"
-                                  />
-                                </div>
-                                <p className="text-caption font-medium text-text-primary text-center">
-                                  {pilot.driver_name || 'Sin piloto'}
-                                </p>
-                                <p className="text-caption text-text-secondary text-center">
-                                  {pilot.team || ''}
-                                </p>
-                                <p className={`text-caption font-bold mt-1 ${
-                                  elementPoints[`pilot_${selectedHistoryGP?.practice_pilots?.[index]}`] > 0
-                                    ? 'text-state-success'
-                                    : elementPoints[`pilot_${selectedHistoryGP?.practice_pilots?.[index]}`] < 0
-                                    ? 'text-state-error'
-                                    : 'text-text-secondary'
-                                }`}>
-                                  {elementPoints[`pilot_${selectedHistoryGP?.practice_pilots?.[index]}`] || 0} pts
-                                </p>
-                              </>
-                            ) : (
-                              <div className="text-center">
-                                <div className="w-12 h-12 rounded-full bg-surface flex items-center justify-center mb-2">
-                                  <span className="text-text-secondary text-caption">Sin piloto</span>
-                                </div>
-                                <p className="text-caption text-text-secondary">Sin piloto</p>
-                                <p className="text-caption text-text-secondary">0 pts</p>
+                        [0, 1].map((index) => {
+                          const pilot = historyLineup.practice[index] || null;
+                          const pilotId = selectedHistoryGP?.practice_pilots?.[index];
+                          const points = pilot && pilotId ? (elementPoints[`pilot_${pilotId}`] || 0) : 0;
+                          const getBorderColor = (points) => {
+                            if (points === 0) return '#6B7280'; // Gris
+                            if (points > 0 && points <= 10) return '#10B981'; // Verde claro
+                            if (points > 10 && points <= 20) return '#059669'; // Verde medio
+                            if (points > 20 && points <= 30) return '#047857'; // Verde oscuro
+                            if (points > 30) return '#9D4EDD'; // Morado
+                            return '#EF4444'; // Rojo para puntos negativos
+                          };
+                          
+                          return (
+                            <div key={index} className="flex flex-col items-center">
+                              <div 
+                                className="w-24 h-24 rounded-lg overflow-hidden mb-2"
+                                style={{
+                                  background: pilot ? `linear-gradient(135deg, ${getBorderColor(points)}20, ${getBorderColor(points)}40)` : 'linear-gradient(135deg, #6B728020, #6B728040)',
+                                  border: `2px solid ${pilot ? getBorderColor(points) : '#6B7280'}`,
+                                  boxShadow: `0 0 15px ${pilot ? getBorderColor(points) : '#6B7280'}30`
+                                }}
+                              >
+                                {pilot ? (
+                                  <div className="w-full h-full flex items-center justify-center p-2">
+                                    <div className="w-16 h-16 rounded-full overflow-hidden">
+                                      <img
+                                        src={getImageUrl(pilot, 'pilot')}
+                                        alt={pilot.driver_name}
+                                        className="w-full h-full object-cover"
+                                      />
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <div className="w-full h-full flex items-center justify-center">
+                                    <div className="w-16 h-16 rounded-full bg-surface-elevated flex items-center justify-center">
+                                      <span className="text-text-secondary text-caption font-medium"></span>
+                                    </div>
+                                  </div>
+                                )}
                               </div>
-                            )}
+                              <p className="text-caption font-bold text-text-primary">
+                                {pilot ? `${points} pts` : '0 pts'}
+                              </p>
+                            </div>
+                          );
+                        })
+                      ) : (
+                        // Si no hay alineación, mostrar 2 slots vacíos
+                        [0, 1].map((index) => (
+                          <div key={index} className="flex flex-col items-center">
+                            <div 
+                              className="w-24 h-24 rounded-lg overflow-hidden mb-2"
+                              style={{
+                                background: 'linear-gradient(135deg, #6B728020, #6B728040)',
+                                border: '2px solid #6B7280',
+                                boxShadow: '0 0 15px #6B728030'
+                              }}
+                            >
+                              <div className="w-full h-full flex items-center justify-center">
+                                <div className="w-16 h-16 rounded-full bg-surface-elevated flex items-center justify-center">
+                                  <span className="text-text-secondary text-caption font-medium"></span>
+                                </div>
+                              </div>
+                            </div>
+                            <p className="text-caption font-bold text-text-primary">0 pts</p>
                           </div>
                         ))
-                      ) : (
-                        // Si no hay alineación, mostrar slots vacíos
-                        <>
-                          <div className="w-24 h-24 bg-surface-elevated border-2 border-border rounded-lg flex flex-col items-center justify-center">
-                            {/* Cuadrado vacío sin texto */}
-                          </div>
-                          <div className="w-24 h-24 bg-surface-elevated border-2 border-border rounded-lg flex flex-col items-center justify-center">
-                            {/* Cuadrado vacío sin texto */}
-                          </div>
-                        </>
                       )}
                     </div>
                   </div>
@@ -2358,33 +2478,47 @@ export default function TeamPilotsPage() {
                       <div>
                         <h4 className="text-small font-semibold text-text-primary mb-3">Constructor</h4>
                         <div className="flex justify-center">
-                          {currentPoints.has_lineup && historyTeamLineup.team_constructor ? (
-                            <div className="w-24 h-24 bg-surface-elevated border-2 border-border rounded-lg flex flex-col items-center justify-center">
-                              <div className="w-12 h-12 rounded-full overflow-hidden mb-2">
-                                <img
-                                  src={getImageUrl(historyTeamLineup.team_constructor, 'team_constructor')}
-                                  alt={historyTeamLineup.team_constructor.constructor_name}
-                                  className="w-full h-full object-cover"
-                                />
-                              </div>
-                              <p className="text-caption font-medium text-text-primary text-center">
-                                {historyTeamLineup.team_constructor.constructor_name || 'Sin equipo'}
-                              </p>
-                              <p className={`text-caption font-bold mt-1 ${
-                                elementPoints[`team_constructor_${selectedHistoryGP?.team_constructor_id}`] > 0
-                                  ? 'text-state-success'
-                                  : elementPoints[`team_constructor_${selectedHistoryGP?.team_constructor_id}`] < 0
-                                  ? 'text-state-error'
-                                  : 'text-text-secondary'
-                              }`}>
-                                {elementPoints[`team_constructor_${selectedHistoryGP?.team_constructor_id}`] || 0} pts
-                              </p>
-                            </div>
-                          ) : (
-                            <div className="w-24 h-24 bg-surface-elevated border-2 border-border rounded-lg flex flex-col items-center justify-center">
-                              {/* Cuadrado vacío sin texto */}
-                            </div>
-                          )}
+                          {currentPoints.has_lineup ? (
+                            (() => {
+                              const points = elementPoints[`team_constructor_${selectedHistoryGP?.team_constructor_id}`] || 0;
+                              const getBorderColor = (points) => {
+                                if (points === 0) return '#6B7280'; // Gris
+                                if (points > 0 && points <= 10) return '#10B981'; // Verde claro
+                                if (points > 10 && points <= 20) return '#059669'; // Verde medio
+                                if (points > 20 && points <= 30) return '#047857'; // Verde oscuro
+                                if (points > 30) return '#9D4EDD'; // Morado
+                                return '#EF4444'; // Rojo para puntos negativos
+                              };
+                              
+                              return (
+                                <div className="flex flex-col items-center">
+                                  <div 
+                                    className="w-24 h-24 rounded-lg overflow-hidden mb-2"
+                                    style={{
+                                      background: historyTeamLineup.team_constructor ? `linear-gradient(135deg, ${getBorderColor(points)}20, ${getBorderColor(points)}40)` : 'linear-gradient(135deg, #6B728020, #6B728040)',
+                                      border: `2px solid ${historyTeamLineup.team_constructor ? getBorderColor(points) : '#6B7280'}`,
+                                      boxShadow: `0 0 15px ${historyTeamLineup.team_constructor ? getBorderColor(points) : '#6B7280'}30`
+                                    }}
+                                  >
+                                    {historyTeamLineup.team_constructor ? (
+                                      <div className="w-full h-full flex items-center justify-center p-2">
+                                        <div className="w-16 h-16 rounded-full overflow-hidden">
+                                          <img
+                                            src={getImageUrl(historyTeamLineup.team_constructor, 'team_constructor')}
+                                            alt={historyTeamLineup.team_constructor.constructor_name}
+                                            className="w-full h-full object-cover"
+                                          />
+                                        </div>
+                                      </div>
+                                    ) : null}
+                                  </div>
+                                  <p className="text-caption font-bold text-text-primary">
+                                    {historyTeamLineup.team_constructor ? `${points} pts` : '0 pts'}
+                                  </p>
+                                </div>
+                              );
+                            })()
+                          ) : null}
                         </div>
                       </div>
 
@@ -2392,36 +2526,47 @@ export default function TeamPilotsPage() {
                       <div>
                         <h4 className="text-small font-semibold text-text-primary mb-3">Ingeniero Jefe</h4>
                         <div className="flex justify-center">
-                          {currentPoints.has_lineup && historyTeamLineup.chief_engineer ? (
-                            <div className="w-24 h-24 bg-surface-elevated border-2 border-border rounded-lg flex flex-col items-center justify-center">
-                              <div className="w-12 h-12 rounded-full overflow-hidden mb-2">
-                                <img
-                                  src={getImageUrl(historyTeamLineup.chief_engineer, 'chief_engineer')}
-                                  alt={historyTeamLineup.chief_engineer.name}
-                                  className="w-full h-full object-cover"
-                                />
-                              </div>
-                              <p className="text-caption font-medium text-text-primary text-center">
-                                {historyTeamLineup.chief_engineer.name || 'Sin ingeniero'}
-                              </p>
-                              <p className="text-caption text-text-secondary text-center">
-                                {historyTeamLineup.chief_engineer.constructor_name || ''}
-                              </p>
-                              <p className={`text-caption font-bold mt-1 ${
-                                elementPoints[`chief_engineer_${selectedHistoryGP?.chief_engineer_id}`] > 0
-                                  ? 'text-state-success'
-                                  : elementPoints[`chief_engineer_${selectedHistoryGP?.chief_engineer_id}`] < 0
-                                  ? 'text-state-error'
-                                  : 'text-text-secondary'
-                              }`}>
-                                {elementPoints[`chief_engineer_${selectedHistoryGP?.chief_engineer_id}`] || 0} pts
-                              </p>
-                            </div>
-                          ) : (
-                            <div className="w-24 h-24 bg-surface-elevated border-2 border-border rounded-lg flex flex-col items-center justify-center">
-                              {/* Cuadrado vacío sin texto */}
-                            </div>
-                          )}
+                          {currentPoints.has_lineup ? (
+                            (() => {
+                              const points = elementPoints[`chief_engineer_${selectedHistoryGP?.chief_engineer_id}`] || 0;
+                              const getBorderColor = (points) => {
+                                if (points === 0) return '#6B7280'; // Gris
+                                if (points > 0 && points <= 10) return '#10B981'; // Verde claro
+                                if (points > 10 && points <= 20) return '#059669'; // Verde medio
+                                if (points > 20 && points <= 30) return '#047857'; // Verde oscuro
+                                if (points > 30) return '#9D4EDD'; // Morado
+                                return '#EF4444'; // Rojo para puntos negativos
+                              };
+                              
+                              return (
+                                <div className="flex flex-col items-center">
+                                  <div 
+                                    className="w-24 h-24 rounded-lg overflow-hidden mb-2"
+                                    style={{
+                                      background: historyTeamLineup.chief_engineer ? `linear-gradient(135deg, ${getBorderColor(points)}20, ${getBorderColor(points)}40)` : 'linear-gradient(135deg, #6B728020, #6B728040)',
+                                      border: `2px solid ${historyTeamLineup.chief_engineer ? getBorderColor(points) : '#6B7280'}`,
+                                      boxShadow: `0 0 15px ${historyTeamLineup.chief_engineer ? getBorderColor(points) : '#6B7280'}30`
+                                    }}
+                                  >
+                                    {historyTeamLineup.chief_engineer ? (
+                                      <div className="w-full h-full flex items-center justify-center p-2">
+                                        <div className="w-16 h-16 rounded-full overflow-hidden">
+                                          <img
+                                            src={getImageUrl(historyTeamLineup.chief_engineer, 'chief_engineer')}
+                                            alt={historyTeamLineup.chief_engineer.name}
+                                            className="w-full h-full object-cover"
+                                          />
+                                        </div>
+                                      </div>
+                                    ) : null}
+                                  </div>
+                                  <p className="text-caption font-bold text-text-primary">
+                                    {historyTeamLineup.chief_engineer ? `${points} pts` : '0 pts'}
+                                  </p>
+                                </div>
+                              );
+                            })()
+                          ) : null}
                         </div>
                       </div>
 
@@ -2430,52 +2575,46 @@ export default function TeamPilotsPage() {
                         <h4 className="text-small font-semibold text-text-primary mb-3">Ingenieros de Pista</h4>
                         <div className="flex justify-center gap-4">
                           {currentPoints.has_lineup ? (
-                            // Si hay alineación guardada, mostrar ingenieros
-                            historyTeamLineup.track_engineers.map((engineer, index) => (
-                              <div key={index} className="w-24 h-24 bg-surface-elevated border-2 border-border rounded-lg flex flex-col items-center justify-center">
-                                {engineer ? (
-                                  <>
-                                    <div className="w-12 h-12 rounded-full overflow-hidden mb-2">
-                                      <img
-                                        src={getImageUrl(engineer, 'track_engineer')}
-                                        alt={engineer.name}
-                                        className="w-full h-full object-cover"
-                                      />
-                                    </div>
-                                    <p className="text-caption font-medium text-text-primary text-center">
-                                      {engineer.name || 'Sin ingeniero'}
-                                    </p>
-                                    <p className="text-caption text-text-secondary text-center">
-                                      {engineer.constructor_name || ''}
-                                    </p>
-                                    <p className={`text-caption font-bold mt-1 ${
-                                      elementPoints[`track_engineer_${selectedHistoryGP?.track_engineers?.[index]}`] > 0
-                                        ? 'text-state-success'
-                                        : elementPoints[`track_engineer_${selectedHistoryGP?.track_engineers?.[index]}`] < 0
-                                        ? 'text-state-error'
-                                        : 'text-text-secondary'
-                                    }`}>
-                                      {elementPoints[`track_engineer_${selectedHistoryGP?.track_engineers?.[index]}`] || 0} pts
-                                    </p>
-                                  </>
-                                ) : (
-                                  <div className="text-center">
-                                    {/* Cuadrado vacío sin texto */}
+                            historyTeamLineup.track_engineers.map((engineer, index) => {
+                              const points = elementPoints[`track_engineer_${selectedHistoryGP?.track_engineers?.[index]}`] || 0;
+                              const getBorderColor = (points) => {
+                                if (points === 0) return '#6B7280'; // Gris
+                                if (points > 0 && points <= 10) return '#10B981'; // Verde claro
+                                if (points > 10 && points <= 20) return '#059669'; // Verde medio
+                                if (points > 20 && points <= 30) return '#047857'; // Verde oscuro
+                                if (points > 30) return '#9D4EDD'; // Morado
+                                return '#EF4444'; // Rojo para puntos negativos
+                              };
+                              
+                              return (
+                                <div key={index} className="flex flex-col items-center">
+                                  <div 
+                                    className="w-24 h-24 rounded-lg overflow-hidden mb-2"
+                                    style={{
+                                      background: engineer ? `linear-gradient(135deg, ${getBorderColor(points)}20, ${getBorderColor(points)}40)` : 'linear-gradient(135deg, #6B728020, #6B728040)',
+                                      border: `2px solid ${engineer ? getBorderColor(points) : '#6B7280'}`,
+                                      boxShadow: `0 0 15px ${engineer ? getBorderColor(points) : '#6B7280'}30`
+                                    }}
+                                  >
+                                    {engineer ? (
+                                      <div className="w-full h-full flex items-center justify-center p-2">
+                                        <div className="w-16 h-16 rounded-full overflow-hidden">
+                                          <img
+                                            src={getImageUrl(engineer, 'track_engineer')}
+                                            alt={engineer.name}
+                                            className="w-full h-full object-cover"
+                                          />
+                                        </div>
+                                      </div>
+                                    ) : null}
                                   </div>
-                                )}
-                              </div>
-                            ))
-                          ) : (
-                            // Si no hay alineación, mostrar slots vacíos
-                            <>
-                              <div className="w-24 h-24 bg-surface-elevated border-2 border-border rounded-lg flex flex-col items-center justify-center">
-                                {/* Cuadrado vacío sin texto */}
-                              </div>
-                              <div className="w-24 h-24 bg-surface-elevated border-2 border-border rounded-lg flex flex-col items-center justify-center">
-                                {/* Cuadrado vacío sin texto */}
-                              </div>
-                            </>
-                          )}
+                                  <p className="text-caption font-bold text-text-primary">
+                                    {engineer ? `${points} pts` : '0 pts'}
+                                  </p>
+                                </div>
+                              );
+                            })
+                          ) : null}
                         </div>
                       </div>
                     </CardContent>

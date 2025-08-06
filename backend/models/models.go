@@ -185,16 +185,16 @@ type PilotPractice struct {
 // Modelo de Ingeniero de Pista
 
 type TrackEngineer struct {
-	ID          uint      `gorm:"primaryKey"`
-	Name        string    `gorm:"not null"`
-	Value       float64   `gorm:"not null;default:0"`
-	ImageURL    string    `gorm:"not null"`
-	GPIndex     uint64    `gorm:"not null"`
-	Performance bool      `gorm:"not null;default:false"`
-	Team        string    `gorm:"not null"`
-	TotalPoints int       `gorm:"not null;default:0"`
-	PointsByGP  []byte    `gorm:"type:json"`
-	GrandPrix   GrandPrix `gorm:"foreignKey:GPIndex;references:GPIndex"`
+	ID          uint      `json:"id" gorm:"primaryKey"`
+	Name        string    `json:"name" gorm:"not null"`
+	Value       float64   `json:"value" gorm:"not null;default:0"`
+	ImageURL    string    `json:"image_url" gorm:"not null"`
+	GPIndex     uint64    `json:"gp_index" gorm:"not null"`
+	Performance bool      `json:"performance" gorm:"not null;default:false"`
+	Team        string    `json:"team" gorm:"not null"`
+	TotalPoints int       `json:"total_points" gorm:"not null;default:0"`
+	PointsByGP  []byte    `json:"points_by_gp" gorm:"type:json"`
+	GrandPrix   GrandPrix `json:"grand_prix" gorm:"foreignKey:GPIndex;references:GPIndex"`
 }
 
 // Modelo de Ingeniero Jefe
@@ -211,6 +211,22 @@ type ChiefEngineer struct {
 	TotalPoints          int       `gorm:"not null;default:0"`
 	PointsByGP           []byte    `gorm:"type:json"`
 	GrandPrix            GrandPrix `gorm:"foreignKey:GPIndex;references:GPIndex"`
+}
+
+// TrackEngineerPoints: puntos de track engineers por GP
+type TrackEngineerPoints struct {
+	ID               uint      `gorm:"primaryKey"`
+	TrackEngineerID  uint      `gorm:"not null;index:idx_track_engineer_points_engineer"`
+	GPIndex          uint64    `gorm:"not null;index:idx_track_engineer_points_gp"`
+	PilotID          *uint     `gorm:"default:null;index:idx_track_engineer_points_pilot"`
+	PilotPosition    *int      `gorm:"default:null"`
+	TeammatePosition *int      `gorm:"default:null"`
+	SessionType      string    `gorm:"type:varchar(20);not null;default:'race';index:idx_track_engineer_points_session"`
+	Multiplier       float64   `gorm:"type:decimal(3,2);default:1.20"`
+	BasePoints       int       `gorm:"default:0"`
+	TotalPoints      int       `gorm:"default:0"`
+	CreatedAt        time.Time `gorm:"autoCreateTime"`
+	UpdatedAt        time.Time `gorm:"autoUpdateTime"`
 }
 
 // TrackEngineerByLeague: ingeniero de pista por liga

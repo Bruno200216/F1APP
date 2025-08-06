@@ -4,9 +4,10 @@ import { useNavigate } from 'react-router-dom';
 
 // UI Components from design.json style
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
+import { Button } from '../components/ui/button';
 
 // Icons
-import { Trophy, Award, Medal, Crown } from 'lucide-react';
+import { Trophy, Award, Medal, Crown, Flag } from 'lucide-react';
 
 // Utils
 import { formatNumberWithDots } from '../lib/utils';
@@ -17,12 +18,17 @@ export default function ClasificationPage() {
   const [classification, setClassification] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [selectedGP, setSelectedGP] = useState(null);
+  const [availableGPs, setAvailableGPs] = useState([]);
+  const [loadingGPs, setLoadingGPs] = useState(false);
+  const [showGPSelector, setShowGPSelector] = useState(false);
   const playerId = Number(localStorage.getItem('player_id'));
 
   // Fetch classification when selected league changes
   useEffect(() => {
     if (selectedLeague) {
       fetchClassification();
+      fetchAvailableGPs();
     } else {
       setClassification([]);
     }
@@ -44,6 +50,27 @@ export default function ClasificationPage() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const fetchAvailableGPs = async () => {
+    if (!selectedLeague) return;
+    
+    setLoadingGPs(true);
+    try {
+      const res = await fetch('/api/gp/started');
+      const data = await res.json();
+      setAvailableGPs(data.gps || []);
+    } catch (err) {
+      console.error('Error loading GPs:', err);
+    } finally {
+      setLoadingGPs(false);
+    }
+  };
+
+  const handleGPSelection = (gp) => {
+    setSelectedGP(gp);
+    setShowGPSelector(false);
+    // Aquí podrías filtrar la clasificación por GP si es necesario
   };
 
   // Get position icon based on rank
@@ -138,6 +165,66 @@ export default function ClasificationPage() {
           <p className="text-text-secondary text-body">
             League: <span className="text-accent-main font-semibold">{selectedLeague.name}</span>
           </p>
+          
+          {/* GP Selector */}
+          <div className="mt-4 flex items-center justify-center gap-4">
+            <Button
+              variant="outline"
+              onClick={() => setShowGPSelector(!showGPSelector)}
+              className="flex items-center gap-2"
+            >
+              <Flag className="h-4 w-4" />
+              {selectedGP ? selectedGP.name : 'Select Grand Prix'}
+            </Button>
+            
+            {selectedGP && (
+              <Button
+                variant="ghost"
+                onClick={() => setSelectedGP(null)}
+                className="text-text-secondary"
+              >
+                Show Total
+              </Button>
+            )}
+          </div>
+
+          {/* GP List */}
+          {showGPSelector && (
+            <div className="mt-4 max-w-md mx-auto">
+              <Card>
+                <CardContent className="p-4">
+                  <div className="grid grid-cols-1 gap-2 max-h-60 overflow-y-auto">
+                    {availableGPs.map((gp) => (
+                      <Button
+                        key={gp.gp_index}
+                        variant="ghost"
+                        onClick={() => handleGPSelection(gp)}
+                        className={`justify-start text-left ${
+                          selectedGP?.gp_index === gp.gp_index ? 'bg-accent-main/20' : ''
+                        }`}
+                      >
+                        <div className="flex items-center gap-3 w-full">
+                          {gp.flag && (
+                            <img
+                              src={`/images/flags/${gp.flag}`}
+                              alt={gp.country}
+                              className="w-6 h-4 rounded border"
+                            />
+                          )}
+                          <div className="flex-1">
+                            <div className="font-medium text-text-primary">{gp.name}</div>
+                            <div className="text-caption text-text-secondary">
+                              {new Date(gp.start_date).toLocaleDateString()}
+                            </div>
+                          </div>
+                        </div>
+                      </Button>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          )}
         </div>
 
         {/* Classification List */}
@@ -198,9 +285,14 @@ export default function ClasificationPage() {
                         position === 3 ? 'text-amber-600' :
                         isCurrentPlayer ? 'text-accent-main' : 'text-text-primary'
                       }`}>
-                        {player.points}
+                        {selectedGP 
+                          ? (player.points_by_gp && player.points_by_gp[selectedGP.gp_index]) || 0
+                          : player.points
+                        }
                       </div>
-                      <p className="text-text-secondary text-caption">points</p>
+                      <p className="text-text-secondary text-caption">
+                        {selectedGP ? `${selectedGP.name} points` : 'total points'}
+                      </p>
                     </div>
                   </CardContent>
                 </Card>

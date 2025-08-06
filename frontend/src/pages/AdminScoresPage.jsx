@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import { Input } from '../components/ui/input';
 
 // Icons
-import { Settings, ArrowLeft, Save, X, Trophy, Flag, Timer } from 'lucide-react';
+import { Settings, ArrowLeft, Save, X, Trophy, Flag, Timer, RotateCcw } from 'lucide-react';
 
 export default function AdminScoresPage() {
   const [step, setStep] = useState(0); // 0: elegir GP, 1: elegir tipo, 2: elegir modo, 3: posiciones esperadas
@@ -41,30 +41,68 @@ export default function AdminScoresPage() {
   const [selectedTeam, setSelectedTeam] = useState('');
   const [teamForm, setTeamForm] = useState({});
   const [teamSessionSnackbar, setTeamSessionSnackbar] = useState({ open: false, message: '', severity: 'success' });
+  
+  // Estados para track engineers
+  const [trackEngineerForm, setTrackEngineerForm] = useState({});
+  const [trackEngineerSnackbar, setTrackEngineerSnackbar] = useState({ open: false, message: '', severity: 'success' });
+  const [trackEngineers, setTrackEngineers] = useState([]);
+  const [selectedTrackEngineer, setSelectedTrackEngineer] = useState('');
+  const [existingTrackEngineerData, setExistingTrackEngineerData] = useState(null);
 
   const navigate = useNavigate();
 
   useEffect(() => {
     fetch('/api/pilots').then(res => res.json()).then(data => setPilots(data.pilots || []));
     fetch('/api/grand-prix').then(res => res.json()).then(data => setGps(data.gps || []));
+    fetch('/api/track-engineers')
+      .then(res => {
+        console.log('[DEBUG] Track Engineers response status:', res.status);
+        return res.json();
+      })
+      .then(data => {
+        console.log('[DEBUG] Track Engineers response data:', data);
+        console.log('[DEBUG] Track Engineers array:', data.track_engineers);
+        console.log('[DEBUG] Track Engineers length:', data.track_engineers?.length);
+        setTrackEngineers(data.track_engineers || []);
+      })
+      .catch(error => {
+        console.error('[DEBUG] Error loading track engineers:', error);
+        setTrackEngineers([]);
+      });
   }, []);
 
   // Cargar equipos únicos cuando se selecciona un GP
   useEffect(() => {
     if (selectedGP) {
+      console.log('[DEBUG] Cargando equipos para GP:', selectedGP);
       // Obtener team constructors del GP seleccionado
       fetch(`/api/admin/team-constructors?gp_index=${selectedGP}`)
         .then(res => res.json())
         .then(data => {
+          console.log('[DEBUG] Respuesta del endpoint team-constructors:', data);
           const teamNames = data.team_constructors?.map(tc => tc.name) || [];
+          console.log('[DEBUG] Equipos encontrados:', teamNames);
           setTeams(teamNames);
           
           // Inicializar arrays de posiciones (10 posiciones para equipos)
           setTeamExpectedPositions(Array(10).fill(''));
           setTeamFinishPositions(Array(10).fill(''));
+        })
+        .catch(error => {
+          console.error('[DEBUG] Error cargando equipos:', error);
+          setTeams([]);
         });
+    } else {
+      setTeams([]);
     }
   }, [selectedGP]);
+
+  // Cargar datos existentes de track engineer cuando cambian GP, track engineer o modo
+  useEffect(() => {
+    if (selectedGP && selectedTrackEngineer && step === 'track-engineer') {
+      loadExistingTrackEngineerData();
+    }
+  }, [selectedGP, selectedTrackEngineer, step, trackEngineerForm.session_mode]);
 
   // Cargar posiciones existentes cuando se selecciona un paso de equipo
   useEffect(() => {
@@ -552,10 +590,19 @@ export default function AdminScoresPage() {
       const data = await response.json();
       
       if (response.ok) {
+        let severity = 'success';
+        let message = `✅ ${data.message}`;
+        
+        // Si hay alineaciones que ya tenían puntos calculados, mostrar como warning
+        if (data.already_calculated_count && data.already_calculated_count > 0) {
+          severity = 'warning';
+          message = `⚠️ ${data.message}`;
+        }
+        
         setSnackbar({ 
           open: true, 
-          message: `✅ ${data.message}`, 
-          severity: 'success' 
+          message: message, 
+          severity: severity 
         });
       } else {
         // Manejar específicamente el error de puntos ya calculados
@@ -693,6 +740,107 @@ export default function AdminScoresPage() {
     }
   };
 
+  // Funciones de reset para equipos
+  const handleResetTeamExpectedPositions = async () => {
+    if (!selectedGP) {
+      setTeamSnackbar({ open: true, message: 'Por favor selecciona un Grand Prix para resetear posiciones esperadas', severity: 'error' });
+      return;
+    }
+
+    // Confirmar antes de resetear
+    if (!window.confirm(`¿Estás seguro de que quieres resetear las posiciones esperadas de equipos para el GP ${selectedGP}? Esta acción no se puede deshacer.`)) {
+      return;
+    }
+
+    try {
+      const response = await fetch('/api/admin/reset-team-expected-positions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        },
+        body: JSON.stringify({
+          gp_index: parseInt(selectedGP)
+        })
+      });
+
+      const data = await response.json();
+      
+      if (response.ok) {
+        setTeamSnackbar({ 
+          open: true, 
+          message: `✅ ${data.message}`, 
+          severity: 'success' 
+        });
+        // Limpiar el estado local
+        setTeamExpectedPositions(Array(10).fill(''));
+      } else {
+        setTeamSnackbar({ 
+          open: true, 
+          message: `❌ Error: ${data.error}`, 
+          severity: 'error' 
+        });
+      }
+    } catch (error) {
+      console.error('Error resetting team expected positions:', error);
+      setTeamSnackbar({ 
+        open: true, 
+        message: '❌ Error de conexión', 
+        severity: 'error' 
+      });
+    }
+  };
+
+  const handleResetTeamFinishPositions = async () => {
+    if (!selectedGP) {
+      setTeamSnackbar({ open: true, message: 'Por favor selecciona un Grand Prix para resetear posiciones finales', severity: 'error' });
+      return;
+    }
+
+    // Confirmar antes de resetear
+    if (!window.confirm(`¿Estás seguro de que quieres resetear las posiciones finales de equipos para el GP ${selectedGP}? Esta acción no se puede deshacer.`)) {
+      return;
+    }
+
+    try {
+      const response = await fetch('/api/admin/reset-team-finish-positions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        },
+        body: JSON.stringify({
+          gp_index: parseInt(selectedGP)
+        })
+      });
+
+      const data = await response.json();
+      
+      if (response.ok) {
+        setTeamSnackbar({ 
+          open: true, 
+          message: `✅ ${data.message}`, 
+          severity: 'success' 
+        });
+        // Limpiar el estado local
+        setTeamFinishPositions(Array(10).fill(''));
+      } else {
+        setTeamSnackbar({ 
+          open: true, 
+          message: `❌ Error: ${data.error}`, 
+          severity: 'error' 
+        });
+      }
+    } catch (error) {
+      console.error('Error resetting team finish positions:', error);
+      setTeamSnackbar({ 
+        open: true, 
+        message: '❌ Error de conexión', 
+        severity: 'error' 
+      });
+    }
+  };
+
   // Funciones para manejar posiciones de equipos
   const handleTeamExpectedPositionChange = (idx, value) => {
     const updated = teamExpectedPositions.map((team, i) => i === idx ? value : team);
@@ -707,7 +855,9 @@ export default function AdminScoresPage() {
   // Opciones de equipos disponibles para cada fila (sin repetir)
   const getAvailableTeams = idx => {
     const selected = teamExpectedPositions.map((team, i) => i !== idx ? team : null).filter(Boolean);
-    return teams.filter(team => !selected.includes(team));
+    const available = teams.filter(team => !selected.includes(team));
+    console.log('[DEBUG] getAvailableTeams para idx', idx, 'teams:', teams, 'selected:', selected, 'available:', available);
+    return available;
   };
 
   const getAvailableTeamsForFinish = idx => {
@@ -733,10 +883,18 @@ export default function AdminScoresPage() {
       
       const data = await res.json();
       if (res.ok) {
-        setTeamSnackbar({ open: true, message: 'Posiciones esperadas de equipos guardadas', severity: 'success' });
+        let severity = 'success';
+        let message = data.message || 'Posiciones esperadas de equipos guardadas';
+        
+        setTeamSnackbar({ open: true, message: message, severity: severity });
         setTimeout(() => setTeamSnackbar({ open: false, message: '', severity: 'success' }), 3000);
       } else {
-        setTeamSnackbar({ open: true, message: data.error || 'Error al guardar', severity: 'error' });
+        // Manejar específicamente el error de datos ya existentes
+        if (data.error && data.error.includes('Ya existen posiciones esperadas')) {
+          setTeamSnackbar({ open: true, message: `⚠️ ${data.error}`, severity: 'warning' });
+        } else {
+          setTeamSnackbar({ open: true, message: data.error || 'Error al guardar', severity: 'error' });
+        }
         setTimeout(() => setTeamSnackbar({ open: false, message: '', severity: 'error' }), 3000);
       }
     } catch (e) {
@@ -763,10 +921,18 @@ export default function AdminScoresPage() {
       
       const data = await res.json();
       if (res.ok) {
-        setTeamSnackbar({ open: true, message: 'Posiciones finales de equipos guardadas', severity: 'success' });
+        let severity = 'success';
+        let message = data.message || 'Posiciones finales de equipos guardadas';
+        
+        setTeamSnackbar({ open: true, message: message, severity: severity });
         setTimeout(() => setTeamSnackbar({ open: false, message: '', severity: 'success' }), 3000);
       } else {
-        setTeamSnackbar({ open: true, message: data.error || 'Error al guardar', severity: 'error' });
+        // Manejar específicamente el error de datos ya existentes
+        if (data.error && data.error.includes('Ya existen posiciones finales')) {
+          setTeamSnackbar({ open: true, message: `⚠️ ${data.error}`, severity: 'warning' });
+        } else {
+          setTeamSnackbar({ open: true, message: data.error || 'Error al guardar', severity: 'error' });
+        }
         setTimeout(() => setTeamSnackbar({ open: false, message: '', severity: 'error' }), 3000);
       }
     } catch (e) {
@@ -823,6 +989,136 @@ export default function AdminScoresPage() {
     }
   };
 
+  // Funciones para track engineers
+  const handleTrackEngineerFieldChange = (e) => {
+    const { name, value, type, checked } = e.target;
+    setTrackEngineerForm(prev => ({
+      ...prev,
+      [name]: type === 'checkbox' ? checked : value
+    }));
+  };
+
+  const loadExistingTrackEngineerData = async () => {
+    if (!selectedGP || !selectedTrackEngineer) return;
+
+    const selectedMode = trackEngineerForm.session_mode || 'race';
+
+    try {
+      const res = await fetch(`/api/admin/track-engineer-points-existing?gp_index=${selectedGP}&track_engineer_id=${selectedTrackEngineer}&mode=${selectedMode}`);
+      const data = await res.json();
+      
+      console.log('📥 Datos existentes recibidos para modo', selectedMode, ':', data);
+      
+      if (data.exists && data.records && data.records.length > 0) {
+        // Filtrar solo los registros del modo seleccionado
+        const modeRecords = data.records.filter(record => (record.SessionType || record.session_type) === selectedMode);
+        console.log('📊 Records encontrados para modo', selectedMode, ':', modeRecords);
+        
+        if (modeRecords.length > 0) {
+          setExistingTrackEngineerData(modeRecords);
+          // Pre-rellenar el formulario con los datos del primer registro del modo
+          const firstRecord = modeRecords[0];
+          console.log('📋 Primer registro del modo:', firstRecord);
+          console.log('📋 Multiplicador del registro (minúscula):', firstRecord.multiplier);
+          console.log('📋 Multiplicador del registro (mayúscula):', firstRecord.Multiplier);
+          
+          // Lógica corregida: 0.5 = ahead, 0.2 = behind (usar mayúscula para JSON de Go)
+          const multiplier = firstRecord.Multiplier || firstRecord.multiplier;
+          const comparison = multiplier === 0.5 ? 'ahead' : 'behind';
+          console.log('📋 Multiplicador usado:', multiplier);
+          console.log('📋 Comparación calculada:', comparison);
+          
+          setTrackEngineerForm(prev => ({
+            ...prev,
+            teammate_comparison: comparison,
+            session_mode: selectedMode
+          }));
+        } else {
+          console.log('❌ No hay registros para el modo', selectedMode);
+          setExistingTrackEngineerData(null);
+          // Limpiar el formulario si no hay datos para este modo - DEFAULT: DELANTE
+          setTrackEngineerForm(prev => ({
+            ...prev,
+            teammate_comparison: 'ahead', // Default: DELANTE
+            session_mode: selectedMode
+          }));
+        }
+      } else {
+        console.log('❌ No hay datos existentes para modo', selectedMode);
+        setExistingTrackEngineerData(null);
+        // Limpiar el formulario - DEFAULT: DELANTE
+        setTrackEngineerForm(prev => ({
+          ...prev,
+          teammate_comparison: 'ahead', // Default: DELANTE
+          session_mode: selectedMode
+        }));
+      }
+    } catch (error) {
+      console.error('Error loading existing data:', error);
+      setExistingTrackEngineerData(null);
+    }
+  };
+
+  const handleCalculateTrackEngineerPoints = async () => {
+    console.log('🚀 INICIANDO handleCalculateTrackEngineerPoints...');
+    console.log('Selected GP:', selectedGP);
+    console.log('Selected Track Engineer:', selectedTrackEngineer);
+    console.log('Teammate comparison:', trackEngineerForm.teammate_comparison);
+    
+    if (!selectedGP || !selectedTrackEngineer || !trackEngineerForm.teammate_comparison) {
+      setTrackEngineerSnackbar({ open: true, message: 'Por favor selecciona GP, Track Engineer y resultado vs compañero', severity: 'error' });
+      setTimeout(() => setTrackEngineerSnackbar({ open: false, message: '', severity: 'error' }), 3000);
+      return;
+    }
+
+    try {
+      // Buscar el piloto asociado al track engineer
+      const trackEngineer = trackEngineers.find(te => te.id === parseInt(selectedTrackEngineer));
+      if (!trackEngineer) {
+        setTrackEngineerSnackbar({ open: true, message: 'Track Engineer no encontrado', severity: 'error' });
+        setTimeout(() => setTrackEngineerSnackbar({ open: false, message: '', severity: 'error' }), 3000);
+        return;
+      }
+
+      const payload = {
+        gp_index: parseInt(selectedGP),
+        mode: trackEngineerForm.session_mode || 'race', // Usar el modo seleccionado
+        track_engineer_id: parseInt(selectedTrackEngineer),
+        teammate_comparison: trackEngineerForm.teammate_comparison || 'ahead' // Default: DELANTE
+      };
+      
+      console.log('📤 ENVIANDO payload:', payload);
+      
+      const res = await fetch('/api/admin/calculate-track-engineer-points', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      const data = await res.json();
+      console.log('📥 RESPUESTA del backend:', data);
+      
+      if (res.ok) {
+        let message = `✅ ${data.message}`;
+        if (data.details) {
+          message += ` | Puntos: ${data.details.total_points} (×${data.details.multiplier})`;
+        }
+        setTrackEngineerSnackbar({ 
+          open: true, 
+          message: message, 
+          severity: 'success' 
+        });
+        setTimeout(() => setTrackEngineerSnackbar({ open: false, message: '', severity: 'success' }), 5000);
+      } else {
+        setTrackEngineerSnackbar({ open: true, message: data.error || 'Error al calcular puntos', severity: 'error' });
+        setTimeout(() => setTrackEngineerSnackbar({ open: false, message: '', severity: 'error' }), 3000);
+      }
+    } catch (e) {
+      setTrackEngineerSnackbar({ open: true, message: 'Error de red', severity: 'error' });
+      setTimeout(() => setTrackEngineerSnackbar({ open: false, message: '', severity: 'error' }), 3000);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-background p-6">
       <div className="max-w-2xl mx-auto">
@@ -865,6 +1161,14 @@ export default function AdminScoresPage() {
             teamSessionSnackbar.severity === 'success' ? 'bg-state-success' : 'bg-state-error'
           } text-white`}>
             {teamSessionSnackbar.message}
+          </div>
+        )}
+        
+        {trackEngineerSnackbar.open && (
+          <div className={`fixed top-40 right-4 px-4 py-2 rounded-md shadow-lg z-50 ${
+            trackEngineerSnackbar.severity === 'success' ? 'bg-state-success' : 'bg-state-error'
+          } text-white`}>
+            {trackEngineerSnackbar.message}
           </div>
         )}
 
@@ -925,6 +1229,13 @@ export default function AdminScoresPage() {
                     >
                       <Settings className="h-6 w-6" />
                       Team Session Results
+                    </Button>
+                    <Button
+                      onClick={() => setStep('track-engineer')}
+                      className="w-full flex items-center justify-center gap-3 py-4 text-subtitle"
+                    >
+                      <Settings className="h-6 w-6" />
+                      Track Engineer Points
                     </Button>
                   </div>
                 )}
@@ -1003,21 +1314,30 @@ export default function AdminScoresPage() {
                 </div>
                 
                 <Button
-                  onClick={() => setSessionType('practice')}
+                  onClick={() => {
+                    setSessionType('practice');
+                    setStep(2);
+                  }}
                   className="w-full flex items-center justify-center gap-3 py-4 text-subtitle"
                 >
                   <Timer className="h-6 w-6" />
                   Practice
                 </Button>
                 <Button
-                  onClick={() => setSessionType('race')}
+                  onClick={() => {
+                    setSessionType('race');
+                    setStep(2);
+                  }}
                   className="w-full flex items-center justify-center gap-3 py-4 text-subtitle"
                 >
                   <Flag className="h-6 w-6" />
                   Race
                 </Button>
                 <Button
-                  onClick={() => setSessionType('qualy')}
+                  onClick={() => {
+                    setSessionType('qualy');
+                    setStep(2);
+                  }}
                   className="w-full flex items-center justify-center gap-3 py-4 text-subtitle"
                 >
                   <Trophy className="h-6 w-6" />
@@ -1025,7 +1345,7 @@ export default function AdminScoresPage() {
                 </Button>
                 <Button
                   variant="ghost"
-                  onClick={() => setStep(0)}
+                  onClick={() => navigate(-1)}
                   className="w-full flex items-center justify-center gap-2 mt-6"
                 >
                   <ArrowLeft className="h-4 w-4" />
@@ -1065,7 +1385,7 @@ export default function AdminScoresPage() {
                 </Button>
                 <Button
                   variant="ghost"
-                  onClick={() => setStep(0)}
+                  onClick={() => navigate(-1)}
                   className="w-full flex items-center justify-center gap-2 mt-6"
                 >
                   <ArrowLeft className="h-4 w-4" />
@@ -1183,10 +1503,15 @@ export default function AdminScoresPage() {
                   </Button>
                   <Button
                     variant="ghost"
-                    onClick={() => {
-                      setStep(0);
-                      setTeamExpectedPositions(Array(10).fill(''));
-                    }}
+                    onClick={handleResetTeamExpectedPositions}
+                    className="flex-1 flex items-center justify-center gap-2 text-state-warning"
+                  >
+                    <RotateCcw className="h-4 w-4" />
+                    Reset
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    onClick={() => navigate(-1)}
                     className="flex-1 flex items-center justify-center gap-2"
                   >
                     <ArrowLeft className="h-4 w-4" />
@@ -1244,10 +1569,15 @@ export default function AdminScoresPage() {
                   </Button>
                   <Button
                     variant="ghost"
-                    onClick={() => {
-                      setStep(0);
-                      setTeamFinishPositions(Array(10).fill(''));
-                    }}
+                    onClick={handleResetTeamFinishPositions}
+                    className="flex-1 flex items-center justify-center gap-2 text-state-warning"
+                  >
+                    <RotateCcw className="h-4 w-4" />
+                    Reset
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    onClick={() => navigate(-1)}
                     className="flex-1 flex items-center justify-center gap-2"
                   >
                     <ArrowLeft className="h-4 w-4" />
@@ -1366,7 +1696,7 @@ export default function AdminScoresPage() {
             )}
 
             {/* Session Results */}
-            {step === 1 && sessionType && (
+            {step === 2 && sessionType && (
               <div className="space-y-6">
                 <div className="text-center mb-6">
                   <div className="flex items-center justify-center gap-3 mb-2">
@@ -1466,9 +1796,219 @@ export default function AdminScoresPage() {
                 <Button
                   variant="ghost"
                   onClick={() => {
-                    setSessionType('');
+                    setStep(1);
                     setSelectedSessionPilot('');
                     setSessionForm({});
+                  }}
+                  className="w-full flex items-center justify-center gap-2"
+                >
+                  <ArrowLeft className="h-4 w-4" />
+                  Back
+                </Button>
+              </div>
+            )}
+
+            {/* Track Engineer Points */}
+            {step === 'track-engineer' && (
+              <div className="space-y-6">
+                                 <div className="text-center mb-6">
+                   <div className="flex items-center justify-center gap-3 mb-2">
+                     <Settings className="h-6 w-6 text-accent-main" />
+                     <h2 className="text-h2 font-bold text-text-primary">
+                       Track Engineer Points
+                     </h2>
+                   </div>
+                   <p className="text-text-secondary text-body">Calculate points for track engineers in the selected session based on teammate comparison</p>
+                 </div>
+
+                                 <div className="p-4 bg-surface-elevated border border-border rounded-md">
+                   <div className="text-text-primary text-small font-medium mb-2">📋 Instrucciones</div>
+                   <div className="text-text-secondary text-small space-y-1 mb-4">
+                     <p>• Selecciona el <strong>modo de sesión</strong> (race, qualy, practice)</p>
+                     <p>• <strong>Delante del compañero:</strong> puntos piloto × 0.5</p>
+                     <p>• <strong>Detrás del compañero:</strong> |puntos piloto| × 0.2 (valor absoluto)</p>
+                     <p>• <strong>Puntos negativos:</strong> Siempre se usa valor absoluto × 0.2</p>
+                     <p>• <strong>Se crean 2 registros:</strong> piloto + compañero para la sesión seleccionada</p>
+                   </div>
+                 </div>
+
+                <div>
+                  <label className="block text-text-primary text-small font-medium mb-3">
+                    Select Track Engineer
+                  </label>
+                  <select
+                    value={selectedTrackEngineer}
+                    onChange={(e) => setSelectedTrackEngineer(e.target.value)}
+                    className="w-full p-3 bg-surface-elevated border border-border rounded-md text-text-primary focus:border-accent-main focus:outline-none"
+                  >
+                    <option value="">Choose a track engineer...</option>
+                    {console.log('[DEBUG] Rendering trackEngineers:', trackEngineers)}
+                    {trackEngineers.map(te => {
+                      console.log('[DEBUG] Rendering track engineer:', te);
+                      return (
+                        <option key={te.id} value={te.id}>
+                          {te.name} ({te.pilot_name})
+                        </option>
+                      );
+                    })}
+                  </select>
+                  
+                  {trackEngineers.length === 0 && (
+                    <div className="mt-2">
+                      <Button
+                        onClick={async () => {
+                          try {
+                            const res = await fetch('/api/admin/seed-track-engineers', {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' }
+                            });
+                            const data = await res.json();
+                            setTrackEngineerSnackbar({ open: true, message: data.message, severity: 'success' });
+                            setTimeout(() => setTrackEngineerSnackbar({ open: false, message: '', severity: 'success' }), 3000);
+                            // Recargar track engineers
+                            fetch('/api/track-engineers')
+                              .then(res => res.json())
+                              .then(data => setTrackEngineers(data.track_engineers || []));
+                          } catch (e) {
+                            setTrackEngineerSnackbar({ open: true, message: 'Error creando datos', severity: 'error' });
+                            setTimeout(() => setTrackEngineerSnackbar({ open: false, message: '', severity: 'error' }), 3000);
+                          }
+                        }}
+                        variant="outline"
+                        className="w-full text-small"
+                      >
+                        Crear Track Engineers de Ejemplo
+                      </Button>
+                    </div>
+                  )}
+                </div>
+
+                                 {selectedTrackEngineer && (
+                   <Card className="bg-surface-elevated">
+                     <CardContent className="p-4 space-y-4">
+                                               <div className="p-3 bg-accent-main/10 border border-accent-main/20 rounded-md">
+                          <div className="text-text-primary text-small font-medium mb-2">🏁 Modo: Carrera (Race)</div>
+                          <div className="text-text-secondary text-small">
+                            Este formulario solo calcula puntos para resultados de carrera.
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="block text-text-primary text-small font-medium mb-2">
+                            Modo de Sesión
+                          </label>
+                          <select
+                            name="session_mode"
+                            value={trackEngineerForm.session_mode || 'race'}
+                            onChange={handleTrackEngineerFieldChange}
+                            className="w-full p-2 bg-surface border border-border rounded-md text-text-primary focus:border-accent-main focus:outline-none"
+                          >
+                            <option value="race">Race (Carrera)</option>
+                            <option value="qualy">Qualifying (Clasificación)</option>
+                            <option value="practice">Practice (Entrenamientos)</option>
+                          </select>
+                        </div>
+
+                        <div>
+                          <label className="block text-text-primary text-small font-medium mb-2">
+                            Resultado vs Compañero de Equipo
+                          </label>
+                          <select
+                            name="teammate_comparison"
+                            value={trackEngineerForm.teammate_comparison || 'ahead'}
+                            onChange={handleTrackEngineerFieldChange}
+                            className="w-full p-2 bg-surface border border-border rounded-md text-text-primary focus:border-accent-main focus:outline-none"
+                          >
+                                                     <option value="ahead">Quedó DELANTE del compañero (puntos × 0.5)</option>
+                         <option value="behind">Quedó DETRÁS del compañero (|puntos| × 0.2)</option>
+                          </select>
+                        </div>
+
+                                             <div className="p-3 bg-accent-main/10 border border-accent-main/20 rounded-md">
+                         <div className="text-text-primary text-small font-medium mb-2">ℹ️ Información del Track Engineer</div>
+                         <div className="space-y-1 text-small">
+                           <div className="flex justify-between">
+                             <span className="text-text-secondary">Track Engineer:</span>
+                             <span className="text-text-primary font-medium">
+                               {trackEngineers.find(te => te.id === parseInt(selectedTrackEngineer))?.name}
+                             </span>
+                           </div>
+                           <div className="flex justify-between">
+                             <span className="text-text-secondary">Piloto asociado:</span>
+                             <span className="text-text-primary font-medium">
+                               {trackEngineers.find(te => te.id === parseInt(selectedTrackEngineer))?.pilot_name || 'No encontrado'}
+                             </span>
+                           </div>
+                           <div className="flex justify-between">
+                             <span className="text-text-secondary">Equipo:</span>
+                             <span className="text-text-primary font-medium">
+                               {trackEngineers.find(te => te.id === parseInt(selectedTrackEngineer))?.team || 'No encontrado'}
+                             </span>
+                           </div>
+                           <div className="flex justify-between">
+                             <span className="text-text-secondary">Compañero de equipo:</span>
+                             <span className="text-text-primary font-medium">
+                               {(() => {
+                                 const selectedTE = trackEngineers.find(te => te.id === parseInt(selectedTrackEngineer));
+                                 if (!selectedTE) return 'No encontrado';
+                                 const pilot = pilots.find(p => p.track_engineer_id === selectedTE.id);
+                                 if (!pilot) return 'No encontrado';
+                                 const teammate = pilots.find(p => p.team === pilot.team && p.mode === pilot.mode && p.id !== pilot.id);
+                                 return teammate ? teammate.driver_name : 'No encontrado';
+                               })()}
+                             </span>
+                           </div>
+                         </div>
+                       </div>
+
+                       {existingTrackEngineerData && Array.isArray(existingTrackEngineerData) && existingTrackEngineerData.length > 0 && (
+                         <div className="p-3 bg-state-success/10 border border-state-success/20 rounded-md">
+                           <div className="text-text-primary text-small font-medium mb-2">📊 Datos Existentes ({existingTrackEngineerData.length} registros)</div>
+                           <div className="space-y-2">
+                             {existingTrackEngineerData.filter(record => record && typeof record === 'object').map((record, index) => (
+                                                                <div key={index} className="p-2 bg-surface border border-border rounded text-small">
+                                   <div className="font-medium text-accent-main mb-1">
+                                     {(record.SessionType || record.session_type) ? (record.SessionType || record.session_type).toUpperCase() : 'UNKNOWN'}
+                                   </div>
+                                 <div className="grid grid-cols-2 gap-2">
+                                   <div>
+                                     <span className="text-text-secondary">Puntos base:</span>
+                                     <span className="text-text-primary font-medium ml-1">{record.BasePoints || record.base_points || 0}</span>
+                                   </div>
+                                   <div>
+                                     <span className="text-text-secondary">Total:</span>
+                                     <span className="text-text-primary font-medium ml-1">{record.TotalPoints || record.total_points || 0}</span>
+                                   </div>
+                                                                        <div className="col-span-2">
+                                       <span className="text-text-secondary">Estado:</span>
+                                       <span className="text-text-primary font-medium ml-1">
+                                         {(record.Multiplier || record.multiplier) === 0.5 ? 'Delante del compañero (×0.5)' : 'Detrás del compañero (×0.2)'}
+                                       </span>
+                                     </div>
+                                 </div>
+                               </div>
+                             ))}
+                           </div>
+                         </div>
+                       )}
+
+                                             <Button
+                         onClick={handleCalculateTrackEngineerPoints}
+                         className="w-full flex items-center justify-center gap-2 mt-6"
+                       >
+                         <Save className="h-4 w-4" />
+                         {existingTrackEngineerData ? 'Actualizar Puntos (2 Pilotos)' : 'Calcular Puntos (2 Pilotos)'}
+                       </Button>
+                    </CardContent>
+                  </Card>
+                )}
+
+                <Button
+                  variant="ghost"
+                  onClick={() => {
+                    setStep(0);
+                    setSelectedTrackEngineer('');
+                    setTrackEngineerForm({});
                   }}
                   className="w-full flex items-center justify-center gap-2"
                 >
