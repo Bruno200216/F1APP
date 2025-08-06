@@ -5,6 +5,7 @@ import { Card, CardContent } from './ui/card';
 import { Avatar, AvatarImage, AvatarFallback } from './ui/avatar';
 import { Button } from './ui/button';
 import { TrendingUp } from 'lucide-react';
+import ClausulaTimer from './ClausulaTimer';
 
 export default function EngineerCard({ 
   engineer, 
@@ -110,6 +111,15 @@ export default function EngineerCard({
               >
                 {type === 'chief' ? 'C' : 'T'}
               </div>
+              
+              {/* Clause timer */}
+              {(engineer.clausulatime || engineer.clausula_expires_at) && (
+                <ClausulaTimer
+                  clausulaTime={engineer.clausulatime || engineer.clausula_expires_at}
+                  clausulaValue={engineer.clausula_value}
+                  compact={true}
+                />
+              )}
             </div>
 
             {/* Team name - más prominente */}

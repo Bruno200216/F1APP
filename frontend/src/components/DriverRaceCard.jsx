@@ -7,6 +7,7 @@ import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { Lock, TrendingUp, Users } from 'lucide-react';
 import ClausulaBadge from './ClausulaBadge';
+import ClausulaTimer from './ClausulaTimer';
 
 export function goToDriverProfile(navigate, driver, leagueId) {
   if (!driver || !driver.driver_code || !leagueId) return;
@@ -118,7 +119,13 @@ export default function DriverRaceCard({
               </div>
 
               {/* Clause indicator */}
-              <ClausulaBadge daysLeft={clausulaDias} clausulaValue={driver.clausula_value} />
+              {(driver.clausulatime || driver.clausula_expires_at) && (
+                <ClausulaTimer
+                  clausulaTime={driver.clausulatime || driver.clausula_expires_at}
+                  clausulaValue={driver.clausula_value}
+                  compact={true}
+                />
+              )}
             </div>
 
             {/* Team name */}

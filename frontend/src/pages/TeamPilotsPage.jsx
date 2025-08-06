@@ -18,6 +18,8 @@ import { Users, Settings, Trophy, AlertCircle, Plus, Trash2, X } from 'lucide-re
 // Existing components (will be phased out)
 import DriverRaceCard from '../components/DriverRaceCard';
 import EngineerRaceCard from '../components/EngineerRaceCard';
+import PlayerItemActions from '../components/PlayerItemActions';
+import UpgradeClausulaModal from '../components/UpgradeClausulaModal';
 import TeamRaceCard from '../components/TeamRaceCard';
 import EngineerActionsMenu from '../components/EngineerActionsMenu';
 import TeamConstructorActionsMenu from '../components/TeamConstructorActionsMenu';
@@ -167,6 +169,12 @@ export default function TeamPilotsPage() {
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
   const [snackbarTimeout, setSnackbarTimeout] = useState(null);
   const [loadingSell, setLoadingSell] = useState(false);
+  
+  // Estados para el modal de subir cláusula
+  const [openUpgradeClausulaModal, setOpenUpgradeClausulaModal] = useState(false);
+  const [loadingUpgradeClausula, setLoadingUpgradeClausula] = useState(false);
+  const [selectedUpgradeItem, setSelectedUpgradeItem] = useState(null);
+  const [selectedUpgradeType, setSelectedUpgradeType] = useState('pilot');
 
 
 
@@ -295,7 +303,11 @@ export default function TeamPilotsPage() {
             pilots: normalizedPilots,
             track_engineers: normalizedTrackEngineers,
             chief_engineers: normalizedChiefEngineers,
-            team_constructors: normalizedTeamConstructors
+            team_constructors: normalizedTeamConstructors,
+            money: teamData.team.money || 0,
+            player_id: teamData.team.player_id,
+            league_id: teamData.team.league_id,
+            team_value: teamData.team.team_value || 0
           });
           setDrivers(normalizedPilots);
         } else {
@@ -303,7 +315,11 @@ export default function TeamPilotsPage() {
             pilots: [],
             track_engineers: [],
             chief_engineers: [],
-            team_constructors: []
+            team_constructors: [],
+            money: 0,
+            player_id: null,
+            league_id: null,
+            team_value: 0
           });
           setDrivers([]);
         }
@@ -1184,6 +1200,152 @@ export default function TeamPilotsPage() {
     setOpenSellModal(true);
   };
 
+  const handleActivateClausula = async (item, type = 'pilot') => {
+    const playerId = Number(localStorage.getItem('player_id'));
+    const isOwnItem = item.owner_id === playerId;
+    
+    if (isOwnItem) {
+      // Es nuestro elemento, abrir modal para subir cláusula
+      setSelectedUpgradeItem(item);
+      setSelectedUpgradeType(type);
+      setOpenUpgradeClausulaModal(true);
+      return;
+    }
+
+    // Es de otro jugador, intentar activar cláusula
+    if (!item.clausula_value || item.clausula_value <= 0) {
+      showSnackbar('Este elemento no tiene cláusula disponible', 'error');
+      return;
+    }
+
+    // Verificar que la cláusula haya expirado
+    let clausulaDias = null;
+    if (item.clausulatime || item.clausula_expires_at) {
+      const expira = new Date(item.clausulatime || item.clausula_expires_at);
+      const ahora = new Date();
+      const diff = expira - ahora;
+      if (diff > 0) {
+        clausulaDias = Math.ceil(diff / (1000 * 60 * 60 * 24));
+        showSnackbar(`La cláusula aún está activa por ${clausulaDias} días más`, 'error');
+        return;
+      }
+    }
+
+    const confirmMessage = `¿Confirmas que quieres activar la cláusula de rescate por €${formatNumberWithDots(item.clausula_value)}?`;
+    if (!window.confirm(confirmMessage)) {
+      return;
+    }
+
+    const token = localStorage.getItem('token');
+    try {
+      const cleanToken = token ? token.trim() : '';
+      const authHeader = cleanToken ? `Bearer ${cleanToken}` : '';
+      
+      const res = await fetch(`/api/${type}/activate-clausula`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': authHeader
+        },
+        body: JSON.stringify({
+          item_id: item.id,
+          league_id: selectedLeague.id,
+          clausula_value: item.clausula_value
+        })
+      });
+      
+      const data = await res.json();
+      
+      if (res.ok) {
+        showSnackbar('Cláusula activada correctamente', 'success');
+        // Refresh team data
+        const player_id = localStorage.getItem('player_id');
+        const teamRes = await fetch(`/api/players/${player_id}/team?league_id=${selectedLeague.id}`);
+        const newTeamData = await teamRes.json();
+        if (newTeamData.team) {
+          setTeamData({
+            pilots: newTeamData.team.pilots || [],
+            track_engineers: newTeamData.team.track_engineers || [],
+            chief_engineers: newTeamData.team.chief_engineers || [],
+            team_constructors: newTeamData.team.team_constructors || [],
+            money: newTeamData.team.money || 0,
+            player_id: newTeamData.team.player_id,
+            league_id: newTeamData.team.league_id,
+            team_value: newTeamData.team.team_value || 0
+          });
+        }
+      } else {
+        showSnackbar(data.error || 'Error al activar la cláusula', 'error');
+      }
+    } catch (err) {
+      showSnackbar('Error de conexión', 'error');
+    }
+  };
+
+  const handleUpgradeClausula = async (upgradeAmount) => {
+    if (!selectedUpgradeItem || upgradeAmount <= 0) {
+      showSnackbar('Datos inválidos', 'error');
+      return;
+    }
+
+    setLoadingUpgradeClausula(true);
+    const token = localStorage.getItem('token');
+    
+    try {
+      const cleanToken = token ? token.trim() : '';
+      const authHeader = cleanToken ? `Bearer ${cleanToken}` : '';
+      
+      const res = await fetch(`/api/${selectedUpgradeType}/upgrade-clausula`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': authHeader
+        },
+        body: JSON.stringify({
+          item_id: selectedUpgradeItem.id,
+          league_id: selectedLeague.id,
+          upgrade_amount: upgradeAmount
+        })
+      });
+      
+      const data = await res.json();
+      
+      if (res.ok) {
+        showSnackbar(`Cláusula subida correctamente. Nuevo valor: €${formatNumberWithDots(data.new_clausula_value)}`, 'success');
+        handleCloseUpgradeClausulaModal();
+        
+        // Refresh team data
+        const player_id = localStorage.getItem('player_id');
+        const teamRes = await fetch(`/api/players/${player_id}/team?league_id=${selectedLeague.id}`);
+        const newTeamData = await teamRes.json();
+        if (newTeamData.team) {
+          setTeamData({
+            pilots: newTeamData.team.pilots || [],
+            track_engineers: newTeamData.team.track_engineers || [],
+            chief_engineers: newTeamData.team.chief_engineers || [],
+            team_constructors: newTeamData.team.team_constructors || [],
+            money: newTeamData.team.money || 0,
+            player_id: newTeamData.team.player_id,
+            league_id: newTeamData.team.league_id,
+            team_value: newTeamData.team.team_value || 0
+          });
+        }
+      } else {
+        showSnackbar(data.error || 'Error al subir la cláusula', 'error');
+      }
+    } catch (err) {
+      showSnackbar('Error de conexión', 'error');
+    } finally {
+      setLoadingUpgradeClausula(false);
+    }
+  };
+
+  const handleCloseUpgradeClausulaModal = () => {
+    setOpenUpgradeClausulaModal(false);
+    setSelectedUpgradeItem(null);
+    setSelectedUpgradeType('pilot');
+  };
+
   const handleCloseSellModal = () => {
     setOpenSellModal(false);
     setSellPrice('');
@@ -1271,7 +1433,11 @@ export default function TeamPilotsPage() {
             pilots: newTeamData.team.pilots || [],
             track_engineers: newTeamData.team.track_engineers || [],
             chief_engineers: newTeamData.team.chief_engineers || [],
-            team_constructors: newTeamData.team.team_constructors || []
+            team_constructors: newTeamData.team.team_constructors || [],
+            money: newTeamData.team.money || 0,
+            player_id: newTeamData.team.player_id,
+            league_id: newTeamData.team.league_id,
+            team_value: newTeamData.team.team_value || 0
           });
         }
       } else {
@@ -1824,15 +1990,12 @@ export default function TeamPilotsPage() {
                         </p>
                       )}
                     </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={e => { e.stopPropagation(); handleAddToMarket(driver, 'pilot'); }}
-                      className="flex items-center gap-2 border-accent-main text-accent-main hover:bg-accent-main/10"
-                    >
-                      <Plus className="h-4 w-4" />
-                      Vender
-                    </Button>
+                    <PlayerItemActions
+                      item={driver}
+                      type="pilot"
+                      onSell={handleAddToMarket}
+                      onActivateClausula={handleActivateClausula}
+                    />
                   </div>
                 );
               })}
@@ -1913,15 +2076,12 @@ export default function TeamPilotsPage() {
                         €{formatNumberWithDots(engineer.value)}
                       </p>
                     </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={e => { e.stopPropagation(); handleAddToMarket(engineer, 'track_engineer'); }}
-                      className="flex items-center gap-2 border-accent-main text-accent-main hover:bg-accent-main/10"
-                    >
-                      <Plus className="h-4 w-4" />
-                      Vender
-                    </Button>
+                    <PlayerItemActions
+                      item={engineer}
+                      type="track_engineer"
+                      onSell={handleAddToMarket}
+                      onActivateClausula={handleActivateClausula}
+                    />
                   </div>
                 );
               })}
@@ -2002,15 +2162,12 @@ export default function TeamPilotsPage() {
                         €{formatNumberWithDots(engineer.value)}
                       </p>
                     </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={e => { e.stopPropagation(); handleAddToMarket(engineer, 'chief_engineer'); }}
-                      className="flex items-center gap-2 border-accent-main text-accent-main hover:bg-accent-main/10"
-                    >
-                      <Plus className="h-4 w-4" />
-                      Vender
-                    </Button>
+                    <PlayerItemActions
+                      item={engineer}
+                      type="chief_engineer"
+                      onSell={handleAddToMarket}
+                      onActivateClausula={handleActivateClausula}
+                    />
                   </div>
                 );
               })}
@@ -2090,15 +2247,12 @@ export default function TeamPilotsPage() {
                         €{formatNumberWithDots(team.value)}
                       </p>
                     </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={e => { e.stopPropagation(); handleAddToMarket(team, 'team_constructor'); }}
-                      className="flex items-center gap-2 border-accent-main text-accent-main hover:bg-accent-main/10"
-                    >
-                      <Plus className="h-4 w-4" />
-                      Vender
-                    </Button>
+                    <PlayerItemActions
+                      item={team}
+                      type="team_constructor"
+                      onSell={handleAddToMarket}
+                      onActivateClausula={handleActivateClausula}
+                    />
                   </div>
                 );
               })}
@@ -2910,6 +3064,17 @@ export default function TeamPilotsPage() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Modal de Subir Cláusula */}
+      <UpgradeClausulaModal
+        isOpen={openUpgradeClausulaModal}
+        onClose={handleCloseUpgradeClausulaModal}
+        item={selectedUpgradeItem}
+        type={selectedUpgradeType}
+        onConfirm={handleUpgradeClausula}
+        isLoading={loadingUpgradeClausula}
+        playerMoney={teamData.money || 0}
+      />
 
       {/* Snackbar */}
       {snackbar.open && (

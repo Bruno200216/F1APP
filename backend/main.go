@@ -5181,7 +5181,13 @@ func main() {
 
 	// Endpoint para obtener el historial de actividad de mercado
 	router.GET("/api/activity", func(c *gin.Context) {
-		// Últimas 50 transacciones
+		leagueID := c.Query("league_id")
+		if leagueID == "" {
+			c.JSON(400, gin.H{"error": "Falta league_id"})
+			return
+		}
+
+		// Últimas 50 transacciones de la liga específica
 		var results []struct {
 			Tipo        string
 			ValorPagado float64
@@ -5199,9 +5205,10 @@ func main() {
 			LEFT JOIN pilots p ON h.pilot_id = p.id
 			LEFT JOIN players pl ON h.player_id = pl.id
 			LEFT JOIN players cp ON h.counterparty_id = cp.id
+			WHERE h.league_id = ?
 			ORDER BY h.fecha DESC
 			LIMIT 50
-		`).Scan(&results)
+		`, leagueID).Scan(&results)
 		c.JSON(200, gin.H{"history": results})
 	})
 
@@ -9177,6 +9184,126 @@ func main() {
 		}
 
 		c.JSON(200, gin.H{"message": "Cláusula activada correctamente"})
+	})
+
+	// Endpoint para subir cláusula (solo para elementos propios)
+	router.POST("/api/:item_type/upgrade-clausula", authMiddleware(), func(c *gin.Context) {
+		itemType := c.Param("item_type")
+		var req struct {
+			ItemID        uint    `json:"item_id"`
+			LeagueID      uint    `json:"league_id"`
+			UpgradeAmount float64 `json:"upgrade_amount"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(400, gin.H{"error": "Datos inválidos"})
+			return
+		}
+		userID := c.GetUint("user_id")
+
+		// Verificar que el usuario tiene suficiente dinero
+		var playerLeague models.PlayerByLeague
+		if err := database.DB.Where("player_id = ? AND league_id = ?", userID, req.LeagueID).First(&playerLeague).Error; err != nil {
+			c.JSON(404, gin.H{"error": "Jugador no encontrado"})
+			return
+		}
+
+		if playerLeague.Money < req.UpgradeAmount {
+			c.JSON(400, gin.H{"error": "No tienes suficiente dinero"})
+			return
+		}
+
+		// Subir cláusula según el tipo de elemento
+		var newClausulaValue float64
+		switch itemType {
+		case "pilot":
+			var pbl models.PilotByLeague
+			if err := database.DB.First(&pbl, req.ItemID).Error; err != nil {
+				c.JSON(404, gin.H{"error": "Piloto no encontrado"})
+				return
+			}
+			// Verificar que es el propietario
+			if pbl.OwnerID != userID {
+				c.JSON(403, gin.H{"error": "Solo puedes subir la cláusula de tus propios elementos"})
+				return
+			}
+			// Calcular nueva cláusula (se suma el doble del monto invertido)
+			currentClausula := float64(0)
+			if pbl.ClausulaValue != nil {
+				currentClausula = *pbl.ClausulaValue
+			}
+			newClausulaValue = currentClausula + (req.UpgradeAmount * 2)
+			pbl.ClausulaValue = &newClausulaValue
+			database.DB.Save(&pbl)
+
+		case "track_engineer":
+			var teb models.TrackEngineerByLeague
+			if err := database.DB.First(&teb, req.ItemID).Error; err != nil {
+				c.JSON(404, gin.H{"error": "Track Engineer no encontrado"})
+				return
+			}
+			if teb.OwnerID != userID {
+				c.JSON(403, gin.H{"error": "Solo puedes subir la cláusula de tus propios elementos"})
+				return
+			}
+			currentClausula := float64(0)
+			if teb.ClausulaValue != nil {
+				currentClausula = *teb.ClausulaValue
+			}
+			newClausulaValue = currentClausula + (req.UpgradeAmount * 2)
+			teb.ClausulaValue = &newClausulaValue
+			database.DB.Save(&teb)
+
+		case "chief_engineer":
+			var ceb models.ChiefEngineerByLeague
+			if err := database.DB.First(&ceb, req.ItemID).Error; err != nil {
+				c.JSON(404, gin.H{"error": "Chief Engineer no encontrado"})
+				return
+			}
+			if ceb.OwnerID != userID {
+				c.JSON(403, gin.H{"error": "Solo puedes subir la cláusula de tus propios elementos"})
+				return
+			}
+			currentClausula := float64(0)
+			if ceb.ClausulaValue != nil {
+				currentClausula = *ceb.ClausulaValue
+			}
+			newClausulaValue = currentClausula + (req.UpgradeAmount * 2)
+			ceb.ClausulaValue = &newClausulaValue
+			database.DB.Save(&ceb)
+
+		case "team_constructor":
+			var tcb models.TeamConstructorByLeague
+			if err := database.DB.First(&tcb, req.ItemID).Error; err != nil {
+				c.JSON(404, gin.H{"error": "Team Constructor no encontrado"})
+				return
+			}
+			if tcb.OwnerID != userID {
+				c.JSON(403, gin.H{"error": "Solo puedes subir la cláusula de tus propios elementos"})
+				return
+			}
+			currentClausula := float64(0)
+			if tcb.ClausulaValue != nil {
+				currentClausula = *tcb.ClausulaValue
+			}
+			newClausulaValue = currentClausula + (req.UpgradeAmount * 2)
+			tcb.ClausulaValue = &newClausulaValue
+			database.DB.Save(&tcb)
+
+		default:
+			c.JSON(400, gin.H{"error": "Tipo de elemento no válido"})
+			return
+		}
+
+		// Descontar dinero del jugador
+		playerLeague.Money -= req.UpgradeAmount
+		database.DB.Save(&playerLeague)
+
+		c.JSON(200, gin.H{
+			"message":            "Cláusula subida correctamente",
+			"new_clausula_value": newClausulaValue,
+			"amount_invested":    req.UpgradeAmount,
+			"remaining_money":    playerLeague.Money,
+		})
 	})
 
 	// Endpoint para obtener ofertas recibidas por un jugador

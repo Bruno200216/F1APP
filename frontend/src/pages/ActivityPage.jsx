@@ -9,6 +9,9 @@ import { Activity, Clock, TrendingUp, TrendingDown, Users } from 'lucide-react';
 // Utils
 import { formatNumberWithDots } from '../lib/utils';
 
+// Context
+import { useLeague } from '../context/LeagueContext';
+
 function formatDate(fecha) {
   const d = new Date(fecha);
   return isNaN(d) ? '' : d.toLocaleString('es-ES', { 
@@ -68,14 +71,21 @@ function getActionColor(action) {
 }
 
 export default function ActivityPage() {
+  const { selectedLeague } = useLeague();
   const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const fetchHistory = async () => {
+      if (!selectedLeague) {
+        setHistory([]);
+        setLoading(false);
+        return;
+      }
+
       setLoading(true);
       try {
-        const res = await fetch('/api/activity');
+        const res = await fetch(`/api/activity?league_id=${selectedLeague.id}`);
         const data = await res.json();
         setHistory(data.history || []);
       } catch {
@@ -85,7 +95,7 @@ export default function ActivityPage() {
       }
     };
     fetchHistory();
-  }, []);
+  }, [selectedLeague]);
 
   if (loading) {
     return (
@@ -114,13 +124,23 @@ export default function ActivityPage() {
 
         {/* Activity Feed */}
         <div className="space-y-2">
-          {history.length === 0 ? (
+          {!selectedLeague ? (
+            <Card className="text-center">
+              <CardContent className="py-8">
+                <Activity className="h-8 w-8 text-text-secondary mx-auto mb-3" />
+                <CardTitle className="text-subtitle text-text-primary mb-1">No League Selected</CardTitle>
+                <p className="text-text-secondary text-small">
+                  Please select a league to view market activity
+                </p>
+              </CardContent>
+            </Card>
+          ) : history.length === 0 ? (
             <Card className="text-center">
               <CardContent className="py-8">
                 <Activity className="h-8 w-8 text-text-secondary mx-auto mb-3" />
                 <CardTitle className="text-subtitle text-text-primary mb-1">No Recent Activity</CardTitle>
                 <p className="text-text-secondary text-small">
-                  No market operations have been recorded yet
+                  No market operations have been recorded yet in this league
                 </p>
               </CardContent>
             </Card>

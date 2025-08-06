@@ -5,6 +5,7 @@ import { Card, CardContent } from './ui/card';
 import { Avatar, AvatarImage, AvatarFallback } from './ui/avatar';
 import { Button } from './ui/button';
 import { TrendingUp } from 'lucide-react';
+import ClausulaTimer from './ClausulaTimer';
 
 export default function TeamCard({ 
   team, 
@@ -79,6 +80,14 @@ export default function TeamCard({
                 {team.name}
               </h3>
               
+              {/* Clause timer */}
+              {(team.clausulatime || team.clausula_expires_at) && (
+                <ClausulaTimer
+                  clausulaTime={team.clausulatime || team.clausula_expires_at}
+                  clausulaValue={team.clausula_value}
+                  compact={true}
+                />
+              )}
             </div>
 
             {/* Team name (constructor) */}
