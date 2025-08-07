@@ -21,40 +21,38 @@ type Player struct {
 // Modelo único de pilotos generales
 
 type Pilot struct {
-	ID                       uint           `json:"id" gorm:"primaryKey"`
-	OwnerID                  uint           `json:"owner_id" gorm:"default:0"`
-	DriverName               string         `json:"driver_name" gorm:"not null"`
-	Team                     string         `json:"team" gorm:"not null"`
-	ImageURL                 string         `json:"image_url" gorm:"not null"`
-	Mode                     string         `json:"mode" gorm:"not null"` // R, Q, P
-	TotalPoints              int            `json:"total_points" gorm:"default:0"`
-	PracticePointFinish      []int          `json:"practice_point_finish" gorm:"type:json;serializer:json"`
-	PracticeTeamBattle       []int          `json:"practice_team_battle" gorm:"type:json;serializer:json"`
-	PracticeRedFlag          []int          `json:"practice_red_flag" gorm:"type:json;serializer:json"`
-	QualifyingPassQ1         []int          `json:"qualifying_pass_q1" gorm:"type:json;serializer:json"`
-	QualifyingPassQ2         []int          `json:"qualifying_pass_q2" gorm:"type:json;serializer:json"`
-	QualifyingPositionFinish []int          `json:"qualifying_position_finish" gorm:"type:json;serializer:json"`
-	QualifyingTeamBattle     []int          `json:"qualifying_team_battle" gorm:"type:json;serializer:json"`
-	QualifyingRedFlag        []int          `json:"qualifying_red_flag" gorm:"type:json;serializer:json"`
-	RacePoints               []int          `json:"race_points" gorm:"type:json;serializer:json"`
-	RacePosition             []int          `json:"race_position" gorm:"type:json;serializer:json"`
-	StartPosition            []int          `json:"start_position" gorm:"type:json;serializer:json"`
-	FinishPosition           []int          `json:"finish_position" gorm:"type:json;serializer:json"`
-	FastestLap               []int          `json:"fastest_lap" gorm:"type:json;serializer:json"`
-	DriverOfTheDay           []int          `json:"driver_of_the_day" gorm:"type:json;serializer:json"`
-	SafetyCar                []int          `json:"safety_car" gorm:"type:json;serializer:json"`
-	RaceTeamBattle           []int          `json:"race_team_battle" gorm:"type:json;serializer:json"`
-	RaceRedFlag              []int          `json:"race_red_flag" gorm:"type:json;serializer:json"`
-	ValorGlobal              float64        `json:"valor_global" gorm:"-"`
-	Value                    float64        `json:"value" gorm:"not null;default:0"`
-	Ventas7Fichajes          int            `json:"ventas7fichajes" gorm:"column:ventas7fichajes"`
-	PointsByGP               []byte         `json:"points_by_gp" gorm:"type:json"`
-	TrackEngineerID          uint           `json:"track_engineer_id"`
-	ChiefEngineerID          uint           `json:"chief_engineer_id"`
-	TrackEngineer            *TrackEngineer `gorm:"foreignKey:TrackEngineerID"`
-	ChiefEngineer            *ChiefEngineer `gorm:"foreignKey:ChiefEngineerID"`
-	CreatedAt                time.Time      `json:"created_at"`
-	UpdatedAt                time.Time      `json:"updated_at"`
+	ID                       uint      `json:"id" gorm:"primaryKey"`
+	OwnerID                  uint      `json:"owner_id" gorm:"default:0"`
+	DriverName               string    `json:"driver_name" gorm:"not null"`
+	Team                     string    `json:"team" gorm:"not null"`
+	ImageURL                 string    `json:"image_url" gorm:"not null"`
+	Mode                     string    `json:"mode" gorm:"not null"` // R, Q, P
+	TotalPoints              int       `json:"total_points" gorm:"default:0"`
+	PracticePointFinish      []int     `json:"practice_point_finish" gorm:"type:json;serializer:json"`
+	PracticeTeamBattle       []int     `json:"practice_team_battle" gorm:"type:json;serializer:json"`
+	PracticeRedFlag          []int     `json:"practice_red_flag" gorm:"type:json;serializer:json"`
+	QualifyingPassQ1         []int     `json:"qualifying_pass_q1" gorm:"type:json;serializer:json"`
+	QualifyingPassQ2         []int     `json:"qualifying_pass_q2" gorm:"type:json;serializer:json"`
+	QualifyingPositionFinish []int     `json:"qualifying_position_finish" gorm:"type:json;serializer:json"`
+	QualifyingTeamBattle     []int     `json:"qualifying_team_battle" gorm:"type:json;serializer:json"`
+	QualifyingRedFlag        []int     `json:"qualifying_red_flag" gorm:"type:json;serializer:json"`
+	RacePoints               []int     `json:"race_points" gorm:"type:json;serializer:json"`
+	RacePosition             []int     `json:"race_position" gorm:"type:json;serializer:json"`
+	StartPosition            []int     `json:"start_position" gorm:"type:json;serializer:json"`
+	FinishPosition           []int     `json:"finish_position" gorm:"type:json;serializer:json"`
+	FastestLap               []int     `json:"fastest_lap" gorm:"type:json;serializer:json"`
+	DriverOfTheDay           []int     `json:"driver_of_the_day" gorm:"type:json;serializer:json"`
+	SafetyCar                []int     `json:"safety_car" gorm:"type:json;serializer:json"`
+	RaceTeamBattle           []int     `json:"race_team_battle" gorm:"type:json;serializer:json"`
+	RaceRedFlag              []int     `json:"race_red_flag" gorm:"type:json;serializer:json"`
+	ValorGlobal              float64   `json:"valor_global" gorm:"-"`
+	Value                    float64   `json:"value" gorm:"not null;default:0"`
+	Ventas7Fichajes          int       `json:"ventas7fichajes" gorm:"column:ventas7fichajes"`
+	PointsByGP               []byte    `json:"points_by_gp" gorm:"type:json"`
+	TrackEngineerID          uint      `json:"track_engineer_id"`
+	ChiefEngineerID          uint      `json:"chief_engineer_id"`
+	CreatedAt                time.Time `json:"created_at"`
+	UpdatedAt                time.Time `json:"updated_at"`
 }
 
 // Modelo básico de liga
@@ -150,8 +148,6 @@ type PilotRace struct {
 	CausedRedFlag          bool
 	DNFDriverError         bool
 	DNFNoFault             bool
-	Pilot                  Pilot     `gorm:"foreignKey:PilotID"`
-	GrandPrix              GrandPrix `gorm:"foreignKey:GPIndex;references:GPIndex"`
 }
 
 type PilotQualy struct {
@@ -164,8 +160,6 @@ type PilotQualy struct {
 	DeltaPosition    int
 	Points           int
 	CausedRedFlag    bool
-	Pilot            Pilot     `gorm:"foreignKey:PilotID"`
-	GrandPrix        GrandPrix `gorm:"foreignKey:GPIndex;references:GPIndex"`
 }
 
 type PilotPractice struct {
@@ -178,39 +172,36 @@ type PilotPractice struct {
 	DeltaPosition    int
 	Points           int
 	CausedRedFlag    bool
-	Pilot            Pilot     `gorm:"foreignKey:PilotID"`
-	GrandPrix        GrandPrix `gorm:"foreignKey:GPIndex;references:GPIndex"`
 }
 
 // Modelo de Ingeniero de Pista
 
 type TrackEngineer struct {
-	ID          uint      `json:"id" gorm:"primaryKey"`
-	Name        string    `json:"name" gorm:"not null"`
-	Value       float64   `json:"value" gorm:"not null;default:0"`
-	ImageURL    string    `json:"image_url" gorm:"not null"`
-	GPIndex     uint64    `json:"gp_index" gorm:"not null"`
-	Performance bool      `json:"performance" gorm:"not null;default:false"`
-	Team        string    `json:"team" gorm:"not null"`
-	TotalPoints int       `json:"total_points" gorm:"not null;default:0"`
-	PointsByGP  []byte    `json:"points_by_gp" gorm:"type:json"`
-	GrandPrix   GrandPrix `json:"grand_prix" gorm:"foreignKey:GPIndex;references:GPIndex"`
+	ID          uint    `json:"id" gorm:"primaryKey"`
+	Name        string  `json:"name" gorm:"not null"`
+	Value       float64 `json:"value" gorm:"not null;default:0"`
+	ImageURL    string  `json:"image_url" gorm:"not null"`
+	GPIndex     uint64  `json:"gp_index" gorm:"not null"`
+	Performance bool    `json:"performance" gorm:"not null;default:false"`
+	Team        string  `json:"team" gorm:"not null"`
+	TotalPoints int     `json:"total_points" gorm:"not null;default:0"`
+	PointsByGP  []byte  `json:"points_by_gp" gorm:"type:json"`
+	PilotID     uint    `json:"pilot_id" gorm:"not null"`
 }
 
 // Modelo de Ingeniero Jefe
 
 type ChiefEngineer struct {
-	ID                   uint      `gorm:"primaryKey"`
-	Name                 string    `gorm:"not null"`
-	Value                float64   `gorm:"not null;default:0"`
-	ImageURL             string    `gorm:"not null"`
-	GPIndex              uint64    `gorm:"not null"`
-	Team                 string    `gorm:"not null"`
-	TeamExpectedPosition float64   `gorm:"not null;default:0"`
-	TeamFinishPosition   float64   `gorm:"not null;default:0"`
-	TotalPoints          int       `gorm:"not null;default:0"`
-	PointsByGP           []byte    `gorm:"type:json"`
-	GrandPrix            GrandPrix `gorm:"foreignKey:GPIndex;references:GPIndex"`
+	ID                   uint    `gorm:"primaryKey"`
+	Name                 string  `gorm:"not null"`
+	Value                float64 `gorm:"not null;default:0"`
+	ImageURL             string  `gorm:"not null"`
+	GPIndex              uint64  `gorm:"not null"`
+	Team                 string  `gorm:"not null"`
+	TeamExpectedPosition float64 `gorm:"not null;default:0"`
+	TeamFinishPosition   float64 `gorm:"not null;default:0"`
+	TotalPoints          int     `gorm:"not null;default:0"`
+	PointsByGP           []byte  `gorm:"type:json"`
 }
 
 // TrackEngineerPoints: puntos de track engineers por GP
@@ -290,7 +281,6 @@ type TeamConstructor struct {
 	ImageURL     string    `gorm:"not null"`
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
-	GrandPrix    GrandPrix `gorm:"foreignKey:GPIndex;references:GPIndex"`
 }
 
 func (TeamConstructor) TableName() string {
@@ -331,13 +321,10 @@ type TeamRace struct {
 	ExpectedPosition  *float64  `gorm:"column:expected_position"`
 	DeltaPosition     *int      `gorm:"column:delta_position"`
 	PitstopTime       *float64  `gorm:"column:pitstop_time"`
+	FinishCars        int       `gorm:"column:finish_cars;default:0"` // Número de coches que acabaron (0, 1 o 2)
 	Points            int       `gorm:"default:0"`
 	CreatedAt         time.Time `json:"created_at"`
 	UpdatedAt         time.Time `json:"updated_at"`
-
-	// Relaciones
-	TeamConstructor TeamConstructor `gorm:"foreignKey:TeamConstructorID"`
-	GrandPrix       GrandPrix       `gorm:"foreignKey:GPIndex;references:GPIndex"`
 }
 
 func (TeamRace) TableName() string {
@@ -376,11 +363,6 @@ type Lineup struct {
 	LineupPoints      int       `json:"lineup_points" gorm:"default:0"`                        // Puntos totales de la alineación
 	CreatedAt         time.Time `json:"created_at"`
 	UpdatedAt         time.Time `json:"updated_at"`
-
-	// Relaciones (sin foreign keys automáticas para evitar conflictos)
-	Player    Player    `gorm:"foreignKey:PlayerID"`
-	League    League    `gorm:"foreignKey:LeagueID"`
-	GrandPrix GrandPrix `gorm:"foreignKey:GPIndex;references:GPIndex"`
 }
 
 func (Lineup) TableName() string {

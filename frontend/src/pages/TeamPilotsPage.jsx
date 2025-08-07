@@ -639,14 +639,39 @@ export default function TeamPilotsPage() {
           if (!lineupData && lineupHistory.length === 0) {
             console.log('🔍 Cargando historial de alineaciones...');
             await loadLineupHistory();
+            // Esperar un poco para que el estado se actualice
+            await new Promise(resolve => setTimeout(resolve, 100));
             lineupData = lineupHistory.find(l => l.gp_index === gpIndex);
           }
           
           if (lineupData) {
+            console.log('🔍 Cargando alineación para GP:', gpIndex);
+            console.log('🔍 LineupData encontrado:', lineupData);
+            setSelectedHistoryGP(lineupData);
+            await loadHistoryLineup(lineupData);
             console.log('🔍 Cargando puntos individuales para GP:', gpIndex);
             await loadElementPoints(lineupData);
+            console.log('🔍 Estado después de cargar - selectedHistoryGP:', selectedHistoryGP);
           } else {
             console.log('❌ No se encontró alineación para GP:', gpIndex);
+            // Intentar cargar directamente desde el endpoint de history
+            console.log('🔍 Intentando cargar alineación directamente...');
+            const historyResponse = await fetch(`/api/lineup/history?league_id=${selectedLeague.id}`, {
+              headers: { 'Authorization': `Bearer ${token}` }
+            });
+            if (historyResponse.ok) {
+              const historyData = await historyResponse.json();
+              const lineups = historyData.lineups || historyData.history || [];
+              const directLineupData = lineups.find(l => l.gp_index === gpIndex);
+              if (directLineupData) {
+                console.log('🔍 Alineación encontrada directamente:', directLineupData);
+                setSelectedHistoryGP(directLineupData);
+                await loadHistoryLineup(directLineupData);
+                await loadElementPoints(directLineupData);
+              } else {
+                console.log('❌ No se encontró alineación directamente para GP:', gpIndex);
+              }
+            }
           }
         }
       } else {
@@ -672,12 +697,15 @@ export default function TeamPilotsPage() {
 
       if (response.ok) {
         const data = await response.json();
-        setLineupHistory(data.history || []);
+        console.log('🔍 Datos de historial recibidos:', data);
+        const lineups = data.lineups || data.history || [];
+        setLineupHistory(lineups);
         
         // Seleccionar el GP más reciente por defecto
-        if (data.history && data.history.length > 0) {
-          setSelectedHistoryGP(data.history[0]);
-          await loadHistoryLineup(data.history[0]);
+        if (lineups.length > 0) {
+          console.log('🔍 Estableciendo GP seleccionado:', lineups[0]);
+          setSelectedHistoryGP(lineups[0]);
+          await loadHistoryLineup(lineups[0]);
         }
       }
     } catch (error) {
@@ -770,7 +798,8 @@ export default function TeamPilotsPage() {
         const pilotByLeague = teamData.pilots.find(p => p.id === pilotByLeagueId);
         if (pilotByLeague) {
           console.log(`🔍 Cargando puntos para piloto ${pilotByLeagueId} en GP ${gpData.gp_index}`);
-          const response = await fetch(`/api/lineup/element-points?gp_index=${gpData.gp_index}&element_type=pilot&element_id=${pilotByLeagueId}`, {
+          const playerId = localStorage.getItem('player_id');
+          const response = await fetch(`/api/lineup/element-points?gp_index=${gpData.gp_index}&element_type=pilot&element_id=${pilotByLeagueId}&player_id=${playerId}&league_id=${selectedLeague.id}`, {
             headers: {
               'Authorization': `Bearer ${token}`
             }
@@ -793,7 +822,8 @@ export default function TeamPilotsPage() {
         const teamConstructorByLeague = teamData.team_constructors.find(t => t.id === gpData.team_constructor_id);
         if (teamConstructorByLeague) {
           console.log(`🔍 Cargando puntos para team constructor ${gpData.team_constructor_id} en GP ${gpData.gp_index}`);
-          const response = await fetch(`/api/lineup/element-points?gp_index=${gpData.gp_index}&element_type=team_constructor&element_id=${gpData.team_constructor_id}`, {
+          const playerId = localStorage.getItem('player_id');
+          const response = await fetch(`/api/lineup/element-points?gp_index=${gpData.gp_index}&element_type=team_constructor&element_id=${gpData.team_constructor_id}&player_id=${playerId}&league_id=${selectedLeague.id}`, {
             headers: {
               'Authorization': `Bearer ${token}`
             }
@@ -816,7 +846,8 @@ export default function TeamPilotsPage() {
         const chiefEngineerByLeague = teamData.chief_engineers.find(e => e.id === gpData.chief_engineer_id);
         if (chiefEngineerByLeague) {
           console.log(`🔍 Cargando puntos para chief engineer ${gpData.chief_engineer_id} en GP ${gpData.gp_index}`);
-          const response = await fetch(`/api/lineup/element-points?gp_index=${gpData.gp_index}&element_type=chief_engineer&element_id=${gpData.chief_engineer_id}`, {
+          const playerId = localStorage.getItem('player_id');
+          const response = await fetch(`/api/lineup/element-points?gp_index=${gpData.gp_index}&element_type=chief_engineer&element_id=${gpData.chief_engineer_id}&player_id=${playerId}&league_id=${selectedLeague.id}`, {
             headers: {
               'Authorization': `Bearer ${token}`
             }
@@ -840,7 +871,8 @@ export default function TeamPilotsPage() {
           const trackEngineerByLeague = teamData.track_engineers.find(e => e.id === engineerByLeagueId);
           if (trackEngineerByLeague) {
             console.log(`🔍 Cargando puntos para track engineer ${engineerByLeagueId} en GP ${gpData.gp_index}`);
-            const response = await fetch(`/api/lineup/element-points?gp_index=${gpData.gp_index}&element_type=track_engineer&element_id=${engineerByLeagueId}`, {
+            const playerId = localStorage.getItem('player_id');
+            const response = await fetch(`/api/lineup/element-points?gp_index=${gpData.gp_index}&element_type=track_engineer&element_id=${engineerByLeagueId}&player_id=${playerId}&league_id=${selectedLeague.id}`, {
               headers: {
                 'Authorization': `Bearer ${token}`
               }
@@ -2075,6 +2107,11 @@ export default function TeamPilotsPage() {
                       <p className="text-accent-main font-bold text-body">
                         €{formatNumberWithDots(engineer.value)}
                       </p>
+                      {engineer.clausula_value && (
+                        <p className="text-state-error text-caption font-medium">
+                          {engineer.clausula_value}
+                        </p>
+                      )}
                     </div>
                     <PlayerItemActions
                       item={engineer}
@@ -2161,6 +2198,11 @@ export default function TeamPilotsPage() {
                       <p className="text-accent-main font-bold text-body">
                         €{formatNumberWithDots(engineer.value)}
                       </p>
+                      {engineer.clausula_value && (
+                        <p className="text-state-error text-caption font-medium">
+                          {engineer.clausula_value}
+                        </p>
+                      )}
                     </div>
                     <PlayerItemActions
                       item={engineer}
@@ -2246,6 +2288,11 @@ export default function TeamPilotsPage() {
                       <p className="text-accent-main font-bold text-body">
                         €{formatNumberWithDots(team.value)}
                       </p>
+                      {team.clausula_value && (
+                        <p className="text-state-error text-caption font-medium">
+                          {team.clausula_value}
+                        </p>
+                      )}
                     </div>
                     <PlayerItemActions
                       item={team}
@@ -2299,9 +2346,9 @@ export default function TeamPilotsPage() {
             {availableGPs.map((gp, index) => (
               <button
                 key={gp.gp_index}
-                onClick={() => {
+                onClick={async () => {
                   setSelectedGP(gp);
-                  loadCurrentPointsForGP(gp.gp_index);
+                  await loadCurrentPointsForGP(gp.gp_index);
                 }}
                 className={`flex flex-col items-center gap-2 p-3 rounded-lg border-2 transition-all duration-200 min-w-[80px] ${
                   selectedGP?.gp_index === gp.gp_index
@@ -2388,12 +2435,14 @@ export default function TeamPilotsPage() {
                     <div className="flex justify-center gap-4">
                       {currentPoints.has_lineup ? (
                         [0, 1].map((index) => {
-                          const pilot = historyLineup.race[index] || null;
                           const pilotId = selectedHistoryGP?.race_pilots?.[index];
-                          const points = pilot && pilotId ? (elementPoints[`pilot_${pilotId}`] || 0) : 0;
+                          const pilot = pilotId ? historyLineup.race.find(p => p && p.id === pilotId) || null : null;
+                          const points = pilotId ? (elementPoints[`pilot_${pilotId}`] || 0) : 0;
                           console.log(`🔍 Race pilot ${index}: pilotId=${pilotId}, points=${points}, elementPoints key=pilot_${pilotId}`);
                           console.log(`🔍 selectedHistoryGP:`, selectedHistoryGP);
                           console.log(`🔍 elementPoints:`, elementPoints);
+                          console.log(`🔍 historyLineup:`, historyLineup);
+                          console.log(`🔍 currentPoints:`, currentPoints);
                           const getBorderColor = (points) => {
                             if (points === 0) return '#6B7280'; // Gris
                             if (points > 0 && points <= 10) return '#10B981'; // Verde claro
@@ -2468,9 +2517,9 @@ export default function TeamPilotsPage() {
                     <div className="flex justify-center gap-4">
                       {currentPoints.has_lineup ? (
                         [0, 1].map((index) => {
-                          const pilot = historyLineup.qualifying[index] || null;
                           const pilotId = selectedHistoryGP?.qualifying_pilots?.[index];
-                          const points = pilot && pilotId ? (elementPoints[`pilot_${pilotId}`] || 0) : 0;
+                          const pilot = pilotId ? historyLineup.qualifying.find(p => p && p.id === pilotId) || null : null;
+                          const points = pilotId ? (elementPoints[`pilot_${pilotId}`] || 0) : 0;
                           const getBorderColor = (points) => {
                             if (points === 0) return '#6B7280'; // Gris
                             if (points > 0 && points <= 10) return '#10B981'; // Verde claro
@@ -2545,9 +2594,9 @@ export default function TeamPilotsPage() {
                     <div className="flex justify-center gap-4">
                       {currentPoints.has_lineup ? (
                         [0, 1].map((index) => {
-                          const pilot = historyLineup.practice[index] || null;
                           const pilotId = selectedHistoryGP?.practice_pilots?.[index];
-                          const points = pilot && pilotId ? (elementPoints[`pilot_${pilotId}`] || 0) : 0;
+                          const pilot = pilotId ? historyLineup.practice.find(p => p && p.id === pilotId) || null : null;
+                          const points = pilotId ? (elementPoints[`pilot_${pilotId}`] || 0) : 0;
                           const getBorderColor = (points) => {
                             if (points === 0) return '#6B7280'; // Gris
                             if (points > 0 && points <= 10) return '#10B981'; // Verde claro
@@ -2634,7 +2683,9 @@ export default function TeamPilotsPage() {
                         <div className="flex justify-center">
                           {currentPoints.has_lineup ? (
                             (() => {
-                              const points = elementPoints[`team_constructor_${selectedHistoryGP?.team_constructor_id}`] || 0;
+                              const teamConstructorId = selectedHistoryGP?.team_constructor_id;
+                              const teamConstructor = teamConstructorId ? historyTeamLineup.team_constructor : null;
+                              const points = teamConstructorId ? (elementPoints[`team_constructor_${teamConstructorId}`] || 0) : 0;
                               const getBorderColor = (points) => {
                                 if (points === 0) return '#6B7280'; // Gris
                                 if (points > 0 && points <= 10) return '#10B981'; // Verde claro
@@ -2649,30 +2700,55 @@ export default function TeamPilotsPage() {
                                   <div 
                                     className="w-24 h-24 rounded-lg overflow-hidden mb-2"
                                     style={{
-                                      background: historyTeamLineup.team_constructor ? `linear-gradient(135deg, ${getBorderColor(points)}20, ${getBorderColor(points)}40)` : 'linear-gradient(135deg, #6B728020, #6B728040)',
-                                      border: `2px solid ${historyTeamLineup.team_constructor ? getBorderColor(points) : '#6B7280'}`,
-                                      boxShadow: `0 0 15px ${historyTeamLineup.team_constructor ? getBorderColor(points) : '#6B7280'}30`
+                                      background: teamConstructor ? `linear-gradient(135deg, ${getBorderColor(points)}20, ${getBorderColor(points)}40)` : 'linear-gradient(135deg, #6B728020, #6B728040)',
+                                      border: `2px solid ${teamConstructor ? getBorderColor(points) : '#6B7280'}`,
+                                      boxShadow: `0 0 15px ${teamConstructor ? getBorderColor(points) : '#6B7280'}30`
                                     }}
                                   >
-                                    {historyTeamLineup.team_constructor ? (
+                                    {teamConstructor ? (
                                       <div className="w-full h-full flex items-center justify-center p-2">
                                         <div className="w-16 h-16 rounded-full overflow-hidden">
                                           <img
-                                            src={getImageUrl(historyTeamLineup.team_constructor, 'team_constructor')}
-                                            alt={historyTeamLineup.team_constructor.constructor_name}
+                                            src={getImageUrl(teamConstructor, 'team_constructor')}
+                                            alt={teamConstructor.constructor_name}
                                             className="w-full h-full object-cover"
                                           />
                                         </div>
                                       </div>
-                                    ) : null}
+                                    ) : (
+                                      <div className="w-full h-full flex items-center justify-center">
+                                        <div className="w-16 h-16 rounded-full bg-surface-elevated flex items-center justify-center">
+                                          <span className="text-text-secondary text-caption font-medium"></span>
+                                        </div>
+                                      </div>
+                                    )}
                                   </div>
                                   <p className="text-caption font-bold text-text-primary">
-                                    {historyTeamLineup.team_constructor ? `${points} pts` : '0 pts'}
+                                    {teamConstructor ? `${points} pts` : '0 pts'}
                                   </p>
                                 </div>
                               );
                             })()
-                          ) : null}
+                          ) : (
+                            // Si no hay alineación, mostrar slot vacío
+                            <div className="flex flex-col items-center">
+                              <div 
+                                className="w-24 h-24 rounded-lg overflow-hidden mb-2"
+                                style={{
+                                  background: 'linear-gradient(135deg, #6B728020, #6B728040)',
+                                  border: '2px solid #6B7280',
+                                  boxShadow: '0 0 15px #6B728030'
+                                }}
+                              >
+                                <div className="w-full h-full flex items-center justify-center">
+                                  <div className="w-16 h-16 rounded-full bg-surface-elevated flex items-center justify-center">
+                                    <span className="text-text-secondary text-caption font-medium"></span>
+                                  </div>
+                                </div>
+                              </div>
+                              <p className="text-caption font-bold text-text-primary">0 pts</p>
+                            </div>
+                          )}
                         </div>
                       </div>
 
@@ -2682,7 +2758,9 @@ export default function TeamPilotsPage() {
                         <div className="flex justify-center">
                           {currentPoints.has_lineup ? (
                             (() => {
-                              const points = elementPoints[`chief_engineer_${selectedHistoryGP?.chief_engineer_id}`] || 0;
+                              const chiefEngineerId = selectedHistoryGP?.chief_engineer_id;
+                              const chiefEngineer = chiefEngineerId ? historyTeamLineup.chief_engineer : null;
+                              const points = chiefEngineerId ? (elementPoints[`chief_engineer_${chiefEngineerId}`] || 0) : 0;
                               const getBorderColor = (points) => {
                                 if (points === 0) return '#6B7280'; // Gris
                                 if (points > 0 && points <= 10) return '#10B981'; // Verde claro
@@ -2697,30 +2775,55 @@ export default function TeamPilotsPage() {
                                   <div 
                                     className="w-24 h-24 rounded-lg overflow-hidden mb-2"
                                     style={{
-                                      background: historyTeamLineup.chief_engineer ? `linear-gradient(135deg, ${getBorderColor(points)}20, ${getBorderColor(points)}40)` : 'linear-gradient(135deg, #6B728020, #6B728040)',
-                                      border: `2px solid ${historyTeamLineup.chief_engineer ? getBorderColor(points) : '#6B7280'}`,
-                                      boxShadow: `0 0 15px ${historyTeamLineup.chief_engineer ? getBorderColor(points) : '#6B7280'}30`
+                                      background: chiefEngineer ? `linear-gradient(135deg, ${getBorderColor(points)}20, ${getBorderColor(points)}40)` : 'linear-gradient(135deg, #6B728020, #6B728040)',
+                                      border: `2px solid ${chiefEngineer ? getBorderColor(points) : '#6B7280'}`,
+                                      boxShadow: `0 0 15px ${chiefEngineer ? getBorderColor(points) : '#6B7280'}30`
                                     }}
                                   >
-                                    {historyTeamLineup.chief_engineer ? (
+                                    {chiefEngineer ? (
                                       <div className="w-full h-full flex items-center justify-center p-2">
                                         <div className="w-16 h-16 rounded-full overflow-hidden">
                                           <img
-                                            src={getImageUrl(historyTeamLineup.chief_engineer, 'chief_engineer')}
-                                            alt={historyTeamLineup.chief_engineer.name}
+                                            src={getImageUrl(chiefEngineer, 'chief_engineer')}
+                                            alt={chiefEngineer.name}
                                             className="w-full h-full object-cover"
                                           />
                                         </div>
                                       </div>
-                                    ) : null}
+                                    ) : (
+                                      <div className="w-full h-full flex items-center justify-center">
+                                        <div className="w-16 h-16 rounded-full bg-surface-elevated flex items-center justify-center">
+                                          <span className="text-text-secondary text-caption font-medium"></span>
+                                        </div>
+                                      </div>
+                                    )}
                                   </div>
                                   <p className="text-caption font-bold text-text-primary">
-                                    {historyTeamLineup.chief_engineer ? `${points} pts` : '0 pts'}
+                                    {chiefEngineer ? `${points} pts` : '0 pts'}
                                   </p>
                                 </div>
                               );
                             })()
-                          ) : null}
+                          ) : (
+                            // Si no hay alineación, mostrar slot vacío
+                            <div className="flex flex-col items-center">
+                              <div 
+                                className="w-24 h-24 rounded-lg overflow-hidden mb-2"
+                                style={{
+                                  background: 'linear-gradient(135deg, #6B728020, #6B728040)',
+                                  border: '2px solid #6B7280',
+                                  boxShadow: '0 0 15px #6B728030'
+                                }}
+                              >
+                                <div className="w-full h-full flex items-center justify-center">
+                                  <div className="w-16 h-16 rounded-full bg-surface-elevated flex items-center justify-center">
+                                    <span className="text-text-secondary text-caption font-medium"></span>
+                                  </div>
+                                </div>
+                              </div>
+                              <p className="text-caption font-bold text-text-primary">0 pts</p>
+                            </div>
+                          )}
                         </div>
                       </div>
 
@@ -2729,8 +2832,10 @@ export default function TeamPilotsPage() {
                         <h4 className="text-small font-semibold text-text-primary mb-3">Ingenieros de Pista</h4>
                         <div className="flex justify-center gap-4">
                           {currentPoints.has_lineup ? (
-                            historyTeamLineup.track_engineers.map((engineer, index) => {
-                              const points = elementPoints[`track_engineer_${selectedHistoryGP?.track_engineers?.[index]}`] || 0;
+                            [0, 1].map((index) => {
+                              const engineerId = selectedHistoryGP?.track_engineers?.[index];
+                              const engineer = engineerId ? historyTeamLineup.track_engineers.find(e => e && e.id === engineerId) || null : null;
+                              const points = engineerId ? (elementPoints[`track_engineer_${engineerId}`] || 0) : 0;
                               const getBorderColor = (points) => {
                                 if (points === 0) return '#6B7280'; // Gris
                                 if (points > 0 && points <= 10) return '#10B981'; // Verde claro
@@ -2760,7 +2865,13 @@ export default function TeamPilotsPage() {
                                           />
                                         </div>
                                       </div>
-                                    ) : null}
+                                    ) : (
+                                      <div className="w-full h-full flex items-center justify-center">
+                                        <div className="w-16 h-16 rounded-full bg-surface-elevated flex items-center justify-center">
+                                          <span className="text-text-secondary text-caption font-medium"></span>
+                                        </div>
+                                      </div>
+                                    )}
                                   </div>
                                   <p className="text-caption font-bold text-text-primary">
                                     {engineer ? `${points} pts` : '0 pts'}
@@ -2768,7 +2879,28 @@ export default function TeamPilotsPage() {
                                 </div>
                               );
                             })
-                          ) : null}
+                          ) : (
+                            // Si no hay alineación, mostrar 2 slots vacíos
+                            [0, 1].map((index) => (
+                              <div key={index} className="flex flex-col items-center">
+                                <div 
+                                  className="w-24 h-24 rounded-lg overflow-hidden mb-2"
+                                  style={{
+                                    background: 'linear-gradient(135deg, #6B728020, #6B728040)',
+                                    border: '2px solid #6B7280',
+                                    boxShadow: '0 0 15px #6B728030'
+                                  }}
+                                >
+                                  <div className="w-full h-full flex items-center justify-center">
+                                    <div className="w-16 h-16 rounded-full bg-surface-elevated flex items-center justify-center">
+                                      <span className="text-text-secondary text-caption font-medium"></span>
+                                    </div>
+                                  </div>
+                                </div>
+                                <p className="text-caption font-bold text-text-primary">0 pts</p>
+                              </div>
+                            ))
+                          )}
                         </div>
                       </div>
                     </CardContent>

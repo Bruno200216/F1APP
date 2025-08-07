@@ -88,15 +88,14 @@ func Migrate() {
 		&models.League{},
 		&models.PilotByLeague{},
 		&models.PlayerByLeague{}, // Agregado PlayerByLeague
-		&models.PilotRace{},
-		&models.PilotQualy{},
-		&models.PilotPractice{},
+		&models.GrandPrix{},      // Agregado GrandPrix
 		&models.TrackEngineer{},
 		&models.ChiefEngineer{},
 		&models.TrackEngineerByLeague{},
 		&models.ChiefEngineerByLeague{},
 		&models.TeamConstructor{},
 		&models.TeamConstructorByLeague{},
+		&models.TeamRace{},            // Tabla para carreras de equipos
 		&models.TrackEngineerPoints{}, // Nueva tabla para puntos de track engineers
 		&models.MarketItem{},
 		&models.Lineup{},
@@ -110,6 +109,9 @@ func Migrate() {
 
 	// Migración específica para track_engineer_points
 	MigrateTrackEngineerPoints()
+
+	// Migración específica para finish_cars en team_races
+	MigrateTeamRacesFinishCars()
 
 	log.Println("Migraciones completadas")
 }
@@ -197,14 +199,61 @@ func MigratePlayerByLeague() {
 
 // MigrateTrackEngineerPoints crea índices específicos para la tabla track_engineer_points
 func MigrateTrackEngineerPoints() {
-	// Crear índice único compuesto para evitar duplicados por track_engineer_id, gp_index y session_type
-	err := DB.Exec(`
-		CREATE UNIQUE INDEX IF NOT EXISTS uk_track_engineer_gp_session 
-		ON track_engineer_points (track_engineer_id, gp_index, session_type)
-	`).Error
+	// Verificar si el índice ya existe
+	var indexExists bool
+	err := DB.Raw("SELECT COUNT(*) > 0 FROM information_schema.statistics WHERE table_schema = ? AND table_name = ? AND index_name = ?",
+		os.Getenv("DB_NAME"), "track_engineer_points", "uk_track_engineer_gp_session").Scan(&indexExists).Error
+
 	if err != nil {
-		log.Printf("Error creando índice único para track_engineer_points: %v", err)
+		log.Printf("Error verificando índice único: %v", err)
+		return
+	}
+
+	if !indexExists {
+		// Crear índice único compuesto para evitar duplicados por track_engineer_id, gp_index y session_type
+		err := DB.Exec(`
+			CREATE UNIQUE INDEX uk_track_engineer_gp_session 
+			ON track_engineer_points (track_engineer_id, gp_index, session_type)
+		`).Error
+		if err != nil {
+			log.Printf("Error creando índice único para track_engineer_points: %v", err)
+		} else {
+			log.Println("Índice único para track_engineer_points creado exitosamente")
+		}
 	} else {
-		log.Println("Índice único para track_engineer_points creado exitosamente")
+		log.Println("Índice único para track_engineer_points ya existe")
+	}
+}
+
+// MigrateTeamRacesFinishCars añade la columna finish_cars a la tabla team_races si no existe
+func MigrateTeamRacesFinishCars() {
+	log.Println("Verificando columna finish_cars en tabla team_races...")
+
+	// Verificar si la columna finish_cars existe
+	var columnExists bool
+	err := DB.Raw("SELECT COUNT(*) > 0 FROM information_schema.columns WHERE table_schema = ? AND table_name = ? AND column_name = ?",
+		os.Getenv("DB_NAME"), "team_races", "finish_cars").Scan(&columnExists).Error
+
+	if err != nil {
+		log.Printf("Error verificando columna finish_cars: %v", err)
+		return
+	}
+
+	if !columnExists {
+		log.Println("Agregando columna finish_cars a tabla team_races...")
+
+		// Agregar la columna finish_cars
+		err := DB.Exec(`
+			ALTER TABLE team_races 
+			ADD COLUMN finish_cars TINYINT DEFAULT 0 COMMENT 'Número de coches que acabaron la carrera (0, 1 o 2)'
+		`).Error
+
+		if err != nil {
+			log.Printf("Error agregando columna finish_cars: %v", err)
+		} else {
+			log.Println("Columna finish_cars agregada exitosamente a tabla team_races")
+		}
+	} else {
+		log.Println("Columna finish_cars ya existe en tabla team_races")
 	}
 }

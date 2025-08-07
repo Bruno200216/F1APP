@@ -2,19 +2,39 @@ import React, { useState } from 'react';
 import { Button } from './ui/button';
 import { MoreVertical, Plus, Unlock } from 'lucide-react';
 
-const PlayerItemActions = ({ item, type, onSell, onActivateClausula, className = "" }) => {
+const PlayerItemActions = ({ 
+  item, 
+  type, 
+  itemType, 
+  onSell, 
+  onActivateClausula, 
+  onMakeOffer, 
+  currentPlayerMoney,
+  isOwned,
+  existingOffers,
+  className = "" 
+}) => {
+  // Usar itemType si está disponible, sino usar type
+  const finalType = itemType || type;
   const [isOpen, setIsOpen] = useState(false);
 
   const handleSell = (e) => {
     e.stopPropagation();
     setIsOpen(false);
-    onSell(item, type);
+    if (onSell) {
+      onSell(item, finalType);
+    } else if (onMakeOffer) {
+      // Si no hay onSell pero hay onMakeOffer, usar onMakeOffer
+      onMakeOffer(item, finalType);
+    }
   };
 
   const handleActivateClausula = (e) => {
     e.stopPropagation();
     setIsOpen(false);
-    onActivateClausula(item, type);
+    if (onActivateClausula) {
+      onActivateClausula(item, finalType);
+    }
   };
 
   // Para elementos propios, siempre se puede "subir" la cláusula
@@ -66,13 +86,13 @@ const PlayerItemActions = ({ item, type, onSell, onActivateClausula, className =
           
           {/* Menú desplegable */}
           <div className="absolute right-0 top-full mt-1 z-20 bg-surface-elevated border border-border rounded-lg shadow-lg min-w-[160px] overflow-hidden">
-            {/* Opción Vender */}
+            {/* Opción Vender/Hacer Oferta */}
             <button
               onClick={handleSell}
               className="w-full px-4 py-3 text-left text-sm hover:bg-surface flex items-center gap-2 text-text-primary"
             >
               <Plus className="h-4 w-4" />
-              Vender
+              {onSell ? 'Vender' : 'Hacer Oferta'}
             </button>
 
             {/* Opción Subir/Activar Cláusula */}
@@ -91,16 +111,12 @@ const PlayerItemActions = ({ item, type, onSell, onActivateClausula, className =
                     ? 'No tiene cláusula disponible' 
                     : clausulaDias > 0 
                       ? `Cláusula activa por ${clausulaDias} días más` 
-                      : 'Activar cláusula de rescate'
+                      : 'Pagar cláusula de rescate'
               }
             >
               <Unlock className="h-4 w-4" />
-              Pagar Cláusula
-              {!isOwnItem && hasClausula && clausulaDias > 0 && (
-                <span className="ml-auto text-xs text-state-error">
-                  {clausulaDias}d
-                </span>
-              )}
+              {isOwnItem ? 'Subir Cláusula' : 'Pagar Cláusula'}
+              {/* Removido el tiempo de cláusula del botón - solo se muestra en el perfil */}
             </button>
           </div>
         </>

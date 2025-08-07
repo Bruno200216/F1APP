@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import { Input } from '../components/ui/input';
 
 // Icons
-import { Settings, ArrowLeft, Save, X, Trophy, Flag, Timer, RotateCcw } from 'lucide-react';
+import { Settings, ArrowLeft, Save, X, Trophy, Flag, Timer, RotateCcw, Download } from 'lucide-react';
 
 export default function AdminScoresPage() {
   const [step, setStep] = useState(0); // 0: elegir GP, 1: elegir tipo, 2: elegir modo, 3: posiciones esperadas
@@ -48,6 +48,11 @@ export default function AdminScoresPage() {
   const [trackEngineers, setTrackEngineers] = useState([]);
   const [selectedTrackEngineer, setSelectedTrackEngineer] = useState('');
   const [existingTrackEngineerData, setExistingTrackEngineerData] = useState(null);
+  
+  // Estados para el scraper
+  const [selectedGPForScraper, setSelectedGPForScraper] = useState('');
+  const [isRunningScraper, setIsRunningScraper] = useState(false);
+  const [scraperSnackbar, setScraperSnackbar] = useState({ open: false, message: '', severity: 'success' });
 
   const navigate = useNavigate();
 
@@ -949,20 +954,12 @@ export default function AdminScoresPage() {
 
   const handleSaveTeamSession = async () => {
     try {
-      // Calcular delta position
-      const expectedPosition = parseFloat(teamForm.expected_position) || 0;
-      const finishPosition = parseInt(teamForm.finish_position) || 0;
-      const deltaPosition = expectedPosition - finishPosition;
-      
-      // Construir payload
+      // Construir payload solo con los campos específicos
       const payload = {
         gp_index: parseInt(selectedGP),
         team: selectedTeam,
-        expected_position: expectedPosition,
-        finish_position: finishPosition,
-        delta_position: deltaPosition,
-        pitstop_time: parseFloat(teamForm.pitstop_time) || null,
-        points: parseInt(teamForm.points) || 0
+        pitstop_time: teamForm.pitstop_time ? parseFloat(teamForm.pitstop_time) : null,
+        finish_cars: parseInt(teamForm.finish_cars) || 0
       };
       
       const res = await fetch('/api/admin/team-session-result', {
@@ -975,7 +972,7 @@ export default function AdminScoresPage() {
       if (res.ok) {
         setTeamSessionSnackbar({ 
           open: true, 
-          message: `✅ Resultados del equipo guardados. Delta: ${deltaPosition}`, 
+          message: `✅ Datos del equipo guardados. Pit Stop: ${payload.pitstop_time || 'N/A'}s, Finish Cars: ${payload.finish_cars}`, 
           severity: 'success' 
         });
         setTimeout(() => setTeamSessionSnackbar({ open: false, message: '', severity: 'success' }), 5000);
@@ -1119,6 +1116,62 @@ export default function AdminScoresPage() {
     }
   };
 
+  // Función para ejecutar el scraper
+  const handleRunScraper = async () => {
+    if (!selectedGPForScraper) {
+      setScraperSnackbar({ open: true, message: 'Por favor selecciona un Grand Prix para ejecutar el scraper', severity: 'error' });
+      setTimeout(() => setScraperSnackbar({ open: false, message: '', severity: 'error' }), 3000);
+      return;
+    }
+
+    // Confirmar antes de ejecutar
+    if (!window.confirm(`¿Estás seguro de que quieres ejecutar el scraper para el GP ${selectedGPForScraper}? Esta acción puede tomar varios minutos.`)) {
+      return;
+    }
+
+    setIsRunningScraper(true);
+    try {
+      const response = await fetch('/api/admin/run-scraper', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        },
+        body: JSON.stringify({
+          gp_index: parseInt(selectedGPForScraper)
+        })
+      });
+
+      const data = await response.json();
+      
+      if (response.ok) {
+        setScraperSnackbar({ 
+          open: true, 
+          message: `✅ ${data.message} - GP: ${data.gp_key}`, 
+          severity: 'success' 
+        });
+        setTimeout(() => setScraperSnackbar({ open: false, message: '', severity: 'success' }), 5000);
+      } else {
+        setScraperSnackbar({ 
+          open: true, 
+          message: `❌ Error: ${data.error}`, 
+          severity: 'error' 
+        });
+        setTimeout(() => setScraperSnackbar({ open: false, message: '', severity: 'error' }), 5000);
+      }
+    } catch (error) {
+      console.error('Error running scraper:', error);
+      setScraperSnackbar({ 
+        open: true, 
+        message: '❌ Error de conexión', 
+        severity: 'error' 
+      });
+      setTimeout(() => setScraperSnackbar({ open: false, message: '', severity: 'error' }), 5000);
+    } finally {
+      setIsRunningScraper(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-background p-6">
       <div className="max-w-2xl mx-auto">
@@ -1169,6 +1222,14 @@ export default function AdminScoresPage() {
             trackEngineerSnackbar.severity === 'success' ? 'bg-state-success' : 'bg-state-error'
           } text-white`}>
             {trackEngineerSnackbar.message}
+          </div>
+        )}
+        
+        {scraperSnackbar.open && (
+          <div className={`fixed top-52 right-4 px-4 py-2 rounded-md shadow-lg z-50 ${
+            scraperSnackbar.severity === 'success' ? 'bg-state-success' : 'bg-state-error'
+          } text-white`}>
+            {scraperSnackbar.message}
           </div>
         )}
 
@@ -1298,6 +1359,51 @@ export default function AdminScoresPage() {
                       >
                         <X className="h-5 w-5" />
                         {isClearingLineupPoints ? 'Limpiando...' : 'Limpiar Puntos'}
+                      </Button>
+                    </div>
+                  )}
+                </div>
+
+                {/* Sección del scraper */}
+                <div className="space-y-4">
+                  <div className="p-4 bg-surface-elevated border border-border rounded-md">
+                    <div className="text-text-primary text-small font-medium mb-2">🔄 F1 Scraper</div>
+                    <div className="text-text-secondary text-small space-y-1 mb-4">
+                      <p>• Extrae datos de F1.com y los guarda en la base de datos</p>
+                      <p>• Solo funciona con GPs que ya han terminado</p>
+                      <p>• <strong>Modo test:</strong> Prueba sin afectar la BD</p>
+                      <p>• <strong>Modo producción:</strong> Guarda datos reales</p>
+                      <p>• <strong>GPs disponibles:</strong> Belgian (1), Hungarian (13), Dutch (14), etc.</p>
+                    </div>
+                    
+                    {/* Selector de GP para scraper */}
+                    <div className="space-y-3">
+                      <label className="block text-text-primary text-small font-medium">
+                        Seleccionar GP para scraper
+                      </label>
+                      <select
+                        value={selectedGPForScraper}
+                        onChange={(e) => setSelectedGPForScraper(e.target.value)}
+                        className="w-full p-3 bg-surface border border-border rounded-md text-text-primary focus:border-accent-main focus:outline-none"
+                      >
+                        <option value="">Elegir un Grand Prix...</option>
+                        {gps.map(gp => (
+                          <option key={gp.gp_index} value={gp.gp_index}>{gp.name} (GP {gp.gp_index})</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* Botón para ejecutar scraper */}
+                  {selectedGPForScraper && (
+                    <div className="space-y-3">
+                      <Button
+                        onClick={handleRunScraper}
+                        disabled={isRunningScraper}
+                        className="w-full flex items-center justify-center gap-3 py-4 text-subtitle bg-accent-main hover:bg-accent-hover disabled:opacity-50"
+                      >
+                        <Download className="h-6 w-6" />
+                        {isRunningScraper ? 'Ejecutando Scraper...' : 'Ejecutar Scraper'}
                       </Button>
                     </div>
                   )}
@@ -1616,31 +1722,11 @@ export default function AdminScoresPage() {
                 {selectedTeam && (
                   <Card className="bg-surface-elevated">
                     <CardContent className="p-4 space-y-4">
-                      <div>
-                        <label className="block text-text-primary text-small font-medium mb-2">
-                          Expected Position
-                        </label>
-                        <Input
-                          name="expected_position"
-                          type="number"
-                          step="0.1"
-                          value={teamForm.expected_position || ''}
-                          onChange={handleTeamFieldChange}
-                          className="w-full"
-                        />
-                      </div>
-                      
-                      <div>
-                        <label className="block text-text-primary text-small font-medium mb-2">
-                          Finish Position
-                        </label>
-                        <Input
-                          name="finish_position"
-                          type="number"
-                          value={teamForm.finish_position || ''}
-                          onChange={handleTeamFieldChange}
-                          className="w-full"
-                        />
+                      <div className="p-3 bg-accent-main/10 border border-accent-main/20 rounded-md">
+                        <div className="text-text-primary text-small font-medium mb-2">ℹ️ Información</div>
+                        <div className="text-text-secondary text-small">
+                          Este formulario es solo para datos específicos del equipo. Las posiciones esperadas y finales se manejan en otros formularios.
+                        </div>
                       </div>
                       
                       <div>
@@ -1654,20 +1740,24 @@ export default function AdminScoresPage() {
                           value={teamForm.pitstop_time || ''}
                           onChange={handleTeamFieldChange}
                           className="w-full"
+                          placeholder="Opcional"
                         />
                       </div>
                       
                       <div>
                         <label className="block text-text-primary text-small font-medium mb-2">
-                          Points
+                          Finish Cars (0, 1 or 2)
                         </label>
-                        <Input
-                          name="points"
-                          type="number"
-                          value={teamForm.points || ''}
+                        <select
+                          name="finish_cars"
+                          value={teamForm.finish_cars || 0}
                           onChange={handleTeamFieldChange}
-                          className="w-full"
-                        />
+                          className="w-full p-2 bg-surface border border-border rounded-md text-text-primary focus:border-accent-main focus:outline-none"
+                        >
+                          <option value={0}>0 cars finished</option>
+                          <option value={1}>1 car finished</option>
+                          <option value={2}>2 cars finished</option>
+                        </select>
                       </div>
                       
                       <Button
@@ -1675,7 +1765,7 @@ export default function AdminScoresPage() {
                         className="w-full flex items-center justify-center gap-2 mt-6"
                       >
                         <Save className="h-4 w-4" />
-                        Save Team Results
+                        Save Team Details
                       </Button>
                     </CardContent>
                   </Card>

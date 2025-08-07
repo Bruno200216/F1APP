@@ -1,22 +1,20 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { useLeague } from '../context/LeagueContext';
-import { cn, formatCurrency, formatNumberWithDots, getTeamColor } from '../lib/utils';
-
-// UI Components
-import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '../components/ui/tabs';
+import { Card, CardHeader, CardContent, CardTitle } from '../components/ui/card';
 import { Avatar, AvatarImage, AvatarFallback } from '../components/ui/avatar';
+import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
-
-// Icons
-import { ArrowLeft, Trophy, Users, TrendingUp, Car, Wrench, Building2 } from 'lucide-react';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '../components/ui/tabs';
+import { X, ChevronLeft, ChevronRight, Lock, Users, Settings, Trophy, ArrowLeft, TrendingUp, Car, Wrench, Building2 } from 'lucide-react';
+import { useLeague } from '../context/LeagueContext';
+import { getTeamColor, cn } from '../lib/utils';
 
 // Components
 import DriverRaceCard from '../components/DriverRaceCard';
 import EngineerCard from '../components/EngineerCard';
 import TeamCard from '../components/TeamCard';
 import PlayerItemActions from '../components/PlayerItemActions';
+import MakeOfferModal from '../components/MakeOfferModal';
 
 export default function PlayerProfilePage() {
   const { playerId } = useParams();
@@ -36,12 +34,31 @@ export default function PlayerProfilePage() {
   const [currentPlayerMoney, setCurrentPlayerMoney] = useState(0);
   const [existingOffers, setExistingOffers] = useState([]); // Ofertas existentes del usuario
   
+  // Estados para el modal de ofertas
+  const [openMakeOfferModal, setOpenMakeOfferModal] = useState(false);
+  const [selectedOfferItem, setSelectedOfferItem] = useState(null);
+  const [selectedOfferType, setSelectedOfferType] = useState('');
+  const [loadingMakeOffer, setLoadingMakeOffer] = useState(false);
+
+  // Estados para la funcionalidad de puntos con alineaciones
+  const [availableGPs, setAvailableGPs] = useState([]);
+  const [selectedGP, setSelectedGP] = useState(null);
+  const [currentPoints, setCurrentPoints] = useState({ total: 0 });
+  const [lineupHistory, setLineupHistory] = useState([]);
+  const [historyLineup, setHistoryLineup] = useState({ race: [], qualifying: [], practice: [] });
+  const [historyTeamLineup, setHistoryTeamLineup] = useState({ team_constructor: null, chief_engineer: null, track_engineers: [] });
+  const [elementPoints, setElementPoints] = useState({});
+  const [selectedHistoryGP, setSelectedHistoryGP] = useState(null);
+  const [pointsTab, setPointsTab] = useState('pilots');
+  const [loadingGPs, setLoadingGPs] = useState(false);
+  
   // Obtener el ID del usuario actual
   const currentPlayerId = Number(localStorage.getItem('player_id'));
 
   useEffect(() => {
     if (selectedLeague && playerId) {
       fetchPlayerData();
+      loadAvailableGPs();
     }
   }, [selectedLeague, playerId]);
 
@@ -142,19 +159,34 @@ export default function PlayerProfilePage() {
     }
   };
 
-  const handleMakeOffer = async (item, itemType, offerValue) => {
+  const handleMakeOffer = async (item, itemType) => {
+    // Abrir modal para hacer oferta
+    setSelectedOfferItem(item);
+    setSelectedOfferType(itemType);
+    setOpenMakeOfferModal(true);
+  };
+
+  const handleConfirmMakeOffer = async (offerValue) => {
+    if (!selectedOfferItem || !selectedOfferType) return;
+    
+    setLoadingMakeOffer(true);
     try {
-      console.log('Enviando oferta:', { item, itemType, offerValue, leagueId: selectedLeague.id });
+      console.log('Enviando oferta:', { 
+        item: selectedOfferItem, 
+        itemType: selectedOfferType, 
+        offerValue, 
+        leagueId: selectedLeague.id 
+      });
       
       const token = localStorage.getItem('token');
-      const response = await fetch(`/api/${itemType}/make-offer`, {
+      const response = await fetch(`/api/${selectedOfferType}/make-offer`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify({
-          item_id: item.id,
+          item_id: selectedOfferItem.id,
           league_id: selectedLeague.id,
           offer_value: offerValue
         })
@@ -167,14 +199,27 @@ export default function PlayerProfilePage() {
         throw new Error(responseData.error || 'Error al enviar la oferta');
       }
 
-      alert('Oferta enviada correctamente');
+      // Cerrar modal y mostrar mensaje de éxito
+      setOpenMakeOfferModal(false);
+      setSelectedOfferItem(null);
+      setSelectedOfferType('');
+      
       // Recargar datos del jugador y ofertas existentes
       fetchPlayerData();
       await fetchExistingOffers();
     } catch (error) {
-      console.error('Error en handleMakeOffer:', error);
-      throw new Error(error.message);
+      console.error('Error en handleConfirmMakeOffer:', error);
+      alert(error.message);
+    } finally {
+      setLoadingMakeOffer(false);
     }
+  };
+
+  const handleCloseMakeOfferModal = () => {
+    setOpenMakeOfferModal(false);
+    setSelectedOfferItem(null);
+    setSelectedOfferType('');
+    setLoadingMakeOffer(false);
   };
 
   const handleActivateClausula = async (item, itemType, clausulaValue) => {
@@ -209,6 +254,860 @@ export default function PlayerProfilePage() {
       console.error('Error en handleActivateClausula:', error);
       throw new Error(error.message);
     }
+  };
+
+  // Funciones para la funcionalidad de puntos con alineaciones
+  const loadAvailableGPs = async () => {
+    try {
+      setLoadingGPs(true);
+      const token = localStorage.getItem('token');
+      
+      const response = await fetch('/api/gp/started', {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        setAvailableGPs(data.gps || []);
+        
+        // Seleccionar el GP más reciente por defecto
+        if (data.gps && data.gps.length > 0) {
+          setSelectedGP(data.gps[0]);
+          await loadCurrentPointsForGP(data.gps[0].gp_index);
+        }
+      } else {
+        console.error('Error loading GPs:', response.status);
+      }
+    } catch (error) {
+      console.error('Error loading GPs:', error);
+    } finally {
+      setLoadingGPs(false);
+    }
+  };
+
+  const loadCurrentPointsForGP = async (gpIndex) => {
+    try {
+      console.log('🔍 Cargando puntos para GP:', gpIndex);
+      const token = localStorage.getItem('token');
+      
+      const response = await fetch(`/api/lineup/points?player_id=${playerId}&league_id=${selectedLeague.id}&gp_index=${gpIndex}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        console.log('🔍 Datos recibidos de puntos:', data);
+        const totalPoints = data.lineup_points || 0;
+        
+        const points = {
+          total: totalPoints,
+          gp_index: data.gp_index,
+          gp_name: data.gp_name,
+          gp_country: data.gp_country,
+          gp_date: data.gp_date,
+          gp_flag: data.gp_flag,
+          has_lineup: data.has_lineup
+        };
+        
+        console.log('🔍 Puntos procesados:', points);
+        setCurrentPoints(points);
+        
+        // Cargar puntos individuales de elementos si hay alineación
+        if (data.has_lineup) {
+          // Buscar la alineación correspondiente en el historial
+          let lineupData = lineupHistory.find(l => l.gp_index === gpIndex);
+          
+          // Si no hay historial cargado, cargarlo primero
+          if (!lineupData && lineupHistory.length === 0) {
+            console.log('🔍 Cargando historial de alineaciones...');
+            await loadLineupHistory();
+            // Esperar un poco para que el estado se actualice
+            await new Promise(resolve => setTimeout(resolve, 100));
+            // Buscar nuevamente en el historial actualizado
+            lineupData = lineupHistory.find(l => l.gp_index === gpIndex);
+          }
+          
+          if (lineupData) {
+            console.log('🔍 Cargando alineación para GP:', gpIndex);
+            await loadHistoryLineup(lineupData);
+            console.log('🔍 Cargando puntos individuales para GP:', gpIndex);
+            await loadElementPoints(lineupData);
+          } else {
+            console.log('❌ No se encontró alineación para GP:', gpIndex);
+            // Intentar cargar directamente desde el endpoint de history
+            console.log('🔍 Intentando cargar alineación directamente...');
+            const historyResponse = await fetch(`/api/lineup/history?player_id=${playerId}&league_id=${selectedLeague.id}`, {
+              headers: { 'Authorization': `Bearer ${token}` }
+            });
+            if (historyResponse.ok) {
+              const historyData = await historyResponse.json();
+              const directLineupData = historyData.lineups?.find(l => l.gp_index === gpIndex);
+              if (directLineupData) {
+                console.log('🔍 Alineación encontrada directamente:', directLineupData);
+                await loadHistoryLineup(directLineupData);
+                await loadElementPoints(directLineupData);
+              } else {
+                console.log('❌ No se encontró alineación directamente para GP:', gpIndex);
+              }
+            }
+          }
+        }
+      } else {
+        console.error('Error loading lineup points:', response.status);
+        setCurrentPoints({ total: 0 });
+      }
+    } catch (error) {
+      console.error('Error loading current points:', error);
+      setCurrentPoints({ total: 0 });
+    }
+  };
+
+  const loadLineupHistory = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      
+      const response = await fetch(`/api/lineup/history?player_id=${playerId}&league_id=${selectedLeague.id}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        setLineupHistory(data.lineups || []);
+      } else {
+        console.error('Error loading lineup history:', response.status);
+      }
+    } catch (error) {
+      console.error('Error loading lineup history:', error);
+    }
+  };
+
+  const loadHistoryLineup = async (gpData) => {
+    try {
+      setSelectedHistoryGP(gpData);
+      
+      // Cargar pilotos de carrera
+      const racePilots = [];
+      if (gpData.race_pilots && gpData.race_pilots.length > 0) {
+        for (const pilotId of gpData.race_pilots) {
+          const pilot = await loadPilotById(pilotId);
+          if (pilot) racePilots.push(pilot);
+        }
+      }
+      
+      // Cargar pilotos de clasificación
+      const qualifyingPilots = [];
+      if (gpData.qualifying_pilots && gpData.qualifying_pilots.length > 0) {
+        for (const pilotId of gpData.qualifying_pilots) {
+          const pilot = await loadPilotById(pilotId);
+          if (pilot) qualifyingPilots.push(pilot);
+        }
+      }
+      
+      // Cargar pilotos de práctica
+      const practicePilots = [];
+      if (gpData.practice_pilots && gpData.practice_pilots.length > 0) {
+        for (const pilotId of gpData.practice_pilots) {
+          const pilot = await loadPilotById(pilotId);
+          if (pilot) practicePilots.push(pilot);
+        }
+      }
+      
+      setHistoryLineup({
+        race: racePilots,
+        qualifying: qualifyingPilots,
+        practice: practicePilots
+      });
+      
+      // Cargar equipo constructor
+      let teamConstructor = null;
+      if (gpData.team_constructor_id) {
+        teamConstructor = await loadTeamConstructorById(gpData.team_constructor_id);
+      }
+      
+      // Cargar ingeniero jefe
+      let chiefEngineer = null;
+      if (gpData.chief_engineer_id) {
+        chiefEngineer = await loadChiefEngineerById(gpData.chief_engineer_id);
+      }
+      
+      // Cargar ingenieros de pista
+      const trackEngineers = [];
+      if (gpData.track_engineers && gpData.track_engineers.length > 0) {
+        for (const engineerId of gpData.track_engineers) {
+          const engineer = await loadTrackEngineerById(engineerId);
+          if (engineer) trackEngineers.push(engineer);
+        }
+      }
+      
+      setHistoryTeamLineup({
+        team_constructor: teamConstructor,
+        chief_engineer: chiefEngineer,
+        track_engineers: trackEngineers
+      });
+      
+    } catch (error) {
+      console.error('Error loading history lineup:', error);
+    }
+  };
+
+  const loadElementPoints = async (gpData) => {
+    try {
+      console.log('🚀 Iniciando loadElementPoints para GP:', gpData.gp_index);
+      const token = localStorage.getItem('token');
+      const points = {};
+
+      // Cargar puntos de pilotos
+      const allPilots = [
+        ...(gpData.race_pilots || []),
+        ...(gpData.qualifying_pilots || []),
+        ...(gpData.practice_pilots || [])
+      ];
+
+      for (const pilotByLeagueId of allPilots) {
+        console.log(`🔍 Cargando puntos para piloto ${pilotByLeagueId} en GP ${gpData.gp_index}`);
+        const response = await fetch(`/api/lineup/element-points?gp_index=${gpData.gp_index}&element_type=pilot&element_id=${pilotByLeagueId}&player_id=${playerId}&league_id=${selectedLeague.id}`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (response.ok) {
+          const data = await response.json();
+          points[`pilot_${pilotByLeagueId}`] = data.points || 0;
+          console.log(`✅ Piloto ${pilotByLeagueId}: ${data.points} puntos`);
+        } else {
+          console.log(`❌ Error cargando puntos para piloto ${pilotByLeagueId}`);
+        }
+      }
+
+      // Cargar puntos de equipo constructor
+      if (gpData.team_constructor_id) {
+        console.log(`🔍 Cargando puntos para equipo constructor ${gpData.team_constructor_id} en GP ${gpData.gp_index}`);
+        const response = await fetch(`/api/lineup/element-points?gp_index=${gpData.gp_index}&element_type=team_constructor&element_id=${gpData.team_constructor_id}&player_id=${playerId}&league_id=${selectedLeague.id}`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (response.ok) {
+          const data = await response.json();
+          points[`team_constructor_${gpData.team_constructor_id}`] = data.points || 0;
+          console.log(`✅ Equipo Constructor ${gpData.team_constructor_id}: ${data.points} puntos`);
+        } else {
+          console.log(`❌ Error cargando puntos para equipo constructor ${gpData.team_constructor_id}`);
+        }
+      }
+
+      // Cargar puntos de ingeniero jefe
+      if (gpData.chief_engineer_id) {
+        console.log(`🔍 Cargando puntos para ingeniero jefe ${gpData.chief_engineer_id} en GP ${gpData.gp_index}`);
+        const response = await fetch(`/api/lineup/element-points?gp_index=${gpData.gp_index}&element_type=chief_engineer&element_id=${gpData.chief_engineer_id}&player_id=${playerId}&league_id=${selectedLeague.id}`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (response.ok) {
+          const data = await response.json();
+          points[`chief_engineer_${gpData.chief_engineer_id}`] = data.points || 0;
+          console.log(`✅ Ingeniero Jefe ${gpData.chief_engineer_id}: ${data.points} puntos`);
+        } else {
+          console.log(`❌ Error cargando puntos para ingeniero jefe ${gpData.chief_engineer_id}`);
+        }
+      }
+
+      // Cargar puntos de ingenieros de pista
+      if (gpData.track_engineers) {
+        for (const engineerId of gpData.track_engineers) {
+          console.log(`🔍 Cargando puntos para track engineer ${engineerId} en GP ${gpData.gp_index}`);
+          const response = await fetch(`/api/lineup/element-points?gp_index=${gpData.gp_index}&element_type=track_engineer&element_id=${engineerId}&player_id=${playerId}&league_id=${selectedLeague.id}`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+          if (response.ok) {
+            const data = await response.json();
+            points[`track_engineer_${engineerId}`] = data.points || 0;
+            console.log(`✅ Track Engineer ${engineerId}: ${data.points} puntos`);
+          } else {
+            console.log(`❌ Error cargando puntos para track engineer ${engineerId}`);
+          }
+        }
+      }
+
+      setElementPoints(points);
+      console.log('🎯 ElementPoints final:', points);
+      
+    } catch (error) {
+      console.error('Error loading element points:', error);
+    }
+  };
+
+  const loadPilotById = async (pilotId) => {
+    try {
+      const response = await fetch(`/api/pilots/${pilotId}`);
+      if (response.ok) {
+        const data = await response.json();
+        return data.pilot;
+      }
+    } catch (error) {
+      console.error('Error loading pilot:', error);
+    }
+    return null;
+  };
+
+  const loadTeamConstructorById = async (teamId) => {
+    try {
+      const response = await fetch(`/api/teamconstructorsbyleague?id=${teamId}&league_id=${selectedLeague.id}`);
+      if (response.ok) {
+        const data = await response.json();
+        return data.team_constructor;
+      }
+    } catch (error) {
+      console.error('Error loading team constructor:', error);
+    }
+    return null;
+  };
+
+  const loadChiefEngineerById = async (engineerId) => {
+    try {
+      const response = await fetch(`/api/chiefengineersbyleague?id=${engineerId}&league_id=${selectedLeague.id}`);
+      if (response.ok) {
+        const data = await response.json();
+        return data.chief_engineer;
+      }
+    } catch (error) {
+      console.error('Error loading chief engineer:', error);
+    }
+    return null;
+  };
+
+  const loadTrackEngineerById = async (engineerId) => {
+    try {
+      const response = await fetch(`/api/trackengineersbyleague?id=${engineerId}&league_id=${selectedLeague.id}`);
+      if (response.ok) {
+        const data = await response.json();
+        return data.track_engineer;
+      }
+    } catch (error) {
+      console.error('Error loading track engineer:', error);
+    }
+    return null;
+  };
+
+  // Función para limpiar la ruta de imagen
+  const cleanImageUrl = (url) => {
+    if (!url) return '';
+    
+    // Convertir a string y normalizar separadores
+    let cleanUrl = String(url).replace(/\\/g, '/');
+    
+    // Eliminar todos los prefijos posibles de forma más robusta
+    const prefixesToRemove = [
+      'images/ingenierosdepista/',
+      'images/equipos/',
+      'images/',
+      'ingenierosdepista/',
+      'equipos/'
+    ];
+    
+    for (const prefix of prefixesToRemove) {
+      if (cleanUrl.startsWith(prefix)) {
+        cleanUrl = cleanUrl.substring(prefix.length);
+        break;
+      }
+    }
+    
+    return cleanUrl;
+  };
+
+  // Función para obtener la ruta correcta de imagen según el tipo
+  const getImageUrl = (item, type) => {
+    // Validar que el item no sea null o undefined
+    if (!item) return '';
+    
+    const imageUrl = item.image_url || item.ImageURL;
+    if (!imageUrl) return '';
+    
+    const cleanUrl = cleanImageUrl(imageUrl);
+    const finalUrl = (() => {
+      switch (type) {
+        case 'team_constructor':
+          return `/images/equipos/${cleanUrl}`;
+        case 'track_engineer':
+        case 'chief_engineer':
+          return `/images/ingenierosdepista/${cleanUrl}`;
+        case 'pilot':
+        default:
+          return `/images/${cleanUrl}`;
+      }
+    })();
+    
+    return finalUrl;
+  };
+
+  // Función para obtener colores de borde según puntos
+  const getBorderColor = (points) => {
+    if (points === 0) return '#6B7280'; // Gris
+    if (points > 0 && points <= 10) return '#10B981'; // Verde claro
+    if (points > 10 && points <= 20) return '#059669'; // Verde medio
+    if (points > 20 && points <= 30) return '#047857'; // Verde oscuro
+    if (points > 30) return '#9D4EDD'; // Morado
+    return '#EF4444'; // Rojo para puntos negativos
+  };
+
+  // Función para renderizar la sección de puntos
+  const renderPoints = () => {
+    // Si está cargando los GPs
+    if (loadingGPs) {
+      return (
+        <div className="flex flex-col items-center justify-center py-16">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-accent-main mx-auto mb-4"></div>
+          <p className="text-text-primary">Cargando Grandes Premios...</p>
+        </div>
+      );
+    }
+
+    // Si no hay GPs disponibles
+    if (!availableGPs || availableGPs.length === 0) {
+      return (
+        <div className="flex flex-col items-center justify-center py-16">
+          <Trophy className="h-16 w-16 text-text-secondary mb-4" />
+          <h3 className="text-h3 font-bold text-text-primary mb-2">No hay Grandes Premios disponibles</h3>
+          <p className="text-text-secondary text-center max-w-sm">
+            No hay Grandes Premios que hayan comenzado aún.
+          </p>
+        </div>
+      );
+    }
+
+    return (
+      <div className="space-y-6">
+        {/* Navegación entre GPs */}
+        <div className="bg-surface border border-border rounded-lg p-4">
+          <h3 className="text-subtitle font-bold text-text-primary mb-4">Seleccionar Gran Premio</h3>
+          
+          {/* Barra de navegación con banderas */}
+          <div className="flex items-center gap-2 overflow-x-auto pb-2">
+            {availableGPs.map((gp, index) => (
+              <button
+                key={gp.gp_index}
+                onClick={() => {
+                  setSelectedGP(gp);
+                  loadCurrentPointsForGP(gp.gp_index);
+                }}
+                className={`flex flex-col items-center gap-2 p-3 rounded-lg border-2 transition-all duration-200 min-w-[80px] ${
+                  selectedGP?.gp_index === gp.gp_index
+                    ? 'border-accent-main bg-accent-main/10'
+                    : 'border-border hover:border-accent-main/50'
+                }`}
+              >
+                {gp.flag && (
+                  <img
+                    src={`/images/flags/${gp.flag}`}
+                    alt={gp.country}
+                    className="w-8 h-5 rounded border border-border"
+                  />
+                )}
+                <span className={`text-caption font-medium text-center ${
+                  selectedGP?.gp_index === gp.gp_index
+                    ? 'text-accent-main'
+                    : 'text-text-secondary'
+                }`}>
+                  {gp.name}
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Información del GP seleccionado */}
+        {selectedGP && (
+          <div className="space-y-6">
+            {/* Header del GP */}
+            <Card className="bg-surface border border-border">
+              <CardContent className="p-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h2 className="text-h3 font-bold text-text-primary mb-2">
+                      {selectedGP.name}
+                    </h2>
+                    <p className="text-text-secondary">
+                      {selectedGP.country} - {new Date(selectedGP.start_date).toLocaleDateString('es-ES')}
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-caption text-text-secondary">Puntos Totales</p>
+                    <p className="text-h2 font-bold text-accent-main">
+                      {currentPoints.total || 0} pts
+                    </p>
+                    {!currentPoints.has_lineup && (
+                      <p className="text-caption text-text-secondary mt-1">
+                        Sin alineación guardada
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Alineación del GP */}
+            <div className="space-y-6">
+              {/* Pestañas para Pilotos e Ingenieros/Equipos */}
+              <Tabs value={pointsTab} onValueChange={setPointsTab} className="space-y-6">
+                <TabsList className="grid w-full grid-cols-2 lg:w-96">
+                  <TabsTrigger value="pilots" className="flex items-center gap-2">
+                    <Users className="h-4 w-4" />
+                    Pilotos
+                  </TabsTrigger>
+                  <TabsTrigger value="team" className="flex items-center gap-2">
+                    <Settings className="h-4 w-4" />
+                    Ingenieros & Equipos
+                  </TabsTrigger>
+                </TabsList>
+
+                {/* Pestaña Pilotos */}
+                <TabsContent value="pilots">
+                  <Card className="bg-surface border border-border">
+                    <CardHeader>
+                      <CardTitle className="text-subtitle font-bold text-text-primary">
+                        Pilotos
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      {/* Pilotos de Carrera */}
+                      <div>
+                        <h4 className="text-small font-semibold text-text-primary mb-3">Carrera</h4>
+                        <div className="flex justify-center gap-4">
+                          {currentPoints.has_lineup ? (
+                            [0, 1].map((index) => {
+                              const pilot = historyLineup.race[index] || null;
+                              const pilotId = selectedHistoryGP?.race_pilots?.[index];
+                              const points = pilot && pilotId ? (elementPoints[`pilot_${pilotId}`] || 0) : 0;
+                              
+                              return (
+                                <div key={index} className="flex flex-col items-center">
+                                  <div 
+                                    className="w-24 h-24 rounded-lg overflow-hidden mb-2"
+                                    style={{
+                                      background: pilot ? `linear-gradient(135deg, ${getBorderColor(points)}20, ${getBorderColor(points)}40)` : 'linear-gradient(135deg, #6B728020, #6B728040)',
+                                      border: `2px solid ${pilot ? getBorderColor(points) : '#6B7280'}`,
+                                      boxShadow: `0 0 15px ${pilot ? getBorderColor(points) : '#6B7280'}30`
+                                    }}
+                                  >
+                                    {pilot ? (
+                                      <div className="w-full h-full flex items-center justify-center p-2">
+                                        <div className="w-16 h-16 rounded-full overflow-hidden">
+                                          <img
+                                            src={getImageUrl(pilot, 'pilot')}
+                                            alt={pilot.driver_name}
+                                            className="w-full h-full object-cover"
+                                          />
+                                        </div>
+                                      </div>
+                                    ) : (
+                                      <div className="w-full h-full flex items-center justify-center">
+                                        <div className="w-16 h-16 rounded-full bg-surface-elevated flex items-center justify-center">
+                                          <span className="text-text-secondary text-caption font-medium"></span>
+                                        </div>
+                                      </div>
+                                    )}
+                                  </div>
+                                                                <p className="text-caption font-bold text-text-primary">
+                                {pilot ? `${points} pts` : '0 pts'}
+                              </p>
+                            </div>
+                          );
+                        })
+                      ) : (
+                        // Si no hay alineación, mostrar 2 slots vacíos
+                        [0, 1].map((index) => (
+                          <div key={index} className="flex flex-col items-center">
+                            <div 
+                              className="w-24 h-24 rounded-lg overflow-hidden mb-2"
+                              style={{
+                                background: 'linear-gradient(135deg, #6B728020, #6B728040)',
+                                border: '2px solid #6B7280',
+                                boxShadow: '0 0 15px #6B728030'
+                              }}
+                            >
+                              <div className="w-full h-full flex items-center justify-center">
+                                <div className="w-16 h-16 rounded-full bg-surface-elevated flex items-center justify-center">
+                                  <span className="text-text-secondary text-caption font-medium"></span>
+                                </div>
+                              </div>
+                            </div>
+                            <p className="text-caption font-bold text-text-primary">0 pts</p>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Pilotos de Clasificación */}
+                  <div>
+                    <h4 className="text-small font-semibold text-text-primary mb-3">Clasificación</h4>
+                    <div className="flex justify-center gap-4">
+                      {currentPoints.has_lineup ? (
+                        [0, 1].map((index) => {
+                          const pilot = historyLineup.qualifying[index] || null;
+                          const pilotId = selectedHistoryGP?.qualifying_pilots?.[index];
+                          const points = pilot && pilotId ? (elementPoints[`pilot_${pilotId}`] || 0) : 0;
+                          
+                          return (
+                            <div key={index} className="flex flex-col items-center">
+                              <div 
+                                className="w-24 h-24 rounded-lg overflow-hidden mb-2"
+                                style={{
+                                  background: pilot ? `linear-gradient(135deg, ${getBorderColor(points)}20, ${getBorderColor(points)}40)` : 'linear-gradient(135deg, #6B728020, #6B728040)',
+                                  border: `2px solid ${pilot ? getBorderColor(points) : '#6B7280'}`,
+                                  boxShadow: `0 0 15px ${pilot ? getBorderColor(points) : '#6B7280'}30`
+                                }}
+                              >
+                                {pilot ? (
+                                  <div className="w-full h-full flex items-center justify-center p-2">
+                                    <div className="w-16 h-16 rounded-full overflow-hidden">
+                                      <img
+                                        src={getImageUrl(pilot, 'pilot')}
+                                        alt={pilot.driver_name || pilot.DriverName}
+                                        className="w-full h-full object-cover"
+                                      />
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <div className="w-full h-full flex items-center justify-center">
+                                    <div className="w-16 h-16 rounded-full bg-surface-elevated flex items-center justify-center">
+                                      <span className="text-text-secondary text-caption font-medium"></span>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                              <p className="text-caption font-bold text-text-primary">
+                                {pilot ? `${points} pts` : '0 pts'}
+                              </p>
+                            </div>
+                          );
+                        })
+                      ) : (
+                        // Si no hay alineación, mostrar 2 slots vacíos
+                        [0, 1].map((index) => (
+                          <div key={index} className="flex flex-col items-center">
+                            <div 
+                              className="w-24 h-24 rounded-lg overflow-hidden mb-2"
+                              style={{
+                                background: 'linear-gradient(135deg, #6B728020, #6B728040)',
+                                border: '2px solid #6B7280',
+                                boxShadow: '0 0 15px #6B728030'
+                              }}
+                            >
+                              <div className="w-full h-full flex items-center justify-center">
+                                <div className="w-16 h-16 rounded-full bg-surface-elevated flex items-center justify-center">
+                                  <span className="text-text-secondary text-caption font-medium"></span>
+                                </div>
+                              </div>
+                            </div>
+                            <p className="text-caption font-bold text-text-primary">0 pts</p>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Pilotos de Práctica */}
+                  <div>
+                    <h4 className="text-small font-semibold text-text-primary mb-3">Práctica</h4>
+                    <div className="flex justify-center gap-4">
+                      {[0, 1].map((index) => {
+                        const pilot = historyLineup.practice[index] || null;
+                        const pilotId = selectedHistoryGP?.practice_pilots?.[index];
+                        const points = pilot && pilotId ? (elementPoints[`pilot_${pilotId}`] || 0) : 0;
+                        
+                        return (
+                          <div key={index} className="flex flex-col items-center">
+                            <div 
+                              className="w-24 h-24 rounded-lg overflow-hidden mb-2"
+                              style={{
+                                background: pilot ? `linear-gradient(135deg, ${getBorderColor(points)}20, ${getBorderColor(points)}40)` : 'linear-gradient(135deg, #6B728020, #6B728040)',
+                                border: `2px solid ${pilot ? getBorderColor(points) : '#6B7280'}`,
+                                boxShadow: `0 0 15px ${pilot ? getBorderColor(points) : '#6B7280'}30`
+                              }}
+                            >
+                              {pilot ? (
+                                <div className="w-full h-full flex items-center justify-center p-2">
+                                  <div className="w-16 h-16 rounded-full overflow-hidden">
+                                    <img
+                                      src={getImageUrl(pilot, 'pilot')}
+                                      alt={pilot.driver_name || pilot.DriverName}
+                                      className="w-full h-full object-cover"
+                                    />
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="w-full h-full flex items-center justify-center">
+                                  <div className="w-16 h-16 rounded-full bg-surface-elevated flex items-center justify-center">
+                                    <span className="text-text-secondary text-caption font-medium"></span>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                            <p className="text-caption font-bold text-text-primary">
+                              {pilot ? `${points} pts` : '0 pts'}
+                            </p>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                    </CardContent>
+                  </Card>
+                </TabsContent>
+
+                {/* Pestaña Ingenieros & Equipos */}
+                <TabsContent value="team">
+                  <Card className="bg-surface border border-border">
+                    <CardHeader>
+                      <CardTitle className="text-subtitle font-bold text-text-primary">
+                        Ingenieros & Equipos
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      {/* Constructor */}
+                      <div>
+                        <h4 className="text-small font-semibold text-text-primary mb-3">Constructor</h4>
+                        <div className="flex justify-center">
+                          {(() => {
+                            const points = elementPoints[`team_constructor_${selectedHistoryGP?.team_constructor_id}`] || 0;
+                            
+                            return (
+                              <div className="flex flex-col items-center">
+                                <div 
+                                  className="w-24 h-24 rounded-lg overflow-hidden mb-2"
+                                  style={{
+                                    background: historyTeamLineup.team_constructor ? `linear-gradient(135deg, ${getBorderColor(points)}20, ${getBorderColor(points)}40)` : 'linear-gradient(135deg, #6B728020, #6B728040)',
+                                    border: `2px solid ${historyTeamLineup.team_constructor ? getBorderColor(points) : '#6B7280'}`,
+                                    boxShadow: `0 0 15px ${historyTeamLineup.team_constructor ? getBorderColor(points) : '#6B7280'}30`
+                                  }}
+                                >
+                                  {historyTeamLineup.team_constructor ? (
+                                    <div className="w-full h-full flex items-center justify-center p-2">
+                                      <div className="w-16 h-16 rounded-full overflow-hidden">
+                                        <img
+                                          src={getImageUrl(historyTeamLineup.team_constructor, 'team_constructor')}
+                                          alt={historyTeamLineup.team_constructor.constructor_name || historyTeamLineup.team_constructor.name}
+                                          className="w-full h-full object-cover"
+                                        />
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <div className="w-full h-full flex items-center justify-center">
+                                      <div className="w-16 h-16 rounded-full bg-surface-elevated flex items-center justify-center">
+                                        <span className="text-text-secondary text-caption font-medium"></span>
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                                <p className="text-caption font-bold text-text-primary">
+                                  {historyTeamLineup.team_constructor ? `${points} pts` : '0 pts'}
+                                </p>
+                              </div>
+                            );
+                          })()}
+                        </div>
+                      </div>
+
+                      {/* Ingeniero Jefe */}
+                      <div>
+                        <h4 className="text-small font-semibold text-text-primary mb-3">Ingeniero Jefe</h4>
+                        <div className="flex justify-center">
+                          {(() => {
+                            const points = elementPoints[`chief_engineer_${selectedHistoryGP?.chief_engineer_id}`] || 0;
+                            
+                            return (
+                              <div className="flex flex-col items-center">
+                                <div 
+                                  className="w-24 h-24 rounded-lg overflow-hidden mb-2"
+                                  style={{
+                                    background: historyTeamLineup.chief_engineer ? `linear-gradient(135deg, ${getBorderColor(points)}20, ${getBorderColor(points)}40)` : 'linear-gradient(135deg, #6B728020, #6B728040)',
+                                    border: `2px solid ${historyTeamLineup.chief_engineer ? getBorderColor(points) : '#6B7280'}`,
+                                    boxShadow: `0 0 15px ${historyTeamLineup.chief_engineer ? getBorderColor(points) : '#6B7280'}30`
+                                  }}
+                                >
+                                  {historyTeamLineup.chief_engineer ? (
+                                    <div className="w-full h-full flex items-center justify-center p-2">
+                                      <div className="w-16 h-16 rounded-full overflow-hidden">
+                                        <img
+                                          src={getImageUrl(historyTeamLineup.chief_engineer, 'chief_engineer')}
+                                          alt={historyTeamLineup.chief_engineer.name}
+                                          className="w-full h-full object-cover"
+                                        />
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <div className="w-full h-full flex items-center justify-center">
+                                      <div className="w-16 h-16 rounded-full bg-surface-elevated flex items-center justify-center">
+                                        <span className="text-text-secondary text-caption font-medium"></span>
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                                <p className="text-caption font-bold text-text-primary">
+                                  {historyTeamLineup.chief_engineer ? `${points} pts` : '0 pts'}
+                                </p>
+                              </div>
+                            );
+                          })()}
+                        </div>
+                      </div>
+
+                      {/* Ingenieros de Pista */}
+                      <div>
+                        <h4 className="text-small font-semibold text-text-primary mb-3">Ingenieros de Pista</h4>
+                        <div className="flex justify-center gap-4">
+                          {[0, 1].map((index) => {
+                            const engineer = historyTeamLineup.track_engineers[index] || null;
+                            const engineerId = selectedHistoryGP?.track_engineers?.[index];
+                            const points = engineer && engineerId ? (elementPoints[`track_engineer_${engineerId}`] || 0) : 0;
+                            
+                            return (
+                              <div key={index} className="flex flex-col items-center">
+                                <div 
+                                  className="w-24 h-24 rounded-lg overflow-hidden mb-2"
+                                  style={{
+                                    background: engineer ? `linear-gradient(135deg, ${getBorderColor(points)}20, ${getBorderColor(points)}40)` : 'linear-gradient(135deg, #6B728020, #6B728040)',
+                                    border: `2px solid ${engineer ? getBorderColor(points) : '#6B7280'}`,
+                                    boxShadow: `0 0 15px ${engineer ? getBorderColor(points) : '#6B7280'}30`
+                                  }}
+                                >
+                                  {engineer ? (
+                                    <div className="w-full h-full flex items-center justify-center p-2">
+                                      <div className="w-16 h-16 rounded-full overflow-hidden">
+                                        <img
+                                          src={getImageUrl(engineer, 'track_engineer')}
+                                          alt={engineer.name}
+                                          className="w-full h-full object-cover"
+                                        />
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <div className="w-full h-full flex items-center justify-center">
+                                      <div className="w-16 h-16 rounded-full bg-surface-elevated flex items-center justify-center">
+                                        <span className="text-text-secondary text-caption font-medium"></span>
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                                <p className="text-caption font-bold text-text-primary">
+                                  {engineer ? `${points} pts` : '0 pts'}
+                                </p>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </TabsContent>
+              </Tabs>
+            </div>
+          </div>
+        )}
+      </div>
+    );
   };
 
   if (!selectedLeague) {
@@ -282,7 +1181,7 @@ export default function PlayerProfilePage() {
                 {player.name}
               </h1>
               <p className="text-text-secondary text-small">
-                €{formatNumberWithDots(player.money) || '0'}
+                €{currentPlayerMoney || 0}
               </p>
             </div>
           </div>
@@ -346,7 +1245,7 @@ export default function PlayerProfilePage() {
                             item={pilot}
                             itemType="pilot"
                             currentPlayerMoney={currentPlayerMoney}
-                            onMakeOffer={(offerValue) => handleMakeOffer(pilot, 'pilot', offerValue)}
+                            onMakeOffer={(item, type) => handleMakeOffer(item, type)}
                             onActivateClausula={(clausulaValue) => handleActivateClausula(pilot, 'pilot', clausulaValue)}
                             isOwned={false}
                             existingOffers={existingOffers}
@@ -395,7 +1294,7 @@ export default function PlayerProfilePage() {
                             item={engineer}
                             itemType="track_engineer"
                             currentPlayerMoney={currentPlayerMoney}
-                            onMakeOffer={(offerValue) => handleMakeOffer(engineer, 'track_engineer', offerValue)}
+                            onMakeOffer={(item, type) => handleMakeOffer(item, type)}
                             onActivateClausula={(clausulaValue) => handleActivateClausula(engineer, 'track_engineer', clausulaValue)}
                             isOwned={false}
                             existingOffers={existingOffers}
@@ -444,7 +1343,7 @@ export default function PlayerProfilePage() {
                             item={engineer}
                             itemType="chief_engineer"
                             currentPlayerMoney={currentPlayerMoney}
-                            onMakeOffer={(offerValue) => handleMakeOffer(engineer, 'chief_engineer', offerValue)}
+                            onMakeOffer={(item, type) => handleMakeOffer(item, type)}
                             onActivateClausula={(clausulaValue) => handleActivateClausula(engineer, 'chief_engineer', clausulaValue)}
                             isOwned={false}
                             existingOffers={existingOffers}
@@ -492,7 +1391,7 @@ export default function PlayerProfilePage() {
                             item={team}
                             itemType="team_constructor"
                             currentPlayerMoney={currentPlayerMoney}
-                            onMakeOffer={(offerValue) => handleMakeOffer(team, 'team_constructor', offerValue)}
+                            onMakeOffer={(item, type) => handleMakeOffer(item, type)}
                             onActivateClausula={(clausulaValue) => handleActivateClausula(team, 'team_constructor', clausulaValue)}
                             isOwned={false}
                             existingOffers={existingOffers}
@@ -507,47 +1406,21 @@ export default function PlayerProfilePage() {
           </TabsContent>
 
           <TabsContent value="points" className="space-y-4">
-            <div className="flex items-center gap-2 mb-4">
-              <Trophy className="h-5 w-5 text-accent-main" />
-              <h2 className="text-h3 font-bold text-text-primary">Historial de Puntos</h2>
-            </div>
-            
-            {playerPoints.length === 0 ? (
-              <Card className="text-center">
-                <CardContent className="py-12">
-                  <Trophy className="h-12 w-12 text-text-secondary mx-auto mb-4" />
-                  <p className="text-text-secondary text-body">No points history available</p>
-                </CardContent>
-              </Card>
-            ) : (
-              <div className="space-y-3">
-                {playerPoints.map((point, index) => (
-                  <Card key={index} className="border-border hover:border-accent-hover transition-colors">
-                    <CardContent className="p-4">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <h3 className="font-semibold text-text-primary">
-                            {point.gp_name || `GP ${point.gp_index}`}
-                          </h3>
-                          <p className="text-text-secondary text-small">
-                            {point.date ? new Date(point.date).toLocaleDateString('es-ES') : ''}
-                          </p>
-                        </div>
-                        <div className="text-right">
-                          <div className="text-h3 font-bold text-accent-main">
-                            {point.points}
-                          </div>
-                          <p className="text-text-secondary text-caption">points</p>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
-            )}
+            {renderPoints()}
           </TabsContent>
         </Tabs>
       </div>
+
+      {/* Modal para hacer ofertas */}
+      <MakeOfferModal
+        isOpen={openMakeOfferModal}
+        onClose={handleCloseMakeOfferModal}
+        item={selectedOfferItem}
+        type={selectedOfferType}
+        onConfirm={handleConfirmMakeOffer}
+        isLoading={loadingMakeOffer}
+        playerMoney={currentPlayerMoney}
+      />
     </div>
   );
 } 
