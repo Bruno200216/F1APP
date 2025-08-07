@@ -40,7 +40,13 @@ export default function ClasificationPage() {
     setLoading(true);
     setError('');
     try {
-      const res = await fetch(`/api/leagues/${selectedLeague.id}/classification`);
+      const token = localStorage.getItem('token');
+      const res = await fetch(`/api/leagues/${selectedLeague.id}/classification`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
       const data = await res.json();
       // Ordenar por valor de equipo descendente y luego por puntos descendente
       const sorted = (data.classification || []).sort((a, b) => b.team_value - a.team_value || b.points - a.points);
@@ -57,7 +63,13 @@ export default function ClasificationPage() {
     
     setLoadingGPs(true);
     try {
-      const res = await fetch('/api/gp/started');
+      const token = localStorage.getItem('token');
+      const res = await fetch('/api/gp/started', {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
       const data = await res.json();
       setAvailableGPs(data.gps || []);
     } catch (err) {

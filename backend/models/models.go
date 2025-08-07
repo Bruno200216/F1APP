@@ -350,9 +350,9 @@ func (MarketItem) TableName() string {
 
 // Modelo para alineaciones de jugadores
 type Lineup struct {
-	ID                uint      `json:"id" gorm:"primaryKey"`
-	PlayerID          uint      `json:"player_id" gorm:"not null"`
-	LeagueID          uint      `json:"league_id" gorm:"not null"`
+	ID                uint64    `json:"id" gorm:"primaryKey"`
+	PlayerID          uint64    `json:"player_id" gorm:"not null"`
+	LeagueID          uint64    `json:"league_id" gorm:"not null"`
 	GPIndex           uint64    `json:"gp_index" gorm:"not null;column:gp_index"`
 	RacePilots        []byte    `json:"race_pilots" gorm:"type:json"`                          // Array de pilot_by_league_id
 	QualifyingPilots  []byte    `json:"qualifying_pilots" gorm:"type:json"`                    // Array de pilot_by_league_id

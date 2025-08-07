@@ -82,26 +82,45 @@ func GetSQLDB() *sql.DB {
 
 // Migrate ejecuta las migraciones de la base de datos
 func Migrate() {
-	err := DB.AutoMigrate(
+	// Solo migrar GrandPrix que es la tabla que necesita ser repoblada
+	err := DB.AutoMigrate(&models.GrandPrix{})
+	if err != nil {
+		log.Fatal("Error ejecutando migraciones de GrandPrix: ", err)
+	}
+
+	// Verificar si las demás tablas existen y crearlas solo si no existen
+	tables := []interface{}{
 		&models.Player{},
 		&models.Pilot{},
 		&models.League{},
 		&models.PilotByLeague{},
-		&models.PlayerByLeague{}, // Agregado PlayerByLeague
-		&models.GrandPrix{},      // Agregado GrandPrix
+		&models.PlayerByLeague{},
 		&models.TrackEngineer{},
 		&models.ChiefEngineer{},
 		&models.TrackEngineerByLeague{},
 		&models.ChiefEngineerByLeague{},
 		&models.TeamConstructor{},
 		&models.TeamConstructorByLeague{},
-		&models.TeamRace{},            // Tabla para carreras de equipos
-		&models.TrackEngineerPoints{}, // Nueva tabla para puntos de track engineers
+		&models.TeamRace{},
+		&models.TrackEngineerPoints{},
 		&models.MarketItem{},
 		&models.Lineup{},
-	)
-	if err != nil {
-		log.Fatal("Error ejecutando migraciones: ", err)
+	}
+
+	for _, table := range tables {
+		// Verificar si la tabla existe
+		tableName := DB.Model(table).Statement.Table
+		var exists bool
+		DB.Raw("SELECT COUNT(*) > 0 FROM information_schema.tables WHERE table_schema = ? AND table_name = ?",
+			os.Getenv("DB_NAME"), tableName).Scan(&exists)
+
+		// Solo migrar si la tabla no existe
+		if !exists {
+			log.Printf("Creando tabla %s...", tableName)
+			if err := DB.AutoMigrate(table); err != nil {
+				log.Printf("Error creando tabla %s: %v", tableName, err)
+			}
+		}
 	}
 
 	// Migración específica para player_by_league

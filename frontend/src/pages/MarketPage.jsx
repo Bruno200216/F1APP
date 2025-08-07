@@ -275,7 +275,13 @@ export default function MarketPage() {
     if (!selectedLeague) return;
     try {
       // Get players from league classification
-      const response = await fetch(`/api/leagues/${selectedLeague.id}/classification`);
+      const token = localStorage.getItem('token');
+      const response = await fetch(`/api/leagues/${selectedLeague.id}/classification`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
       const data = await response.json();
       setPlayers(data.players || []);
 

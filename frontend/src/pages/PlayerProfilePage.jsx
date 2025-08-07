@@ -70,7 +70,13 @@ export default function PlayerProfilePage() {
     
     try {
       // Fetch player basic info
-      const playerRes = await fetch(`/api/leagues/${selectedLeague.id}/classification`);
+      const token = localStorage.getItem('token');
+      const playerRes = await fetch(`/api/leagues/${selectedLeague.id}/classification`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
       const playerData = await playerRes.json();
       const playerInfo = playerData.classification.find(p => p.player_id === parseInt(playerId));
       

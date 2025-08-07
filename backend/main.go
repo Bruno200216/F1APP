@@ -2910,13 +2910,25 @@ func main() {
 
 			leagueIDUint, _ := strconv.ParseUint(leagueID, 10, 64)
 
-			// Calcular puntos para todos los GPs donde el jugador tiene alineaciones
+			// Calcular puntos SOLO para los GPs donde el jugador tiene alineaciones
 			var playerLineups []models.Lineup
+			log.Printf("[CLASSIFICATION] Buscando alineaciones para player_id=%d, league_id=%d (tipo: %T)", playerID, leagueIDUint, leagueIDUint)
+
+			// Hacer una consulta directa para debug
+			var count int64
+			database.DB.Model(&models.Lineup{}).Where("player_id = ? AND league_id = ?", playerID, leagueIDUint).Count(&count)
+			log.Printf("[CLASSIFICATION] Total de alineaciones encontradas: %d", count)
+
+			// Hacer una consulta directa para ver todas las alineaciones
+			var allLineups []models.Lineup
+			database.DB.Find(&allLineups)
+			log.Printf("[CLASSIFICATION] Todas las alineaciones en la tabla: %+v", allLineups)
+
 			if err := database.DB.Where("player_id = ? AND league_id = ?", playerID, leagueIDUint).Find(&playerLineups).Error; err == nil {
 				log.Printf("[CLASSIFICATION] Jugador %d tiene %d alineaciones", playerID, len(playerLineups))
 				for _, lineup := range playerLineups {
 					log.Printf("[CLASSIFICATION] Calculando puntos para GP %d", lineup.GPIndex)
-					points := calculatePlayerTotalPoints(playerID, leagueIDUint, lineup.GPIndex)
+					points := calculatePlayerTotalPoints(uint64(playerID), leagueIDUint, lineup.GPIndex)
 					totalPoints += points
 					pointsByGP[lineup.GPIndex] = points
 					log.Printf("[CLASSIFICATION] GP %d: %d puntos", lineup.GPIndex, points)
@@ -2925,12 +2937,7 @@ func main() {
 				log.Printf("[CLASSIFICATION] Error buscando alineaciones para jugador %d: %v", playerID, err)
 			}
 
-			// Para GPs donde no tiene alineación, mostrar 0 puntos
-			for _, gp := range allGPs {
-				if _, exists := pointsByGP[gp.GPIndex]; !exists {
-					pointsByGP[gp.GPIndex] = 0
-				}
-			}
+			// NO mostrar GPs donde no hay alineaciones - solo mostrar los que tienen datos
 
 			// Usar puntos calculados en tiempo real en lugar de la columna estática
 			item := map[string]interface{}{
@@ -7704,7 +7711,7 @@ func main() {
 		}
 
 		// Calcular puntos dinámicamente usando la nueva lógica
-		totalPoints := calculatePlayerTotalPoints(uint(playerIDUint), leagueIDUint, targetGPIndex)
+		totalPoints := calculatePlayerTotalPoints(playerIDUint, leagueIDUint, targetGPIndex)
 
 		c.JSON(200, gin.H{
 			"lineup_points": totalPoints,
@@ -8291,8 +8298,8 @@ func main() {
 		} else {
 			// Crear nueva alineación
 			lineup = models.Lineup{
-				PlayerID:          userID,
-				LeagueID:          req.LeagueID,
+				PlayerID:          uint64(userID),
+				LeagueID:          uint64(req.LeagueID),
 				GPIndex:           targetGP.GPIndex,
 				RacePilots:        racePilotsJSON,
 				QualifyingPilots:  qualifyingPilotsJSON,
@@ -10027,12 +10034,40 @@ func updatePlayerPointsForPilot(pilotID uint, gpIndex uint64, points int, sessio
 }
 
 // Función para calcular puntos totales de un jugador en un GP específico
-func calculatePlayerTotalPoints(playerID uint, leagueID uint64, gpIndex uint64) int {
+func calculatePlayerTotalPoints(playerID uint64, leagueID uint64, gpIndex uint64) int {
 	// Buscar la alineación del jugador para el GP actual
 	var lineup models.Lineup
 	if err := database.DB.Where("player_id = ? AND league_id = ? AND gp_index = ?", playerID, leagueID, gpIndex).First(&lineup).Error; err != nil {
-		log.Printf("No se encontró alineación para player_id=%d, league_id=%d, gp_index=%d", playerID, leagueID, gpIndex)
+		log.Printf("[CALC-POINTS] No se encontró alineación para player_id=%d, league_id=%d, gp_index=%d", playerID, leagueID, gpIndex)
 		return 0
+	}
+
+	log.Printf("[CALC-POINTS] Alineación encontrada: ID=%d", lineup.ID)
+
+	// Parsear los IDs de pilot_by_league
+	var racePilotIDs []uint
+	var qualyPilotIDs []uint
+	var practicePilotIDs []uint
+
+	if len(lineup.RacePilots) > 0 {
+		if err := json.Unmarshal(lineup.RacePilots, &racePilotIDs); err != nil {
+			log.Printf("[CALC-POINTS] Error parseando RacePilots: %v", err)
+		}
+		log.Printf("[CALC-POINTS] RacePilots IDs: %v", racePilotIDs)
+	}
+
+	if len(lineup.QualifyingPilots) > 0 {
+		if err := json.Unmarshal(lineup.QualifyingPilots, &qualyPilotIDs); err != nil {
+			log.Printf("[CALC-POINTS] Error parseando QualifyingPilots: %v", err)
+		}
+		log.Printf("[CALC-POINTS] QualifyingPilots IDs: %v", qualyPilotIDs)
+	}
+
+	if len(lineup.PracticePilots) > 0 {
+		if err := json.Unmarshal(lineup.PracticePilots, &practicePilotIDs); err != nil {
+			log.Printf("[CALC-POINTS] Error parseando PracticePilots: %v", err)
+		}
+		log.Printf("[CALC-POINTS] PracticePilots IDs: %v", practicePilotIDs)
 	}
 
 	log.Printf("[DEBUG-POINTS] === CALCULANDO PUNTOS PARA PLAYER %d EN GP %d ===", playerID, gpIndex)
@@ -10118,15 +10153,21 @@ func calculatePlayerTotalPoints(playerID uint, leagueID uint64, gpIndex uint64) 
 
 // Función auxiliar para obtener puntos de un piloto
 func getPilotPoints(pilotByLeagueID uint, gpIndex uint64) int {
+	log.Printf("[GET-PILOT-POINTS] Buscando puntos para pilotByLeagueID=%d, gpIndex=%d", pilotByLeagueID, gpIndex)
+
 	var pilotByLeague models.PilotByLeague
 	if err := database.DB.First(&pilotByLeague, pilotByLeagueID).Error; err != nil {
+		log.Printf("[GET-PILOT-POINTS] Error buscando PilotByLeague ID=%d: %v", pilotByLeagueID, err)
 		return 0
 	}
+	log.Printf("[GET-PILOT-POINTS] PilotByLeague encontrado: ID=%d, PilotID=%d", pilotByLeague.ID, pilotByLeague.PilotID)
 
 	var pilot models.Pilot
 	if err := database.DB.First(&pilot, pilotByLeague.PilotID).Error; err != nil {
+		log.Printf("[GET-PILOT-POINTS] Error buscando Pilot ID=%d: %v", pilotByLeague.PilotID, err)
 		return 0
 	}
+	log.Printf("[GET-PILOT-POINTS] Pilot encontrado: ID=%d, Name=%s, Mode=%s", pilot.ID, pilot.DriverName, pilot.Mode)
 
 	// Determinar la tabla según el modo del piloto
 	var table string
@@ -10887,7 +10928,7 @@ func calculateSingleTrackEngineerPointsManually(trackEngineerID uint, pilotID ui
 }
 
 // Función para actualizar puntos totales de un jugador
-func updatePlayerTotalPoints(playerID uint, leagueID uint, gpIndex uint64, pointsToAdd int) {
+func updatePlayerTotalPoints(playerID uint64, leagueID uint64, gpIndex uint64, pointsToAdd int) {
 	// Obtener el jugador en la liga
 	var playerLeague models.PlayerByLeague
 	if err := database.DB.Where("player_id = ? AND league_id = ?", playerID, leagueID).First(&playerLeague).Error; err != nil {
