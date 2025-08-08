@@ -199,11 +199,54 @@ func refreshMarketForLeague(leagueID uint) error {
 	}
 	log.Printf("[refreshMarketForLeague] Desglose - Pilotos: %d, Track Engineers: %d, Chief Engineers: %d, Team Constructors: %d", pilotCount, trackEngCount, chiefEngCount, teamConsCount)
 
-	// 3. Seleccionar exactamente 8 elementos aleatorios mezclando todos los tipos
+	// 3. Verificar si hay suficientes elementos libres (mínimo 8)
 	selectedCount := 8
 	if len(freeItems) < selectedCount {
-		selectedCount = len(freeItems)
-		log.Printf("[refreshMarketForLeague] ADVERTENCIA: Solo hay %d elementos libres, seleccionando todos", selectedCount)
+		log.Printf("[refreshMarketForLeague] ADVERTENCIA: Solo hay %d elementos libres, verificando si se pueden crear más...", len(freeItems))
+
+		// Verificar si faltan market_items y crearlos si es necesario
+		if err := ensureMarketItemsForLeague(leagueID); err != nil {
+			log.Printf("[refreshMarketForLeague] Error asegurando market_items: %v", err)
+		} else {
+			log.Printf("[refreshMarketForLeague] ✅ Market_items verificados/creados, recalculando elementos libres...")
+
+			// Recalcular availableItems después de crear market_items
+			database.DB.Where("league_id = ? AND is_active = ?", leagueID, true).Find(&availableItems)
+			log.Printf("[refreshMarketForLeague] Total market_items después de verificar: %d", len(availableItems))
+
+			// Recalcular elementos libres después de crear market_items
+			freeItems = []models.MarketItem{}
+			for _, item := range availableItems {
+				switch item.ItemType {
+				case "pilot":
+					var pbl models.PilotByLeague
+					if err := database.DB.First(&pbl, item.ItemID).Error; err == nil && pbl.OwnerID == 0 {
+						freeItems = append(freeItems, item)
+					}
+				case "track_engineer":
+					var teb models.TrackEngineerByLeague
+					if err := database.DB.First(&teb, item.ItemID).Error; err == nil && teb.OwnerID == 0 {
+						freeItems = append(freeItems, item)
+					}
+				case "chief_engineer":
+					var ceb models.ChiefEngineerByLeague
+					if err := database.DB.First(&ceb, item.ItemID).Error; err == nil && ceb.OwnerID == 0 {
+						freeItems = append(freeItems, item)
+					}
+				case "team_constructor":
+					var tcb models.TeamConstructorByLeague
+					if err := database.DB.First(&tcb, item.ItemID).Error; err == nil && tcb.OwnerID == 0 {
+						freeItems = append(freeItems, item)
+					}
+				}
+			}
+			log.Printf("[refreshMarketForLeague] Elementos libres después de verificar: %d", len(freeItems))
+		}
+
+		if len(freeItems) < selectedCount {
+			selectedCount = len(freeItems)
+			log.Printf("[refreshMarketForLeague] ADVERTENCIA: Solo hay %d elementos libres, seleccionando todos", selectedCount)
+		}
 	}
 
 	// Mezclar aleatoriamente usando Fisher-Yates shuffle
@@ -347,8 +390,14 @@ func main() {
 	database.Migrate()
 	database.SeedDatabase()
 
+	// Verificar y corregir foreign key constraints problemáticas ANTES de inicializar
+	fixProblematicForeignKeys()
+
 	// Inicializar calendario F1 con datos oficiales
 	initializeF1Calendar()
+
+	// Crear datos de teamconstructor si no existen
+	initializeTeamConstructors()
 
 	router := gin.Default()
 
@@ -614,7 +663,7 @@ func main() {
 		}
 		if len(pilotsByLeague) > 0 {
 			database.DB.Create(&pilotsByLeague)
-			log.Printf("[CREAR LIGA] PilotosByLeague creados: %d", len(pilotsByLeague))
+			log.Printf("[CREAR LIGA] PilotsByLeague creados: %d", len(pilotsByLeague))
 		}
 		// Comprobar si ya existe el registro en player_by_league para este usuario y liga
 		userIDUint64 := uint64(userID.(uint))
@@ -2196,6 +2245,15 @@ func main() {
 		// Eliminar subastas antiguas/finalizadas
 		id, _ := strconv.ParseUint(leagueID, 10, 64)
 		database.DB.Where("league_id = ?", id).Delete(&Auction{})
+
+		// Asegurar que existan market_items para esta liga
+		log.Printf("[REFRESH-AND-FINISH] Verificando market_items para liga %d", id)
+		if err := ensureMarketItemsForLeague(uint(id)); err != nil {
+			log.Printf("[REFRESH-AND-FINISH] Error asegurando market_items: %v", err)
+		} else {
+			log.Printf("[REFRESH-AND-FINISH] ✅ Market_items verificados/creados para liga %d", id)
+		}
+
 		refreshMarketForLeague(uint(id))
 		updateMarketNextRefresh()
 
@@ -9913,19 +9971,30 @@ func main() {
 
 		// Mapear GP index a clave del scraper (corregido según gp_index real de la BD)
 		gpKeyMap := map[int]string{
-			13: "belgian",       // Belgian Grand Prix
-			14: "hungarian",     // Hungarian Grand Prix
-			15: "dutch",         // Dutch Grand Prix
-			16: "italian",       // Italian Grand Prix
-			17: "azerbaijan",    // Azerbaijan Grand Prix
-			18: "singapore",     // Singapore Grand Prix
-			3:  "japanese",      // Japanese Grand Prix
-			23: "qatar",         // Qatar Grand Prix
-			19: "united_states", // United States Grand Prix
-			20: "mexican",       // Mexican Grand Prix
-			21: "brazilian",     // Brazilian Grand Prix
-			22: "las_vegas",     // Las Vegas Grand Prix
-			24: "abu_dhabi",     // Abu Dhabi Grand Prix
+			1:  "australian",     // Australian Grand Prix
+			2:  "chinese",        // Chinese Grand Prix
+			3:  "japanese",       // Japanese Grand Prix
+			4:  "bahrain",        // Bahrain Grand Prix
+			5:  "saudi_arabian",  // Saudi Arabian Grand Prix
+			6:  "miami",          // Miami Grand Prix
+			7:  "emilia_romagna", // Emilia Romagna Grand Prix
+			8:  "monaco",         // Monaco Grand Prix
+			9:  "spanish",        // Spanish Grand Prix
+			10: "canadian",       // Canadian Grand Prix
+			11: "austrian",       // Austrian Grand Prix
+			12: "british",        // British Grand Prix
+			13: "belgian",        // Belgian Grand Prix
+			14: "hungarian",      // Hungarian Grand Prix
+			15: "dutch",          // Dutch Grand Prix
+			16: "italian",        // Italian Grand Prix
+			17: "azerbaijan",     // Azerbaijan Grand Prix
+			18: "singapore",      // Singapore Grand Prix
+			19: "united_states",  // United States Grand Prix
+			20: "mexican",        // Mexican Grand Prix
+			21: "brazilian",      // Brazilian Grand Prix
+			22: "las_vegas",      // Las Vegas Grand Prix
+			23: "qatar",          // Qatar Grand Prix
+			24: "abu_dhabi",      // Abu Dhabi Grand Prix
 		}
 
 		gpKey, exists := gpKeyMap[req.GPIndex]
@@ -9936,27 +10005,47 @@ func main() {
 
 		log.Printf("[SCRAPER] Iniciando scraper para GP %d (%s)", req.GPIndex, gpKey)
 
-		// Ejecutar el scraper en modo test primero
-		cmd := exec.Command("./tools/f1_scraper_final.exe", gpKey, "test")
-		cmd.Dir = "./backend"
-		output, err := cmd.CombinedOutput()
-
-		if err != nil {
-			log.Printf("[SCRAPER] Error en modo test: %v", string(output))
-			c.JSON(500, gin.H{"error": "Error ejecutando scraper en modo test", "details": string(output)})
+		// Verificar si el archivo existe
+		scraperPath := "tools/f1_scraper_final.exe"
+		if _, err := os.Stat(scraperPath); os.IsNotExist(err) {
+			log.Printf("[SCRAPER] Error: El archivo %s no existe", scraperPath)
+			c.JSON(500, gin.H{
+				"error":   "Archivo scraper no encontrado",
+				"details": fmt.Sprintf("El archivo %s no existe", scraperPath),
+			})
 			return
 		}
 
-		log.Printf("[SCRAPER] Test exitoso, ejecutando en modo producción")
+		// Ejecutar el scraper directamente en modo producción
+		cmd := exec.Command(scraperPath, gpKey)
+		cmd.Dir = "." // Usar el directorio actual del backend
 
-		// Ejecutar el scraper en modo producción
-		cmd = exec.Command("./tools/f1_scraper_final.exe", gpKey)
-		cmd.Dir = "./backend"
-		output, err = cmd.CombinedOutput()
+		// Pasar las variables de entorno al scraper
+		cmd.Env = append(os.Environ(),
+			fmt.Sprintf("DB_HOST=%s", os.Getenv("DB_HOST")),
+			fmt.Sprintf("DB_PORT=%s", os.Getenv("DB_PORT")),
+			fmt.Sprintf("DB_USER=%s", os.Getenv("DB_USER")),
+			fmt.Sprintf("DB_PASSWORD=%s", os.Getenv("DB_PASSWORD")),
+			fmt.Sprintf("DB_NAME=%s", os.Getenv("DB_NAME")),
+		)
+
+		// Capturar tanto stdout como stderr
+		output, err := cmd.CombinedOutput()
+
+		// Log detallado del comando y resultado
+		log.Printf("[SCRAPER] Comando ejecutado: %s %s", cmd.Path, cmd.Args)
+		log.Printf("[SCRAPER] Directorio de trabajo: %s", cmd.Dir)
+		log.Printf("[SCRAPER] Output: %s", string(output))
 
 		if err != nil {
-			log.Printf("[SCRAPER] Error en modo producción: %v", string(output))
-			c.JSON(500, gin.H{"error": "Error ejecutando scraper en modo producción", "details": string(output)})
+			log.Printf("[SCRAPER] Error ejecutando scraper: %v", err)
+			log.Printf("[SCRAPER] Output completo: %s", string(output))
+			c.JSON(500, gin.H{
+				"error":       "Error ejecutando scraper",
+				"details":     string(output),
+				"command":     fmt.Sprintf("%s %s", cmd.Path, cmd.Args),
+				"working_dir": cmd.Dir,
+			})
 			return
 		}
 
@@ -11355,6 +11444,7 @@ func returnUserItemsToLeague(userID uint, leagueID uint) error {
 		updates := map[string]interface{}{
 			"owner_id":                0, // Sin dueño
 			"bids":                    "[]",
+			"venta":                   nil,
 			"venta_expires_at":        nil,
 			"league_offer_value":      nil,
 			"league_offer_expires_at": nil,
@@ -11419,21 +11509,14 @@ func cleanupLeagueData(leagueID uint) {
 func initializeF1Calendar() {
 	log.Println("🏁 Inicializando calendario F1 con datos oficiales...")
 
-	// Siempre cargar los datos correctos (tanto en desarrollo como en producción)
-	log.Println("🗑️ Limpiando datos existentes para cargar datos oficiales...")
+	// Siempre borrar y repoblar f1_grand_prixes con los datos exactos
+	log.Println("🗑️ Limpiando datos existentes de f1_grand_prixes para cargar datos oficiales...")
 
-	// Primero borrar referencias en lineups para evitar foreign key constraint
-	if err := database.DB.Exec("DELETE FROM lineups").Error; err != nil {
-		log.Printf("⚠️ Error limpiando lineups: %v", err)
-	} else {
-		log.Println("🗑️ Lineups eliminados")
-	}
-
-	// Ahora borrar datos de f1_grand_prixes
+	// Borrar datos de f1_grand_prixes (esto es lo que queremos que se borre siempre)
 	if err := database.DB.Exec("DELETE FROM f1_grand_prixes").Error; err != nil {
 		log.Printf("⚠️ Error limpiando datos existentes: %v", err)
 	} else {
-		log.Println("🗑️ Datos existentes eliminados")
+		log.Println("🗑️ Datos de f1_grand_prixes eliminados")
 	}
 
 	log.Println("🗑️ Inicializando calendario F1...")
@@ -11498,14 +11581,216 @@ func initializeF1Calendar() {
 			log.Printf("❌ Error insertando GP %s: %v", gp.Name, err)
 			continue
 		}
-
-		sprintStr := "No"
-		if gp.HasSprint {
-			sprintStr = "Sí"
-		}
-
-		log.Printf("✅ Insertado: %s (GP %d) - Sprint: %s", gp.Name, i+1, sprintStr)
+		log.Printf("✅ GP %s insertado correctamente", gp.Name)
 	}
 
-	log.Printf("🎉 Calendario F1 inicializado con %d Grand Prix", len(calendarData))
+	log.Println("✅ Calendario F1 inicializado correctamente")
+}
+
+// Función para verificar y corregir foreign key constraints problemáticas
+func fixProblematicForeignKeys() {
+	log.Println("🔧 Verificando foreign key constraints problemáticas...")
+	log.Println("🔧 Función fixProblematicForeignKeys() iniciada correctamente")
+
+	// Lista de constraints problemáticas conocidas que necesitan ser eliminadas
+	problematicConstraints := []struct {
+		tableName      string
+		constraintName string
+	}{
+		{"lineups", "fk_lineups_grand_prix"},
+		{"team_races", "fk_team_races_gp_index"},
+		{"team_races", "fk_team_races_teamconstructor"},
+		{"teamconstructor", "fk_teamconstructor_gp_index"},
+		{"pilot_races", "fk_pilot_races_gp_index"},
+		{"pilot_qualies", "fk_pilot_qualies_gp_index"},
+		{"pilot_practices", "fk_pilot_practices_gp_index"},
+		{"teamconstructor_by_league", "fk_teamconstructor_by_league_gp_index"},
+		{"auctions", "fk_auctions_gp_index"},
+		{"market_items", "fk_market_items_league_id"},
+	}
+
+	// Eliminar todas las constraints problemáticas conocidas
+	for _, constraint := range problematicConstraints {
+		log.Printf("🔧 Intentando eliminar constraint %s de tabla %s", constraint.constraintName, constraint.tableName)
+
+		// Intentar eliminar la constraint (ignorar errores si no existe)
+		err := database.DB.Exec(fmt.Sprintf("ALTER TABLE %s DROP FOREIGN KEY %s", constraint.tableName, constraint.constraintName)).Error
+		if err != nil {
+			log.Printf("⚠️ Constraint %s no existe o ya fue eliminada en %s: %v", constraint.constraintName, constraint.tableName, err)
+		} else {
+			log.Printf("✅ Constraint %s eliminada de %s", constraint.constraintName, constraint.tableName)
+		}
+	}
+
+	log.Println("✅ Verificación de foreign keys completada")
+}
+
+// Función para crear datos de teamconstructor si no existen
+func initializeTeamConstructors() {
+	log.Println("🏎️ Verificando datos de teamconstructor...")
+
+	// Verificar si ya existen datos de teamconstructor
+	var count int64
+	database.DB.Model(&models.TeamConstructor{}).Count(&count)
+
+	if count > 0 {
+		log.Println("✅ Datos de teamconstructor ya existen, saltando inicialización...")
+		return
+	}
+
+	log.Println("🗑️ No se encontraron datos de teamconstructor, creando datos iniciales...")
+
+	// Datos de teamconstructor basados en la captura
+	teamConstructors := []struct {
+		Name     string
+		Value    float64
+		GPIndex  uint64
+		ImageURL string
+	}{
+		{"Red Bull Racing", 10000000, 1, "Red_Bull_Racing.png"},
+		{"McLaren", 10000000, 1, "Mclaren.png"},
+		{"Ferrari", 10000000, 1, "Ferrari.png"},
+		{"Mercedes", 10000000, 1, "Mercedes.png"},
+		{"Aston Martin", 10000000, 1, "Aston_Martin.png"},
+		{"Williams", 10000000, 1, "Williams.png"},
+		{"Alpine", 10000000, 1, "Alpine.png"},
+		{"Stake F1 Team Kick Sauber", 10000000, 1, "Stake_F1_Team_Kick_Sauber.png"},
+		{"Visa Cash App RB", 10000000, 1, "Visa_Cash_App_RB.png"},
+		{"Haas", 10000000, 1, "Haas.png"},
+	}
+
+	// Insertar datos en la base de datos
+	for _, tc := range teamConstructors {
+		teamConstructor := models.TeamConstructor{
+			Name:         tc.Name,
+			Value:        tc.Value,
+			GPIndex:      tc.GPIndex,
+			FinishPilots: []byte("[]"), // Array vacío como JSON
+			ImageURL:     tc.ImageURL,
+		}
+
+		if err := database.DB.Create(&teamConstructor).Error; err != nil {
+			log.Printf("❌ Error insertando team constructor %s: %v", tc.Name, err)
+			continue
+		}
+		log.Printf("✅ Team Constructor %s insertado correctamente", tc.Name)
+	}
+
+	log.Println("✅ Datos de teamconstructor inicializados correctamente")
+}
+
+// Función para asegurar que siempre haya market_items disponibles para una liga
+func ensureMarketItemsForLeague(leagueID uint) error {
+	log.Printf("[ensureMarketItemsForLeague] Verificando market_items para liga %d", leagueID)
+
+	// Verificar si existen market_items para esta liga
+	var marketItemCount int64
+	if err := database.DB.Model(&models.MarketItem{}).Where("league_id = ?", leagueID).Count(&marketItemCount).Error; err != nil {
+		log.Printf("[ensureMarketItemsForLeague] Error contando market_items: %v", err)
+		return err
+	}
+
+	if marketItemCount > 0 {
+		log.Printf("[ensureMarketItemsForLeague] ✅ Ya existen %d market_items para liga %d", marketItemCount, leagueID)
+		return nil
+	}
+
+	log.Printf("[ensureMarketItemsForLeague] 🗑️ No se encontraron market_items para liga %d, creando...", leagueID)
+
+	// Crear market_items para pilotos
+	var pilotsByLeague []models.PilotByLeague
+	if err := database.DB.Where("league_id = ?", leagueID).Find(&pilotsByLeague).Error; err != nil {
+		log.Printf("[ensureMarketItemsForLeague] Error obteniendo pilotos: %v", err)
+		return err
+	}
+
+	pilotMarketCount := 0
+	for _, pbl := range pilotsByLeague {
+		marketItem := models.MarketItem{
+			LeagueID: leagueID,
+			ItemType: "pilot",
+			ItemID:   pbl.ID,
+			IsActive: true,
+		}
+		if err := database.DB.Create(&marketItem).Error; err != nil {
+			log.Printf("[ensureMarketItemsForLeague] Error creando market_item para pilot ID %d: %v", pbl.ID, err)
+		} else {
+			pilotMarketCount++
+		}
+	}
+	log.Printf("[ensureMarketItemsForLeague] ✅ Market items de pilotos creados: %d/%d", pilotMarketCount, len(pilotsByLeague))
+
+	// Crear market_items para track engineers
+	var allTrackEngineers []models.TrackEngineerByLeague
+	if err := database.DB.Where("league_id = ?", leagueID).Find(&allTrackEngineers).Error; err != nil {
+		log.Printf("[ensureMarketItemsForLeague] Error obteniendo track engineers: %v", err)
+		return err
+	}
+
+	trackEngMarketCount := 0
+	for _, teb := range allTrackEngineers {
+		marketItem := models.MarketItem{
+			LeagueID: leagueID,
+			ItemType: "track_engineer",
+			ItemID:   teb.ID,
+			IsActive: true,
+		}
+		if err := database.DB.Create(&marketItem).Error; err != nil {
+			log.Printf("[ensureMarketItemsForLeague] Error creando market_item para track engineer ID %d: %v", teb.ID, err)
+		} else {
+			trackEngMarketCount++
+		}
+	}
+	log.Printf("[ensureMarketItemsForLeague] ✅ Market items de track engineers creados: %d/%d", trackEngMarketCount, len(allTrackEngineers))
+
+	// Crear market_items para chief engineers
+	var allChiefEngineers []models.ChiefEngineerByLeague
+	if err := database.DB.Where("league_id = ?", leagueID).Find(&allChiefEngineers).Error; err != nil {
+		log.Printf("[ensureMarketItemsForLeague] Error obteniendo chief engineers: %v", err)
+		return err
+	}
+
+	chiefEngMarketCount := 0
+	for _, ceb := range allChiefEngineers {
+		marketItem := models.MarketItem{
+			LeagueID: leagueID,
+			ItemType: "chief_engineer",
+			ItemID:   ceb.ID,
+			IsActive: true,
+		}
+		if err := database.DB.Create(&marketItem).Error; err != nil {
+			log.Printf("[ensureMarketItemsForLeague] Error creando market_item para chief engineer ID %d: %v", ceb.ID, err)
+		} else {
+			chiefEngMarketCount++
+		}
+	}
+	log.Printf("[ensureMarketItemsForLeague] ✅ Market items de chief engineers creados: %d/%d", chiefEngMarketCount, len(allChiefEngineers))
+
+	// Crear market_items para team constructors
+	var allTeamConstructors []models.TeamConstructorByLeague
+	if err := database.DB.Where("league_id = ?", leagueID).Find(&allTeamConstructors).Error; err != nil {
+		log.Printf("[ensureMarketItemsForLeague] Error obteniendo team constructors: %v", err)
+		return err
+	}
+
+	teamConsMarketCount := 0
+	for _, tcb := range allTeamConstructors {
+		marketItem := models.MarketItem{
+			LeagueID: leagueID,
+			ItemType: "team_constructor",
+			ItemID:   tcb.ID,
+			IsActive: true,
+		}
+		if err := database.DB.Create(&marketItem).Error; err != nil {
+			log.Printf("[ensureMarketItemsForLeague] Error creando market_item para team constructor ID %d: %v", tcb.ID, err)
+		} else {
+			teamConsMarketCount++
+		}
+	}
+	log.Printf("[ensureMarketItemsForLeague] ✅ Market items de team constructors creados: %d/%d", teamConsMarketCount, len(allTeamConstructors))
+
+	totalMarketItems := pilotMarketCount + trackEngMarketCount + chiefEngMarketCount + teamConsMarketCount
+	log.Printf("[ensureMarketItemsForLeague] ✅ Total market_items creados: %d", totalMarketItems)
+
+	return nil
 }

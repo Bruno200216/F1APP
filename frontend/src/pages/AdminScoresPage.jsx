@@ -53,6 +53,7 @@ export default function AdminScoresPage() {
   const [selectedGPForScraper, setSelectedGPForScraper] = useState('');
   const [isRunningScraper, setIsRunningScraper] = useState(false);
   const [scraperSnackbar, setScraperSnackbar] = useState({ open: false, message: '', severity: 'success' });
+  const [showScraperConfirmModal, setShowScraperConfirmModal] = useState(false);
 
   const navigate = useNavigate();
 
@@ -1124,12 +1125,14 @@ export default function AdminScoresPage() {
       return;
     }
 
-    // Confirmar antes de ejecutar
-    if (!window.confirm(`¿Estás seguro de que quieres ejecutar el scraper para el GP ${selectedGPForScraper}? Esta acción puede tomar varios minutos.`)) {
-      return;
-    }
+    // Mostrar modal de confirmación
+    setShowScraperConfirmModal(true);
+  };
 
+  const confirmRunScraper = async () => {
+    setShowScraperConfirmModal(false);
     setIsRunningScraper(true);
+    
     try {
       const response = await fetch('/api/admin/run-scraper', {
         method: 'POST',
@@ -2110,6 +2113,45 @@ export default function AdminScoresPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Modal de confirmación para el scraper */}
+      {showScraperConfirmModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-surface border border-border rounded-lg p-6 max-w-md w-full mx-4">
+            <div className="text-center">
+              <div className="mb-4">
+                <div className="w-12 h-12 bg-accent-main/20 rounded-full flex items-center justify-center mx-auto mb-3">
+                  <Settings className="h-6 w-6 text-accent-main" />
+                </div>
+                <h3 className="text-h3 font-bold text-text-primary mb-2">
+                  Confirmar Scraper
+                </h3>
+                <p className="text-text-secondary text-body">
+                  ¿Estás seguro de que quieres ejecutar el scraper para el GP {selectedGPForScraper}?
+                </p>
+                <p className="text-text-secondary text-small mt-2">
+                  Esta acción puede tomar varios minutos y extraerá datos de F1.com
+                </p>
+              </div>
+              
+              <div className="flex gap-3 mt-6">
+                <button
+                  onClick={() => setShowScraperConfirmModal(false)}
+                  className="flex-1 px-4 py-2 text-text-secondary hover:text-text-primary transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={confirmRunScraper}
+                  className="flex-1 px-4 py-2 bg-accent-main text-white rounded-md hover:bg-accent-hover transition-colors"
+                >
+                  Ejecutar Scraper
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 } 

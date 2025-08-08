@@ -105,6 +105,9 @@ func Migrate() {
 		&models.TrackEngineerPoints{},
 		&models.MarketItem{},
 		&models.Lineup{},
+		&models.PilotRace{},
+		&models.PilotQualy{},
+		&models.PilotPractice{},
 	}
 
 	for _, table := range tables {

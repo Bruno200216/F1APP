@@ -150,6 +150,10 @@ type PilotRace struct {
 	DNFNoFault             bool
 }
 
+func (PilotRace) TableName() string {
+	return "pilot_races"
+}
+
 type PilotQualy struct {
 	ID               uint   `gorm:"primaryKey"`
 	PilotID          uint   `gorm:"not null"`
@@ -162,6 +166,10 @@ type PilotQualy struct {
 	CausedRedFlag    bool
 }
 
+func (PilotQualy) TableName() string {
+	return "pilot_qualies"
+}
+
 type PilotPractice struct {
 	ID               uint   `gorm:"primaryKey"`
 	PilotID          uint   `gorm:"not null"`
@@ -172,6 +180,10 @@ type PilotPractice struct {
 	DeltaPosition    int
 	Points           int
 	CausedRedFlag    bool
+}
+
+func (PilotPractice) TableName() string {
+	return "pilot_practices"
 }
 
 // Modelo de Ingeniero de Pista
