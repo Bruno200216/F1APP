@@ -1141,7 +1141,7 @@ export default function AdminScoresPage() {
           'Authorization': `Bearer ${localStorage.getItem('token')}`
         },
         body: JSON.stringify({
-          gp_index: parseInt(selectedGPForScraper)
+          gp_key: selectedGPForScraper
         })
       });
 
@@ -1391,7 +1391,7 @@ export default function AdminScoresPage() {
                       >
                         <option value="">Elegir un Grand Prix...</option>
                         {gps.map(gp => (
-                          <option key={gp.gp_index} value={gp.gp_index}>{gp.name} (GP {gp.gp_index})</option>
+                          <option key={gp.gp_index} value={gp.gp_key || gp.name.toLowerCase().replace(/\s+/g, '_')}>{gp.name} (GP {gp.gp_index})</option>
                         ))}
                       </select>
                     </div>

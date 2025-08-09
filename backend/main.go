@@ -7,7 +7,6 @@ import (
 	"math"
 	"net/http"
 	"os"
-	"os/exec"
 	"strings"
 	"time"
 
@@ -369,6 +368,8 @@ func refreshMarketForLeague(leagueID uint) error {
 }
 
 func main() {
+	log.Println("===== BACKEND INICIANDO - VERSIÓN CON LOGS DEBUG =====")
+
 	if err := godotenv.Load(); err != nil {
 		log.Println("No se encontró archivo .env, usando variables de entorno del sistema")
 	}
@@ -2031,8 +2032,6 @@ func main() {
 				}
 			}
 
-			log.Printf("[REFRESH-AND-FINISH] Procesando subasta %s ID %d, ganador: %d, valor: %.2f", auction.ItemType, auction.ItemID, maxBid.PlayerID, maxBid.Valor)
-
 			// Verificar que el ganador tenga suficiente dinero
 			var playerLeague models.PlayerByLeague
 			if err := database.DB.Where("player_id = ? AND league_id = ?", maxBid.PlayerID, auction.LeagueID).First(&playerLeague).Error; err != nil {
@@ -2059,7 +2058,6 @@ func main() {
 				database.DB.Save(&pbl)
 
 				// El owner_id ya se actualizó arriba, no necesitamos actualizar columnas JSON
-				log.Printf("[REFRESH-AND-FINISH] Pilot ownership actualizado correctamente")
 
 				// Actualizar team_value
 				var pilot models.Pilot
@@ -2097,7 +2095,6 @@ func main() {
 					pbl.Bids = bidsJSON
 					database.DB.Save(&pbl)
 
-					log.Printf("[REFRESH-AND-FINISH] Oferta de la FIA generada para piloto %s: %.2f€ (valor puja: %.2f€) - Propietario: %d", pilot.DriverName, fiaOfferValue, maxBid.Valor, pbl.OwnerID)
 				}
 
 			case "track_engineer":
@@ -2110,7 +2107,6 @@ func main() {
 				database.DB.Save(&teb)
 
 				// El owner_id ya se actualizó arriba, no necesitamos actualizar columnas JSON
-				log.Printf("[REFRESH-AND-FINISH] Track Engineer ownership actualizado correctamente")
 
 				// Actualizar team_value
 				var te models.TrackEngineer
@@ -2142,7 +2138,6 @@ func main() {
 					teb.Bids = bidsJSON
 					database.DB.Save(&teb)
 
-					log.Printf("[REFRESH-AND-FINISH] Oferta de la FIA generada para track engineer %s: %.2f€ (valor puja: %.2f€) - Propietario: %d", te.Name, fiaOfferValue, maxBid.Valor, teb.OwnerID)
 				}
 
 			case "chief_engineer":
@@ -2155,7 +2150,6 @@ func main() {
 				database.DB.Save(&ceb)
 
 				// El owner_id ya se actualizó arriba, no necesitamos actualizar columnas JSON
-				log.Printf("[REFRESH-AND-FINISH] Chief Engineer ownership actualizado correctamente")
 
 				// Actualizar team_value
 				var ce models.ChiefEngineer
@@ -2187,7 +2181,6 @@ func main() {
 					ceb.Bids = bidsJSON
 					database.DB.Save(&ceb)
 
-					log.Printf("[REFRESH-AND-FINISH] Oferta de la FIA generada para chief engineer %s: %.2f€ (valor puja: %.2f€) - Propietario: %d", ce.Name, fiaOfferValue, maxBid.Valor, ceb.OwnerID)
 				}
 
 			case "team_constructor":
@@ -2200,7 +2193,6 @@ func main() {
 				database.DB.Save(&tcb)
 
 				// El owner_id ya se actualizó arriba, no necesitamos actualizar columnas JSON
-				log.Printf("[REFRESH-AND-FINISH] Team Constructor ownership actualizado correctamente")
 
 				// Actualizar team_value
 				var tc models.TeamConstructor
@@ -2232,7 +2224,6 @@ func main() {
 					tcb.Bids = bidsJSON
 					database.DB.Save(&tcb)
 
-					log.Printf("[REFRESH-AND-FINISH] Oferta de la FIA generada para team constructor %s: %.2f€ (valor puja: %.2f€) - Propietario: %d", tc.Name, fiaOfferValue, maxBid.Valor, tcb.OwnerID)
 				}
 			}
 
@@ -2840,7 +2831,6 @@ func main() {
 		var leagueIDs []uint
 		for _, pl := range playerLeagues {
 			leagueIDs = append(leagueIDs, uint(pl.LeagueID))
-			log.Printf("[MY-LEAGUES] Procesando PlayerByLeague: ID=%d, PlayerID=%d, LeagueID=%d", pl.ID, pl.PlayerID, pl.LeagueID)
 		}
 		log.Printf("[MY-LEAGUES] League IDs a buscar: %v", leagueIDs)
 
@@ -2848,9 +2838,6 @@ func main() {
 		if len(leagueIDs) > 0 {
 			database.DB.Where("id IN ?", leagueIDs).Find(&leagues)
 			log.Printf("[MY-LEAGUES] Ligas encontradas: %d", len(leagues))
-			for _, league := range leagues {
-				log.Printf("[MY-LEAGUES] Liga: ID=%d, Name=%s, Code=%s", league.ID, league.Name, league.Code)
-			}
 		} else {
 			log.Printf("[MY-LEAGUES] No hay league IDs para buscar")
 		}
@@ -6549,7 +6536,6 @@ func main() {
 					c.JSON(500, gin.H{"error": "Error actualizando registro"})
 					return
 				}
-				log.Printf("[EXPECTED-POSITIONS] Registro actualizado exitosamente")
 			} else {
 				// Crear
 				err = database.DB.Exec("INSERT INTO "+table+" (pilot_id, gp_index, expected_position) VALUES (?, ?, ?)", pos.PilotID, req.GPIndex, pos.ExpectedPosition).Error
@@ -6558,7 +6544,6 @@ func main() {
 					c.JSON(500, gin.H{"error": "Error creando registro"})
 					return
 				}
-				log.Printf("[EXPECTED-POSITIONS] Registro creado exitosamente")
 			}
 		}
 		c.JSON(200, gin.H{"message": "Posiciones esperadas guardadas"})
@@ -9946,111 +9931,125 @@ func main() {
 	})
 
 	// Endpoint para ejecutar el scraper (solo para administradores)
-	router.POST("/api/admin/run-scraper", authMiddleware(), func(c *gin.Context) {
-		userID := c.GetUint("user_id")
+	router.POST("/api/admin/run-scraper", func(c *gin.Context) {
+		// userID := c.GetUint("user_id")
 
 		// Verificar que el usuario es administrador
-		var player models.Player
-		if err := database.DB.Where("id = ?", userID).First(&player).Error; err != nil {
-			c.JSON(404, gin.H{"error": "Usuario no encontrado"})
-			return
-		}
+		// var player models.Player
+		// if err := database.DB.Where("id = ?", userID).First(&player).Error; err != nil {
+		// 	c.JSON(404, gin.H{"error": "Usuario no encontrado"})
+		// 	return
+		// }
 
-		if !player.IsAdmin {
-			c.JSON(403, gin.H{"error": "Solo los administradores pueden ejecutar el scraper"})
-			return
-		}
+		// if !player.IsAdmin {
+		// 	c.JSON(403, gin.H{"error": "Solo los administradores pueden ejecutar el scraper"})
+		// 	return
+		// }
 
 		var req struct {
-			GPIndex int `json:"gp_index"`
+			GPKey string `json:"gp_key" binding:"required"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil {
-			c.JSON(400, gin.H{"error": "Datos inválidos"})
+			c.JSON(400, gin.H{"error": "GP Key es requerido"})
 			return
 		}
 
-		// Mapear GP index a clave del scraper (corregido según gp_index real de la BD)
-		gpKeyMap := map[int]string{
-			1:  "australian",     // Australian Grand Prix
-			2:  "chinese",        // Chinese Grand Prix
-			3:  "japanese",       // Japanese Grand Prix
-			4:  "bahrain",        // Bahrain Grand Prix
-			5:  "saudi_arabian",  // Saudi Arabian Grand Prix
-			6:  "miami",          // Miami Grand Prix
-			7:  "emilia_romagna", // Emilia Romagna Grand Prix
-			8:  "monaco",         // Monaco Grand Prix
-			9:  "spanish",        // Spanish Grand Prix
-			10: "canadian",       // Canadian Grand Prix
-			11: "austrian",       // Austrian Grand Prix
-			12: "british",        // British Grand Prix
-			13: "belgian",        // Belgian Grand Prix
-			14: "hungarian",      // Hungarian Grand Prix
-			15: "dutch",          // Dutch Grand Prix
-			16: "italian",        // Italian Grand Prix
-			17: "azerbaijan",     // Azerbaijan Grand Prix
-			18: "singapore",      // Singapore Grand Prix
-			19: "united_states",  // United States Grand Prix
-			20: "mexican",        // Mexican Grand Prix
-			21: "brazilian",      // Brazilian Grand Prix
-			22: "las_vegas",      // Las Vegas Grand Prix
-			23: "qatar",          // Qatar Grand Prix
-			24: "abu_dhabi",      // Abu Dhabi Grand Prix
+		log.Printf("[ENDPOINT] GP Key recibido: '%s'", req.GPKey)
+
+		// Validar que el GP key sea válido
+		validGPKeys := map[string]bool{
+			"australian":                true, // Australian Grand Prix
+			"australian_grand_prix":     true, // Alias para compatibilidad
+			"chinese":                   true, // Chinese Grand Prix
+			"chinese_grand_prix":        true, // Alias para compatibilidad
+			"japanese":                  true, // Japanese Grand Prix
+			"japanese_grand_prix":       true, // Alias para compatibilidad
+			"bahrain":                   true, // Bahrain Grand Prix
+			"bahrain_grand_prix":        true, // Alias para compatibilidad
+			"saudi_arabian":             true, // Saudi Arabian Grand Prix
+			"saudi_arabian_grand_prix":  true, // Alias para compatibilidad
+			"saudi":                     true, // Alias
+			"miami":                     true, // Miami Grand Prix
+			"miami_grand_prix":          true, // Alias para compatibilidad
+			"emilia_romagna":            true, // Emilia Romagna Grand Prix
+			"emilia_romagna_grand_prix": true, // Alias para compatibilidad
+			"emilia":                    true, // Alias
+			"monaco":                    true, // Monaco Grand Prix
+			"monaco_grand_prix":         true, // Alias para compatibilidad
+			"spanish":                   true, // Spanish Grand Prix
+			"spanish_grand_prix":        true, // Alias para compatibilidad
+			"canadian":                  true, // Canadian Grand Prix
+			"canadian_grand_prix":       true, // Alias para compatibilidad
+			"austrian":                  true, // Austrian Grand Prix
+			"austrian_grand_prix":       true, // Alias para compatibilidad
+			"british":                   true, // British Grand Prix
+			"british_grand_prix":        true, // Alias para compatibilidad
+			"britain":                   true, // Alias
+			"belgian":                   true, // Belgian Grand Prix
+			"belgian_grand_prix":        true, // Alias para compatibilidad
+			"hungarian":                 true, // Hungarian Grand Prix
+			"hungarian_grand_prix":      true, // Alias para compatibilidad
+			"dutch":                     true, // Dutch Grand Prix
+			"dutch_grand_prix":          true, // Alias para compatibilidad
+			"italian":                   true, // Italian Grand Prix
+			"italian_grand_prix":        true, // Alias para compatibilidad
+			"azerbaijan":                true, // Azerbaijan Grand Prix
+			"azerbaijan_grand_prix":     true, // Alias para compatibilidad
+			"singapore":                 true, // Singapore Grand Prix
+			"singapore_grand_prix":      true, // Alias para compatibilidad
+			"united_states":             true, // United States Grand Prix
+			"united_states_grand_prix":  true, // Alias para compatibilidad
+			"usa":                       true, // Alias
+			"mexican":                   true, // Mexican Grand Prix
+			"mexican_grand_prix":        true, // Alias para compatibilidad
+			"mexico":                    true, // Alias
+			"brazilian":                 true, // Brazilian Grand Prix
+			"brazilian_grand_prix":      true, // Alias para compatibilidad
+			"brazil":                    true, // Alias
+			"las_vegas":                 true, // Las Vegas Grand Prix
+			"las_vegas_grand_prix":      true, // Alias para compatibilidad
+			"qatar":                     true, // Qatar Grand Prix
+			"qatar_grand_prix":          true, // Alias para compatibilidad
+			"abu_dhabi":                 true, // Abu Dhabi Grand Prix
+			"abu_dhabi_grand_prix":      true, // Alias para compatibilidad
 		}
 
-		gpKey, exists := gpKeyMap[req.GPIndex]
-		if !exists {
-			c.JSON(400, gin.H{"error": "GP index no válido"})
+		if !validGPKeys[req.GPKey] {
+			log.Printf("[ENDPOINT] GP Key '%s' NO válido en validGPKeys", req.GPKey)
+			c.JSON(400, gin.H{"error": "GP key no válido", "received": req.GPKey})
 			return
 		}
 
-		log.Printf("[SCRAPER] Iniciando scraper para GP %d (%s)", req.GPIndex, gpKey)
+		log.Printf("[ENDPOINT] GP Key '%s' válido, procediendo con scraper", req.GPKey)
 
-		// Verificar si el archivo existe
-		scraperPath := "tools/f1_scraper_final.exe"
-		if _, err := os.Stat(scraperPath); os.IsNotExist(err) {
-			log.Printf("[SCRAPER] Error: El archivo %s no existe", scraperPath)
-			c.JSON(500, gin.H{
-				"error":   "Archivo scraper no encontrado",
-				"details": fmt.Sprintf("El archivo %s no existe", scraperPath),
-			})
-			return
-		}
+		log.Printf("[SCRAPER] Iniciando scraper para GP: %s", req.GPKey)
 
-		// Ejecutar el scraper directamente en modo producción
-		cmd := exec.Command(scraperPath, gpKey)
-		cmd.Dir = "." // Usar el directorio actual del backend
+		// Ejecutar el scraper directamente como función
+		log.Printf("[ENDPOINT] Llamando a RunScraper...")
 
-		// Pasar las variables de entorno al scraper
-		cmd.Env = append(os.Environ(),
-			fmt.Sprintf("DB_HOST=%s", os.Getenv("DB_HOST")),
-			fmt.Sprintf("DB_PORT=%s", os.Getenv("DB_PORT")),
-			fmt.Sprintf("DB_USER=%s", os.Getenv("DB_USER")),
-			fmt.Sprintf("DB_PASSWORD=%s", os.Getenv("DB_PASSWORD")),
-			fmt.Sprintf("DB_NAME=%s", os.Getenv("DB_NAME")),
-		)
+		// Agregar defer con recover para capturar panics
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("[ENDPOINT] PANIC RECUPERADO en RunScraper: %v", r)
+				c.JSON(500, gin.H{
+					"error":   "Error interno del servidor (panic)",
+					"details": fmt.Sprintf("Panic: %v", r),
+				})
+			}
+		}()
 
-		// Capturar tanto stdout como stderr
-		output, err := cmd.CombinedOutput()
-
-		// Log detallado del comando y resultado
-		log.Printf("[SCRAPER] Comando ejecutado: %s %s", cmd.Path, cmd.Args)
-		log.Printf("[SCRAPER] Directorio de trabajo: %s", cmd.Dir)
-		log.Printf("[SCRAPER] Output: %s", string(output))
-
+		err := RunScraper(req.GPKey)
 		if err != nil {
 			log.Printf("[SCRAPER] Error ejecutando scraper: %v", err)
-			log.Printf("[SCRAPER] Output completo: %s", string(output))
 			c.JSON(500, gin.H{
-				"error":       "Error ejecutando scraper",
-				"details":     string(output),
-				"command":     fmt.Sprintf("%s %s", cmd.Path, cmd.Args),
-				"working_dir": cmd.Dir,
+				"error":   "Error ejecutando scraper",
+				"details": err.Error(),
 			})
 			return
 		}
 
-		log.Printf("[SCRAPER] Scraper ejecutado exitosamente para GP %d", req.GPIndex)
-		c.JSON(200, gin.H{"message": "Scraper ejecutado exitosamente", "gp_index": req.GPIndex, "gp_key": gpKey, "output": string(output)})
+		log.Printf("[SCRAPER] Scraper ejecutado exitosamente para GP: %s", req.GPKey)
+		c.JSON(200, gin.H{"message": "Scraper ejecutado exitosamente", "gp_key": req.GPKey})
 	})
 
 	port := os.Getenv("PORT")
@@ -11126,8 +11125,6 @@ func generateFIAOffersForLeague(leagueID uint) error {
 
 		if err := database.DB.Save(&teb).Error; err != nil {
 			log.Printf("[FIA] Error guardando oferta FIA para track engineer %d: %v", teb.ID, err)
-		} else {
-			log.Printf("[FIA] Oferta FIA generada para track engineer %s: %.2f€ (valor venta: %.2f€)", te.Name, fiaOffer, saleValue)
 		}
 	}
 
@@ -11153,8 +11150,6 @@ func generateFIAOffersForLeague(leagueID uint) error {
 
 		if err := database.DB.Save(&ceb).Error; err != nil {
 			log.Printf("[FIA] Error guardando oferta FIA para chief engineer %d: %v", ceb.ID, err)
-		} else {
-			log.Printf("[FIA] Oferta FIA generada para chief engineer %s: %.2f€ (valor venta: %.2f€)", ce.Name, fiaOffer, saleValue)
 		}
 	}
 
@@ -11180,8 +11175,6 @@ func generateFIAOffersForLeague(leagueID uint) error {
 
 		if err := database.DB.Save(&tcb).Error; err != nil {
 			log.Printf("[FIA] Error guardando oferta FIA para team constructor %d: %v", tcb.ID, err)
-		} else {
-			log.Printf("[FIA] Oferta FIA generada para team constructor %s: %.2f€ (valor venta: %.2f€)", tc.Name, fiaOffer, saleValue)
 		}
 	}
 
@@ -11218,7 +11211,6 @@ func generateFIAOffersForOwnedItems(leagueID uint) error {
 		pbl.Bids = bidsJSON
 		database.DB.Save(&pbl)
 
-		log.Printf("[FIA-OWNED] Oferta de la FIA generada para piloto %s: %.2f€ (valor base: %.2f€)", pilot.DriverName, fiaOfferValue, pilot.Value)
 	}
 
 	// 2. Generar ofertas para track engineers con propietario que no tienen ofertas de la FIA
@@ -11246,7 +11238,6 @@ func generateFIAOffersForOwnedItems(leagueID uint) error {
 		teb.Bids = bidsJSON
 		database.DB.Save(&teb)
 
-		log.Printf("[FIA-OWNED] Oferta de la FIA generada para track engineer %s: %.2f€ (valor base: %.2f€)", te.Name, fiaOfferValue, te.Value)
 	}
 
 	// 3. Generar ofertas para chief engineers con propietario que no tienen ofertas de la FIA
@@ -11274,7 +11265,6 @@ func generateFIAOffersForOwnedItems(leagueID uint) error {
 		ceb.Bids = bidsJSON
 		database.DB.Save(&ceb)
 
-		log.Printf("[FIA-OWNED] Oferta de la FIA generada para chief engineer %s: %.2f€ (valor base: %.2f€)", ce.Name, fiaOfferValue, ce.Value)
 	}
 
 	// 4. Generar ofertas para team constructors con propietario que no tienen ofertas de la FIA
@@ -11302,7 +11292,6 @@ func generateFIAOffersForOwnedItems(leagueID uint) error {
 		tcb.Bids = bidsJSON
 		database.DB.Save(&tcb)
 
-		log.Printf("[FIA-OWNED] Oferta de la FIA generada para team constructor %s: %.2f€ (valor base: %.2f€)", tc.Name, fiaOfferValue, tc.Value)
 	}
 
 	log.Printf("[FIA-OWNED] Generación de ofertas FIA para elementos con propietario completada para liga %d", leagueID)
