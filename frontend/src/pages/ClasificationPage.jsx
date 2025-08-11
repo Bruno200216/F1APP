@@ -168,15 +168,16 @@ export default function ClasificationPage() {
   return (
     <div className="min-h-screen bg-background p-6">
       <div className="max-w-2xl mx-auto">
+        <div className="flex items-center justify-between mb-4">
+          <img src="/images/logos/f1tasy.png" alt="Logo" className="h-8 w-auto" />
+          <span className="text-accent-main font-semibold">{selectedLeague.name}</span>
+        </div>
         {/* Header */}
-        <div className="text-center mb-8">
+                  <div className="text-center mb-8 mt-2">
           <div className="flex items-center justify-center gap-3 mb-4">
             <Trophy className="h-8 w-8 text-accent-main" />
             <h1 className="text-h1 font-bold text-text-primary">Classification</h1>
           </div>
-          <p className="text-text-secondary text-body">
-            League: <span className="text-accent-main font-semibold">{selectedLeague.name}</span>
-          </p>
           
           {/* GP Selector */}
           <div className="mt-4 flex items-center justify-center gap-4">
@@ -271,7 +272,7 @@ export default function ClasificationPage() {
                           <span className={`text-h3 font-bold ${
                             isCurrentPlayer ? 'text-accent-main' : 'text-text-primary'
                           }`}>
-                            {position}
+                            {position === classification.length ? '🚜' : position}
                           </span>
                         )}
                       </div>

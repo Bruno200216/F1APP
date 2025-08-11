@@ -13,7 +13,7 @@ import { Avatar, AvatarImage, AvatarFallback } from '../components/ui/avatar';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '../components/ui/tabs';
 
 // Icons
-import { Users, Settings, Trophy, AlertCircle, Plus, Trash2, X } from 'lucide-react';
+import { Users, Settings, Trophy, AlertCircle, Plus, Trash2, X, ArrowLeft, ArrowRight } from 'lucide-react';
 
 // Existing components (will be phased out)
 import DriverRaceCard from '../components/DriverRaceCard';
@@ -1665,13 +1665,13 @@ export default function TeamPilotsPage() {
                 <CardContent className="p-6">
                   <h2 className="text-h3 font-semibold text-text-primary mb-6 flex items-center gap-2">
                     <Trophy className="h-5 w-5 text-accent-main" />
-                    Alineación de Pilotos (2-2-2)
+                    Lineup (2-2-2)
                   </h2>
                   
                   <div className="space-y-8">
                     {/* Carrera */}
                     <div>
-                      <h3 className="text-subtitle font-medium text-text-primary mb-4">Carrera</h3>
+                      <h3 className="text-subtitle font-medium text-text-primary mb-4">Race</h3>
                       <div className="flex justify-center gap-4">
                         <LineupSlot 
                           item={pilotLineup.race[0]} 
@@ -1690,7 +1690,7 @@ export default function TeamPilotsPage() {
 
                     {/* Clasificación */}
                     <div>
-                      <h3 className="text-subtitle font-medium text-text-primary mb-4">Clasificación</h3>
+                      <h3 className="text-subtitle font-medium text-text-primary mb-4">Clasification</h3>
                       <div className="flex justify-center gap-4">
                         <LineupSlot 
                           item={pilotLineup.qualifying[0]} 
@@ -1709,7 +1709,7 @@ export default function TeamPilotsPage() {
 
                     {/* Práctica */}
                     <div>
-                      <h3 className="text-subtitle font-medium text-text-primary mb-4">Práctica</h3>
+                      <h3 className="text-subtitle font-medium text-text-primary mb-4">Practice</h3>
                       <div className="flex justify-center gap-4">
                         <LineupSlot 
                           item={pilotLineup.practice[0]} 
@@ -1882,7 +1882,8 @@ export default function TeamPilotsPage() {
       )}
 
       {/* Botones de Acción */}
-      <div className="flex justify-center gap-4 mt-8">
+      <div className="mt-8 space-y-4">
+        <div className="flex justify-center gap-4 flex-wrap">
         <Button 
           variant="ghost" 
           className="px-8"
@@ -1891,10 +1892,19 @@ export default function TeamPilotsPage() {
         >
           Limpiar Alineación
         </Button>
-        {/* Interfaz de admin para seleccionar GP */}
-        {console.log('🔍 Renderizando admin interface:', { isAdmin, currentTab })}
+
+          <Button 
+            className="px-8 border-2 border-[#9D4EDD] text-[#9D4EDD] hover:bg-[#9D4EDD] hover:text-white transition-colors duration-200"
+            style={{ fontWeight: 600 }}
+            onClick={saveLineup}
+            disabled={savingLineup}
+          >
+            {savingLineup ? 'Guardando...' : 'Guardar Alineación'}
+          </Button>
+        </div>
+
         {isAdmin && (
-          <div className="flex items-center gap-4 mb-4 p-4 bg-surface-elevated rounded-lg border border-border">
+          <div className="flex items-center gap-4 p-4 bg-surface-elevated rounded-lg border border-border justify-center">
             <div className="flex items-center gap-2">
               <input
                 type="checkbox"
@@ -1914,7 +1924,7 @@ export default function TeamPilotsPage() {
                   value={adminGPIndex}
                   onChange={(e) => setAdminGPIndex(e.target.value)}
                   placeholder="GP Index (obligatorio)"
-                  className="px-3 py-1 border border-border rounded bg-surface text-text-primary focus:outline-none focus:ring-2 focus:ring-accent-main"
+                  className="px-3 py-1 border border-border rounded bg-surface text-text-primary focus:outline-none focus:ring-2 focus:ring-accent-main w-36"
                   min="1"
                   required
                 />
@@ -1925,15 +1935,6 @@ export default function TeamPilotsPage() {
             )}
           </div>
         )}
-        
-        <Button 
-          className="px-8 border-2 border-[#9D4EDD] text-[#9D4EDD] hover:bg-[#9D4EDD] hover:text-white transition-colors duration-200"
-          style={{ fontWeight: 600 }}
-          onClick={saveLineup}
-          disabled={savingLineup}
-        >
-          {savingLineup ? 'Guardando...' : 'Guardar Alineación'}
-        </Button>
       </div>
     </div>
   );
@@ -2391,7 +2392,7 @@ export default function TeamPilotsPage() {
                     </p>
                   </div>
                   <div className="text-right">
-                    <p className="text-caption text-text-secondary">Puntos Totales</p>
+                    <p className="text-caption text-text-secondary">Total Points</p>
                     <p className="text-h2 font-bold text-accent-main">
                       {currentPoints.total || 0} pts
                     </p>
@@ -2412,26 +2413,22 @@ export default function TeamPilotsPage() {
                 <TabsList className="grid w-full grid-cols-2 lg:w-96">
                   <TabsTrigger value="pilots" className="flex items-center gap-2">
                     <Users className="h-4 w-4" />
-                    Pilotos
+                    Drivers
                   </TabsTrigger>
                   <TabsTrigger value="team" className="flex items-center gap-2">
                     <Settings className="h-4 w-4" />
-                    Ingenieros & Equipos
+                    Engineers & Teams
                   </TabsTrigger>
                 </TabsList>
 
                 {/* Pestaña Pilotos */}
                 <TabsContent value="pilots">
                   <Card className="bg-surface border border-border">
-                    <CardHeader>
-                      <CardTitle className="text-subtitle font-bold text-text-primary">
-                        Pilotos
-                      </CardTitle>
-                    </CardHeader>
+                    
                 <CardContent className="space-y-4">
                   {/* Pilotos de Carrera */}
                   <div>
-                    <h4 className="text-small font-semibold text-text-primary mb-3">Carrera</h4>
+                    <h4 className="text-small font-semibold text-text-primary mb-3">Race</h4>
                     <div className="flex justify-center gap-4">
                       {currentPoints.has_lineup ? (
                         [0, 1].map((index) => {
@@ -2444,18 +2441,17 @@ export default function TeamPilotsPage() {
                           console.log(`🔍 historyLineup:`, historyLineup);
                           console.log(`🔍 currentPoints:`, currentPoints);
                           const getBorderColor = (points) => {
+                            if (points < 0) return '#EA5455'; // Rojo (error)
                             if (points === 0) return '#6B7280'; // Gris
-                            if (points > 0 && points <= 10) return '#10B981'; // Verde claro
-                            if (points > 10 && points <= 20) return '#059669'; // Verde medio
-                            if (points > 20 && points <= 30) return '#047857'; // Verde oscuro
-                            if (points > 30) return '#9D4EDD'; // Morado
-                            return '#EF4444'; // Rojo para puntos negativos
+                            if (points > 15) return '#9D4EDD'; // Morado (accent)
+                            if (points > 0 && points <= 5) return '#FF9F43'; // Naranja/Amarillo (warning)
+                            return '#28C76F'; // Verde (success)
                           };
                           
                           return (
                             <div key={index} className="flex flex-col items-center">
                               <div 
-                                className="w-24 h-24 rounded-lg overflow-hidden mb-2"
+                                className="w-24 h-24 rounded-lg overflow-visible mb-2 relative"
                                 style={{
                                   background: pilot ? `linear-gradient(135deg, ${getBorderColor(points)}20, ${getBorderColor(points)}40)` : 'linear-gradient(135deg, #6B728020, #6B728040)',
                                   border: `2px solid ${pilot ? getBorderColor(points) : '#6B7280'}`,
@@ -2479,6 +2475,7 @@ export default function TeamPilotsPage() {
                                     </div>
                                   </div>
                                 )}
+                                {pilot && getPilotSynergyOverlay(pilot, index)}
                               </div>
                               <p className="text-caption font-bold text-text-primary">
                                 {pilot ? `${points} pts` : '0 pts'}
@@ -2513,7 +2510,7 @@ export default function TeamPilotsPage() {
 
                   {/* Pilotos de Clasificación */}
                   <div>
-                    <h4 className="text-small font-semibold text-text-primary mb-3">Clasificación</h4>
+                    <h4 className="text-small font-semibold text-text-primary mb-3">Clasification</h4>
                     <div className="flex justify-center gap-4">
                       {currentPoints.has_lineup ? (
                         [0, 1].map((index) => {
@@ -2521,18 +2518,17 @@ export default function TeamPilotsPage() {
                           const pilot = pilotId ? historyLineup.qualifying.find(p => p && p.id === pilotId) || null : null;
                           const points = pilotId ? (elementPoints[`pilot_${pilotId}`] || 0) : 0;
                           const getBorderColor = (points) => {
+                            if (points < 0) return '#EA5455'; // Rojo (error)
                             if (points === 0) return '#6B7280'; // Gris
-                            if (points > 0 && points <= 10) return '#10B981'; // Verde claro
-                            if (points > 10 && points <= 20) return '#059669'; // Verde medio
-                            if (points > 20 && points <= 30) return '#047857'; // Verde oscuro
-                            if (points > 30) return '#9D4EDD'; // Morado
-                            return '#EF4444'; // Rojo para puntos negativos
+                            if (points > 15) return '#9D4EDD'; // Morado (accent)
+                            if (points > 0 && points <= 5) return '#FF9F43'; // Naranja/Amarillo (warning)
+                            return '#28C76F'; // Verde (success)
                           };
                           
                           return (
                             <div key={index} className="flex flex-col items-center">
                               <div 
-                                className="w-24 h-24 rounded-lg overflow-hidden mb-2"
+                                className="w-24 h-24 rounded-lg overflow-visible mb-2 relative"
                                 style={{
                                   background: pilot ? `linear-gradient(135deg, ${getBorderColor(points)}20, ${getBorderColor(points)}40)` : 'linear-gradient(135deg, #6B728020, #6B728040)',
                                   border: `2px solid ${pilot ? getBorderColor(points) : '#6B7280'}`,
@@ -2556,6 +2552,7 @@ export default function TeamPilotsPage() {
                                     </div>
                                   </div>
                                 )}
+                                {pilot && getPilotSynergyOverlay(pilot, index)}
                               </div>
                               <p className="text-caption font-bold text-text-primary">
                                 {pilot ? `${points} pts` : '0 pts'}
@@ -2590,7 +2587,7 @@ export default function TeamPilotsPage() {
 
                   {/* Pilotos de Práctica */}
                   <div>
-                    <h4 className="text-small font-semibold text-text-primary mb-3">Práctica</h4>
+                    <h4 className="text-small font-semibold text-text-primary mb-3">Practice</h4>
                     <div className="flex justify-center gap-4">
                       {currentPoints.has_lineup ? (
                         [0, 1].map((index) => {
@@ -2598,18 +2595,17 @@ export default function TeamPilotsPage() {
                           const pilot = pilotId ? historyLineup.practice.find(p => p && p.id === pilotId) || null : null;
                           const points = pilotId ? (elementPoints[`pilot_${pilotId}`] || 0) : 0;
                           const getBorderColor = (points) => {
+                            if (points < 0) return '#EA5455'; // Rojo (error)
                             if (points === 0) return '#6B7280'; // Gris
-                            if (points > 0 && points <= 10) return '#10B981'; // Verde claro
-                            if (points > 10 && points <= 20) return '#059669'; // Verde medio
-                            if (points > 20 && points <= 30) return '#047857'; // Verde oscuro
-                            if (points > 30) return '#9D4EDD'; // Morado
-                            return '#EF4444'; // Rojo para puntos negativos
+                            if (points > 30) return '#9D4EDD'; // Morado (accent)
+                            if (points > 0 && points <= 5) return '#FF9F43'; // Naranja/Amarillo (warning)
+                            return '#28C76F'; // Verde (success)
                           };
                           
                           return (
                             <div key={index} className="flex flex-col items-center">
                               <div 
-                                className="w-24 h-24 rounded-lg overflow-hidden mb-2"
+                                className="w-24 h-24 rounded-lg overflow-visible mb-2 relative"
                                 style={{
                                   background: pilot ? `linear-gradient(135deg, ${getBorderColor(points)}20, ${getBorderColor(points)}40)` : 'linear-gradient(135deg, #6B728020, #6B728040)',
                                   border: `2px solid ${pilot ? getBorderColor(points) : '#6B7280'}`,
@@ -2633,6 +2629,7 @@ export default function TeamPilotsPage() {
                                     </div>
                                   </div>
                                 )}
+                                {pilot && getPilotSynergyOverlay(pilot, index)}
                               </div>
                               <p className="text-caption font-bold text-text-primary">
                                 {pilot ? `${points} pts` : '0 pts'}
@@ -2687,18 +2684,17 @@ export default function TeamPilotsPage() {
                               const teamConstructor = teamConstructorId ? historyTeamLineup.team_constructor : null;
                               const points = teamConstructorId ? (elementPoints[`team_constructor_${teamConstructorId}`] || 0) : 0;
                               const getBorderColor = (points) => {
+                                if (points < 0) return '#EA5455'; // Rojo (error)
                                 if (points === 0) return '#6B7280'; // Gris
-                                if (points > 0 && points <= 10) return '#10B981'; // Verde claro
-                                if (points > 10 && points <= 20) return '#059669'; // Verde medio
-                                if (points > 20 && points <= 30) return '#047857'; // Verde oscuro
-                                if (points > 30) return '#9D4EDD'; // Morado
-                                return '#EF4444'; // Rojo para puntos negativos
+                                if (points > 30) return '#9D4EDD'; // Morado (accent)
+                                if (points > 0 && points <= 5) return '#FF9F43'; // Naranja/Amarillo (warning)
+                                return '#28C76F'; // Verde (success)
                               };
                               
                               return (
                                 <div className="flex flex-col items-center">
                                   <div 
-                                    className="w-24 h-24 rounded-lg overflow-hidden mb-2"
+                                    className="w-24 h-24 rounded-lg overflow-visible mb-2 relative"
                                     style={{
                                       background: teamConstructor ? `linear-gradient(135deg, ${getBorderColor(points)}20, ${getBorderColor(points)}40)` : 'linear-gradient(135deg, #6B728020, #6B728040)',
                                       border: `2px solid ${teamConstructor ? getBorderColor(points) : '#6B7280'}`,
@@ -2722,6 +2718,7 @@ export default function TeamPilotsPage() {
                                         </div>
                                       </div>
                                     )}
+                                    {/* Sinergia solo en pestaña Pilots */}
                                   </div>
                                   <p className="text-caption font-bold text-text-primary">
                                     {teamConstructor ? `${points} pts` : '0 pts'}
@@ -2762,18 +2759,17 @@ export default function TeamPilotsPage() {
                               const chiefEngineer = chiefEngineerId ? historyTeamLineup.chief_engineer : null;
                               const points = chiefEngineerId ? (elementPoints[`chief_engineer_${chiefEngineerId}`] || 0) : 0;
                               const getBorderColor = (points) => {
+                                if (points < 0) return '#EA5455'; // Rojo (error)
                                 if (points === 0) return '#6B7280'; // Gris
-                                if (points > 0 && points <= 10) return '#10B981'; // Verde claro
-                                if (points > 10 && points <= 20) return '#059669'; // Verde medio
-                                if (points > 20 && points <= 30) return '#047857'; // Verde oscuro
-                                if (points > 30) return '#9D4EDD'; // Morado
-                                return '#EF4444'; // Rojo para puntos negativos
+                                if (points > 30) return '#9D4EDD'; // Morado (accent)
+                                if (points > 0 && points <= 5) return '#FF9F43'; // Naranja/Amarillo (warning)
+                                return '#28C76F'; // Verde (success)
                               };
                               
                               return (
                                 <div className="flex flex-col items-center">
                                   <div 
-                                    className="w-24 h-24 rounded-lg overflow-hidden mb-2"
+                                    className="w-24 h-24 rounded-lg overflow-visible mb-2 relative"
                                     style={{
                                       background: chiefEngineer ? `linear-gradient(135deg, ${getBorderColor(points)}20, ${getBorderColor(points)}40)` : 'linear-gradient(135deg, #6B728020, #6B728040)',
                                       border: `2px solid ${chiefEngineer ? getBorderColor(points) : '#6B7280'}`,
@@ -2797,6 +2793,7 @@ export default function TeamPilotsPage() {
                                         </div>
                                       </div>
                                     )}
+                                    {/* Sinergia solo en pestaña Pilots */}
                                   </div>
                                   <p className="text-caption font-bold text-text-primary">
                                     {chiefEngineer ? `${points} pts` : '0 pts'}
@@ -2837,18 +2834,17 @@ export default function TeamPilotsPage() {
                               const engineer = engineerId ? historyTeamLineup.track_engineers.find(e => e && e.id === engineerId) || null : null;
                               const points = engineerId ? (elementPoints[`track_engineer_${engineerId}`] || 0) : 0;
                               const getBorderColor = (points) => {
+                                if (points < 0) return '#EA5455'; // Rojo (error)
                                 if (points === 0) return '#6B7280'; // Gris
-                                if (points > 0 && points <= 10) return '#10B981'; // Verde claro
-                                if (points > 10 && points <= 20) return '#059669'; // Verde medio
-                                if (points > 20 && points <= 30) return '#047857'; // Verde oscuro
-                                if (points > 30) return '#9D4EDD'; // Morado
-                                return '#EF4444'; // Rojo para puntos negativos
+                                if (points > 30) return '#9D4EDD'; // Morado (accent)
+                                if (points > 0 && points <= 5) return '#FF9F43'; // Naranja/Amarillo (warning)
+                                return '#28C76F'; // Verde (success)
                               };
                               
                               return (
                                 <div key={index} className="flex flex-col items-center">
                                   <div 
-                                    className="w-24 h-24 rounded-lg overflow-hidden mb-2"
+                                    className="w-24 h-24 rounded-lg overflow-visible mb-2 relative"
                                     style={{
                                       background: engineer ? `linear-gradient(135deg, ${getBorderColor(points)}20, ${getBorderColor(points)}40)` : 'linear-gradient(135deg, #6B728020, #6B728040)',
                                       border: `2px solid ${engineer ? getBorderColor(points) : '#6B7280'}`,
@@ -2872,6 +2868,7 @@ export default function TeamPilotsPage() {
                                         </div>
                                       </div>
                                     )}
+                                                                         {/* Sinergia solo en pestaña Pilots */}
                                   </div>
                                   <p className="text-caption font-bold text-text-primary">
                                     {engineer ? `${points} pts` : '0 pts'}
@@ -2914,6 +2911,75 @@ export default function TeamPilotsPage() {
     );
   }; 
 
+  // Helpers para mostrar sinergia de ingeniero de pista junto a pilotos en la pestaña de puntos
+  const findSynergyEngineerForPilot = (pilot) => {
+    try {
+      if (!pilot || !selectedHistoryGP?.track_engineers || !teamData?.track_engineers) return null;
+      const pilotBaseId = pilot.pilot_id || pilot.PilotID || pilot.pilot || pilot.code || pilot.DriverCode;
+      const pilotCode = pilot.code || pilot.DriverCode || pilot.pilot_code || pilot.pilotId || pilot.pilotid;
+      const pilotName = pilot.driver_name || pilot.name || pilot.DriverName;
+      const lineupEngineerIds = selectedHistoryGP.track_engineers;
+      const currentGpIdx = Number(selectedGP?.gp_index ?? selectedHistoryGP?.gp_index);
+      
+      // TEMP mapping: if GP index is 9 and pilot id is 6, show TE id 5
+      const gpIdx = currentGpIdx;
+      const pilotByLeagueId = Number(pilot.id);
+      if (gpIdx === 9 && (pilotBaseId === 6 || pilotByLeagueId === 6)) {
+        const tempEngineer = (teamData.track_engineers || []).find(e => Number(e.track_engineer_id ?? e.TrackEngineerID) === 5 || Number(e.id) === 5)
+          || (historyTeamLineup?.track_engineers || []).find(e => e && (Number(e.track_engineer_id ?? e.TrackEngineerID) === 5 || Number(e.id) === 5));
+        if (tempEngineer) {
+          const keyId = Number(tempEngineer.id); // by-league id used in elementPoints keys
+          const tempPoints = elementPoints[`track_engineer_${keyId}`] ?? 0;
+          return { engineer: tempEngineer, points: tempPoints, engineerId: keyId };
+        }
+      }
+      // Buscar ingeniero alineado cuyo pilot_id coincida con el piloto base
+      const engineer = (teamData.track_engineers || []).find(e => {
+        if (!lineupEngineerIds.includes(e.id)) return false;
+        const ePilotId = e.pilot_id ?? e.PilotID ?? e.pilot ?? e.pilotId ?? e.pilotid;
+        const ePilotCode = e.pilot_code ?? e.PilotCode ?? e.code;
+        const ePilotName = e.pilot_name ?? e.PilotName ?? e.pilotDriverName ?? e.pilotDriver ?? e.driver_name;
+        if (ePilotId && pilotBaseId && String(ePilotId) === String(pilotBaseId)) return true;
+        if (ePilotCode && pilotCode && String(ePilotCode).toUpperCase() === String(pilotCode).toUpperCase()) return true;
+        if (ePilotName && pilotName && String(ePilotName).split(' ').pop().toLowerCase() === String(pilotName).split(' ').pop().toLowerCase()) return true;
+        return false;
+      });
+      if (!engineer) return null;
+      const tePoints = elementPoints[`track_engineer_${engineer.id}`] || 0;
+      if (tePoints <= 0) return null; // mostrar solo si puntúa
+      if (process.env.NODE_ENV !== 'production') {
+        try { console.log('🔗 TE synergy match', { pilot: pilotName || pilotBaseId || pilotCode, engineer: engineer.name, tePoints }); } catch(_) {}
+      }
+      return { engineer, points: tePoints, engineerId: engineer.id };
+    } catch (_) {
+      return null;
+    }
+  };
+
+  const getPilotSynergyOverlay = (pilot, slotIndex) => {
+    const match = findSynergyEngineerForPilot(pilot);
+    if (!match) return null;
+    const currentGpIdx = Number(selectedGP?.gp_index ?? selectedHistoryGP?.gp_index);
+    const forceLeft = currentGpIdx === 9 && (Number(pilot.pilot_id ?? pilot.PilotID) === 6 || Number(pilot.id) === 6);
+    const isLeft = forceLeft ? true : (slotIndex === 0);
+    const sideClass = isLeft ? 'left-0 -translate-x-full -ml-2 flex-row' : '-right-8 flex-row-reverse';
+    return (
+      <div className={`absolute top-1/2 -translate-y-1/2 ${sideClass} items-center pointer-events-none`}> 
+        <div className="flex items-center gap-1 bg-black/50 px-2 py-1 rounded-lg shadow-sm">
+          <div className="w-8 h-8 rounded-full border-2 border-[#9D4EDD] bg-black flex items-center justify-center text-white text-base">
+            🔧
+          </div>
+          {isLeft ? (
+            <ArrowRight className="h-4 w-4 text-[#9D4EDD]" />
+          ) : (
+            <ArrowLeft className="h-4 w-4 text-[#9D4EDD]" />
+          )}
+          <span className="text-[11px] font-bold text-[#9D4EDD]">+{match.points}</span>
+        </div>
+      </div>
+    );
+  }; 
+
   if (!selectedLeague) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
@@ -2940,20 +3006,24 @@ export default function TeamPilotsPage() {
       {/* Header */}
       <div className="bg-surface border-b border-border sticky top-0 z-40">
         <div className="px-4 pt-4 pb-2">
+          <div className="flex items-center justify-between">
           <h1 className="text-h1 font-bold text-text-primary mb-2">
-            🏁 Mi Equipo
+              <span className="inline-flex items-center gap-3">
+                <img src="/images/logos/f1tasy.png" alt="Logo" className="h-8 w-auto" />
+              </span>
           </h1>
-          <p className="text-text-secondary">
-            Liga: <span className="text-accent-main font-medium">{selectedLeague.name}</span>
-          </p>
+            <span className="text-text-secondary text-small font-medium">
+              <span className="text-accent-main font-semibold">{selectedLeague.name}</span>
+            </span>
+          </div>
         </div>
 
         {/* Tabs */}
         <Tabs value={currentTab} onValueChange={setCurrentTab} className="w-full">
           <TabsList className="grid w-full grid-cols-3 bg-surface">
-            <TabsTrigger value="lineup">Alineación</TabsTrigger>
-            <TabsTrigger value="squad">Plantilla</TabsTrigger>
-            <TabsTrigger value="points">Puntos</TabsTrigger>
+            <TabsTrigger value="lineup">Lineup</TabsTrigger>
+            <TabsTrigger value="squad">Roster</TabsTrigger>
+            <TabsTrigger value="points">Points</TabsTrigger>
           </TabsList>
         </Tabs>
       </div>

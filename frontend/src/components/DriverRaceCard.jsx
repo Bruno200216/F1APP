@@ -9,6 +9,27 @@ import { Lock, TrendingUp, Users } from 'lucide-react';
 import ClausulaBadge from './ClausulaBadge';
 import ClausulaTimer from './ClausulaTimer';
 
+// Map driver mode/session to distinctive border colors (keeps team color elsewhere)
+const getDriverMode = (driver) => {
+  const raw = (driver?.mode || driver?.session_type || '').toString().toLowerCase();
+  if (raw === 'race' || raw === 'r') return 'race';
+  if (raw === 'qualifying' || raw === 'qualy' || raw === 'q') return 'qualifying';
+  if (raw === 'practice' || raw === 'p') return 'practice';
+  return 'race';
+};
+
+const getModeColor = (mode) => {
+  switch (mode) {
+    case 'qualifying':
+      return '#28C76F'; // success (green)
+    case 'practice':
+      return '#3B82F6'; // blue
+    case 'race':
+    default:
+      return '#9D4EDD'; // accent (purple)
+  }
+};
+
 export function goToDriverProfile(navigate, driver, leagueId) {
   if (!driver || !driver.driver_code || !leagueId) return;
   navigate(`/profile/${driver.driver_code}?league_id=${leagueId}`);
@@ -30,12 +51,14 @@ export default function DriverRaceCard({
 }) {
   const navigate = useNavigate();
   const teamColor = getTeamColor(driver.team);
+  const mode = getDriverMode(driver);
+  const modeColor = getModeColor(mode);
 
   // Get owner name
   const getOwnerName = (owner_id) => {
     if (!owner_id || owner_id === 0) return 'FIA';
     const player = players.find(p => p.id === owner_id);
-    return player ? player.name : 'Desconocido';
+    return player ? player.name : 'Unknown';
   };
 
   const handleClick = () => {
@@ -69,7 +92,8 @@ export default function DriverRaceCard({
       )}
       onClick={handleClick}
       style={{
-        borderColor: teamColor.primary,
+        // Border uses mode color for stronger visibility per session
+        borderColor: modeColor,
         background: `linear-gradient(135deg, var(--surface-elevated) 0%, var(--surface) 100%)`
       }}
     >
@@ -77,7 +101,8 @@ export default function DriverRaceCard({
       <div 
         className="absolute top-0 left-0 right-0 h-1"
         style={{
-          background: `linear-gradient(90deg, ${teamColor.primary}, ${teamColor.secondary})`
+          // Use mode color for top bar to reinforce session distinction
+          background: `linear-gradient(90deg, ${modeColor}, ${modeColor})`
         }}
       />
 
@@ -89,7 +114,8 @@ export default function DriverRaceCard({
 
         {/* Driver info */}
         <div className="flex items-start space-x-4 mb-4">
-          <Avatar className="w-16 h-16 border-2 shadow-lg" style={{ borderColor: teamColor.primary }}>
+          {/* Avatar ring uses mode color; team name text below keeps team color */}
+          <Avatar className="w-16 h-16 border-2 shadow-lg" style={{ borderColor: modeColor }}>
             <AvatarImage 
               src={driver.image_url ? `/images/${driver.image_url}` : ''}
               alt={driver.driver_name}
@@ -109,8 +135,8 @@ export default function DriverRaceCard({
               <div 
                 className="w-5 h-5 rounded-full border-2 bg-background flex items-center justify-center text-xs font-bold"
                 style={{ 
-                  borderColor: teamColor.primary,
-                  color: teamColor.primary
+                  borderColor: modeColor,
+                  color: modeColor
                 }}
               >
                 {(driver.pilot_type === 'estrella') ? '★' : 
@@ -139,13 +165,21 @@ export default function DriverRaceCard({
             {/* Number of bids */}
             {typeof driver.num_bids !== 'undefined' && (
               <p className="text-state-warning font-bold text-small mb-1">
-                {driver.num_bids} puja{driver.num_bids !== 1 ? 's' : ''}
+                {driver.num_bids} bid{driver.num_bids !== 1 ? 's' : ''}
                 {driver.my_bid && (
                   <span className="text-accent-main ml-2">
-                    (Mi puja: €{formatNumberWithDots(driver.my_bid)})
+                    (My bid: €{formatNumberWithDots(driver.my_bid)})
                   </span>
                 )}
               </p>
+            )}
+
+            {/* Aggregated total points (temporary) */}
+            {typeof driver.total_points !== 'undefined' && (
+              <div className="flex justify-between items-center">
+                <span className="text-text-secondary text-small">Total Points:</span>
+                <span className="font-bold text-state-warning text-small">{driver.total_points}</span>
+              </div>
             )}
           </div>
         </div>
@@ -154,14 +188,14 @@ export default function DriverRaceCard({
         {showStats && (
           <div className="space-y-2 mb-4">
             <div className="flex justify-between items-center">
-              <span className="text-text-secondary text-small">Valor:</span>
+              <span className="text-text-secondary text-small">Value:</span>
               <span className="font-bold text-state-success text-small">
                 {formatNumberWithDots(driver.value ?? driver.valor_global ?? driver.valorGlobal ?? 0)}€
               </span>
             </div>
             
             <div className="flex justify-between items-center">
-              <span className="text-text-secondary text-small">Puntos:</span>
+              <span className="text-text-secondary text-small">Points:</span>
               <span className="font-bold text-state-warning text-small">
                 {driver.total_points || 0}
               </span>
@@ -169,7 +203,7 @@ export default function DriverRaceCard({
             
             {!hideOwnerInfo && (
               <div className="flex justify-between items-center">
-                <span className="text-text-secondary text-small">Propietario:</span>
+                <span className="text-text-secondary text-small">Owner:</span>
                 <span className="text-text-primary text-small font-medium">
                   {getOwnerName(driver.owner_id)}
                 </span>
@@ -179,34 +213,14 @@ export default function DriverRaceCard({
             {/* My bid */}
             {driver.my_bid && (
               <div className="flex justify-between items-center">
-                <span className="text-text-secondary text-small">Mi puja:</span>
+                <span className="text-text-secondary text-small">My bid:</span>
                 <span className="text-accent-main font-bold text-small">
                   {formatNumberWithDots(driver.my_bid)}€
                 </span>
               </div>
             )}
 
-            {/* Performance averages */}
-            <div className="flex gap-4 pt-2 border-t border-border">
-              <div className="flex items-center gap-1">
-                <div className="w-2 h-2 rounded-full bg-state-success"></div>
-                <span className="text-small font-medium text-state-success">
-                  P: {driver.practice_avg || 0}
-                </span>
-              </div>
-              <div className="flex items-center gap-1">
-                <div className="w-2 h-2 rounded-full bg-blue-500"></div>
-                <span className="text-small font-medium text-blue-500">
-                  Q: {driver.qualifying_avg || 0}
-                </span>
-              </div>
-              <div className="flex items-center gap-1">
-                <div className="w-2 h-2 rounded-full bg-orange-500"></div>
-                <span className="text-small font-medium text-orange-500">
-                  R: {driver.race_avg || 0}
-                </span>
-              </div>
-            </div>
+            {/* Removed P/Q/R performance averages per request */}
           </div>
         )}
 
@@ -217,7 +231,7 @@ export default function DriverRaceCard({
               <>
                 <TrendingUp className="w-4 h-4 text-text-secondary" />
                 <span className="text-small text-text-secondary">
-                  Rendimiento
+                  
                 </span>
               </>
             )}
@@ -233,7 +247,7 @@ export default function DriverRaceCard({
                 size="sm"
                 className="bg-gradient-to-r from-accent-main to-accent-hover hover:shadow-glow-accent"
               >
-                PUJAR
+                BID
               </Button>
             )}
             {bidActionsButton}

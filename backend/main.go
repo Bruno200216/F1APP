@@ -1979,6 +1979,91 @@ func main() {
 		c.JSON(200, gin.H{"message": "Mercado reiniciado"})
 	})
 
+	// TEMP total points endpoints for MarketPage
+	router.GET("/api/pilots/practice/total", func(c *gin.Context) {
+		pilotIDStr := c.Query("pilot_id")
+		var id uint
+		fmt.Sscanf(pilotIDStr, "%d", &id)
+		// Resolver ID base (puede venir un pilot_by_league.id)
+		basePilotID := id
+		var pbl models.PilotByLeague
+		if err := database.DB.First(&pbl, id).Error; err == nil {
+			basePilotID = pbl.PilotID
+		}
+		var total int64
+		if err := database.DB.Table("pilot_practices").Where("pilot_id = ?", basePilotID).Select("COALESCE(SUM(points),0)").Scan(&total).Error; err != nil {
+			total = 0
+		}
+		c.JSON(200, gin.H{"total": total})
+	})
+	router.GET("/api/pilots/qualifying/total", func(c *gin.Context) {
+		pilotIDStr := c.Query("pilot_id")
+		var id uint
+		fmt.Sscanf(pilotIDStr, "%d", &id)
+		basePilotID := id
+		var pbl models.PilotByLeague
+		if err := database.DB.First(&pbl, id).Error; err == nil {
+			basePilotID = pbl.PilotID
+		}
+		var total int64
+		if err := database.DB.Table("pilot_qualies").Where("pilot_id = ?", basePilotID).Select("COALESCE(SUM(points),0)").Scan(&total).Error; err != nil {
+			total = 0
+		}
+		c.JSON(200, gin.H{"total": total})
+	})
+	router.GET("/api/pilots/race/total", func(c *gin.Context) {
+		pilotIDStr := c.Query("pilot_id")
+		var id uint
+		fmt.Sscanf(pilotIDStr, "%d", &id)
+		basePilotID := id
+		var pbl models.PilotByLeague
+		if err := database.DB.First(&pbl, id).Error; err == nil {
+			basePilotID = pbl.PilotID
+		}
+		var total int64
+		if err := database.DB.Table("pilot_races").Where("pilot_id = ?", basePilotID).Select("COALESCE(SUM(points),0)").Scan(&total).Error; err != nil {
+			total = 0
+		}
+		c.JSON(200, gin.H{"total": total})
+	})
+	router.GET("/api/team_constructor/points/total", func(c *gin.Context) {
+		tcIDStr := c.Query("team_constructor_id")
+		var id uint
+		fmt.Sscanf(tcIDStr, "%d", &id)
+		baseTCID := id
+		var tcbl models.TeamConstructorByLeague
+		if err := database.DB.First(&tcbl, id).Error; err == nil {
+			baseTCID = tcbl.TeamConstructorID
+		}
+		var total int64
+		if err := database.DB.Table("team_races").Where("teamconstructor_id = ?", baseTCID).Select("COALESCE(SUM(points),0)").Scan(&total).Error; err != nil {
+			total = 0
+		}
+		c.JSON(200, gin.H{"total": total})
+	})
+	router.GET("/api/track_engineer/points/total", func(c *gin.Context) {
+		teIDStr := c.Query("track_engineer_id")
+		var id uint
+		fmt.Sscanf(teIDStr, "%d", &id)
+		baseTEID := id
+		var tebl models.TrackEngineerByLeague
+		if err := database.DB.First(&tebl, id).Error; err == nil {
+			baseTEID = tebl.TrackEngineerID
+		}
+		var total int64
+		if err := database.DB.Table("track_engineer_points").Where("track_engineer_id = ?", baseTEID).Select("COALESCE(SUM(total_points),0)").Scan(&total).Error; err != nil {
+			total = 0
+		}
+		c.JSON(200, gin.H{"total": total})
+	})
+	router.GET("/api/chief_engineer/points/total", func(c *gin.Context) {
+		ceIDStr := c.Query("chief_engineer_id")
+		var id uint
+		fmt.Sscanf(ceIDStr, "%d", &id)
+		// No hay tabla consolidada clara en modelos para chief_engineer_points; devolver 0 por ahora
+		c.JSON(200, gin.H{"total": 0})
+	})
+
 	// Endpoint para refrescar el mercado y finalizar subastas activas con pujas
 	router.POST("/api/market/refresh-and-finish", func(c *gin.Context) {
 		leagueID := c.Query("league_id")

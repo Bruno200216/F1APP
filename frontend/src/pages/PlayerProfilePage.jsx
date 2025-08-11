@@ -847,7 +847,7 @@ export default function PlayerProfilePage() {
 
                   {/* Pilotos de Clasificación */}
                   <div>
-                    <h4 className="text-small font-semibold text-text-primary mb-3">Clasificación</h4>
+                    <h4 className="text-small font-semibold text-text-primary mb-3">Clasification</h4>
                     <div className="flex justify-center gap-4">
                       {currentPoints.has_lineup ? (
                         [0, 1].map((index) => {

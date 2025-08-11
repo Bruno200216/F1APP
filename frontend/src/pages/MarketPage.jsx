@@ -87,6 +87,47 @@ const getImageUrl = (item, type) => {
   return finalUrl;
 };
 
+// TEMP: Fetch total points for an element across tables
+const fetchTotalPointsForItem = async (item, leagueId) => {
+  try {
+    const token = localStorage.getItem('token');
+    const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
+    const id = item.id;
+    const type = (item.type || 'pilot').toLowerCase();
+    let total = 0;
+
+    if (type === 'pilot') {
+      // Sum pilot points from practice, qualifying and race endpoints (assuming backend supports these routes)
+      const [pr, ql, rc] = await Promise.all([
+        fetch(`/api/pilots/practice/total?pilot_id=${id}&league_id=${leagueId}`, { headers }),
+        fetch(`/api/pilots/qualifying/total?pilot_id=${id}&league_id=${leagueId}`, { headers }),
+        fetch(`/api/pilots/race/total?pilot_id=${id}&league_id=${leagueId}`, { headers })
+      ]);
+      const prj = pr.ok ? await pr.json() : { total: 0 };
+      const qlj = ql.ok ? await ql.json() : { total: 0 };
+      const rcj = rc.ok ? await rc.json() : { total: 0 };
+      total = (prj.total || 0) + (qlj.total || 0) + (rcj.total || 0);
+    } else if (type === 'team_constructor') {
+      const res = await fetch(`/api/team_constructor/points/total?team_constructor_id=${id}&league_id=${leagueId}`, { headers });
+      const js = res.ok ? await res.json() : { total: 0 };
+      total = js.total || 0;
+    } else if (type === 'track_engineer') {
+      const res = await fetch(`/api/track_engineer/points/total?track_engineer_id=${id}&league_id=${leagueId}`, { headers });
+      const js = res.ok ? await res.json() : { total: 0 };
+      total = js.total || 0;
+    } else if (type === 'chief_engineer') {
+      const res = await fetch(`/api/chief_engineer/points/total?chief_engineer_id=${id}&league_id=${leagueId}`, { headers });
+      const js = res.ok ? await res.json() : { total: 0 };
+      total = js.total || 0;
+    }
+
+    return total;
+  } catch (e) {
+    console.warn('Error fetching total points for item', item?.id, e);
+    return 0;
+  }
+};
+
 export default function MarketPage() {
   const { selectedLeague } = useLeague();
   const [auctions, setAuctions] = useState([]);
@@ -315,7 +356,13 @@ export default function MarketPage() {
       const response = await fetch(`/api/market?league_id=${selectedLeague.id}`);
       const data = await response.json();
       console.log('📊 Datos del mercado recibidos:', data);
-      setAuctions(data.market || []);
+      const base = data.market || [];
+      // TEMP: augment with total_points
+      const augmented = await Promise.all(base.map(async (item) => {
+        const totalPoints = await fetchTotalPointsForItem(item, selectedLeague.id);
+        return { ...item, total_points_sum: totalPoints };
+      }));
+      setAuctions(augmented);
     } catch (err) {
       setError('Error al cargar el mercado');
     } finally {
@@ -1362,7 +1409,7 @@ export default function MarketPage() {
       setTrackEngineersByLeague(engineersWithTeams);
     } catch (err) {
       console.error('Error fetching track engineers:', err);
-      setErrorTrackEngineers(`Error al cargar los ingenieros de pista: ${err.message}`);
+      setErrorTrackEngineers(`Error loading track engineers: ${err.message}`);
       setTrackEngineersByLeague([]);
     } finally {
       setLoadingTrackEngineers(false);
@@ -1392,7 +1439,7 @@ export default function MarketPage() {
       setChiefEngineersByLeague(data.chief_engineers);
     } catch (err) {
       console.error('Error fetching chief engineers:', err);
-      setErrorChiefEngineers(`Error al cargar los ingenieros jefe: ${err.message}`);
+      setErrorChiefEngineers(`Error loading chief engineers: ${err.message}`);
       setChiefEngineersByLeague([]);
     } finally {
       setLoadingChiefEngineers(false);
@@ -1532,14 +1579,16 @@ export default function MarketPage() {
         {/* Header */}
         <div className="mb-6">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
-            <div>
-              <h1 className="text-h1 font-bold text-text-primary mb-2">
-                🏁 Mercado F1
-              </h1>
-              <p className="text-text-secondary">
-                Liga: <span className="text-accent-main font-medium">{selectedLeague.name}</span>
-              </p>
-            </div>
+          <div className="flex items-center justify-between">
+            <h1 className="text-h1 font-bold text-text-primary mb-2">
+              <span className="inline-flex items-center gap-3">
+                <img src="/images/logos/f1tasy.png" alt="Logo" className="h-8 w-auto" />
+              </span>
+            </h1>
+            <span className="text-text-secondary text-small font-medium">
+              <span className="text-accent-main font-semibold">{selectedLeague.name}</span>
+            </span>
+          </div>
 
 
         </div>
@@ -1550,7 +1599,7 @@ export default function MarketPage() {
             <div className="flex items-center gap-3">
               <Clock className="h-5 w-5 text-accent-main" />
               <div>
-                <p className="text-small text-text-secondary">Próxima actualización</p>
+                <p className="text-small text-text-secondary">Next Refresh</p>
                 <p className="text-body font-medium text-text-primary">{timeLeft}</p>
               </div>
             </div>
@@ -1561,9 +1610,9 @@ export default function MarketPage() {
       {/* Main Content */}
       <Tabs value={currentTab} onValueChange={setCurrentTab} className="w-full">
         <TabsList className="grid w-full grid-cols-3">
-          <TabsTrigger value="market">Mercado</TabsTrigger>
-          <TabsTrigger value="operations">Mis Operaciones</TabsTrigger>
-          <TabsTrigger value="history">Histórico</TabsTrigger>
+          <TabsTrigger value="market">Market</TabsTrigger>
+          <TabsTrigger value="operations">My Operations</TabsTrigger>
+          <TabsTrigger value="history">Records</TabsTrigger>
         </TabsList>
 
         {/* Player Balance Bar - Full Width */}
@@ -1576,7 +1625,7 @@ export default function MarketPage() {
                   <TrendingUp className="h-6 w-6 text-accent-main" />
                 </div>
                 <div>
-                  <p className="text-small text-text-secondary font-medium">Saldo actual</p>
+                  <p className="text-small text-text-secondary font-medium">Current balance</p>
                   <p className="text-h2 font-bold text-state-success">
                     {formatCurrency(playerMoney)}
                   </p>
@@ -1592,7 +1641,7 @@ export default function MarketPage() {
                     <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-accent-main"></div>
                   </div>
                   <div>
-                    <p className="text-small text-text-secondary font-medium">Cargando pujas...</p>
+                    <p className="text-small text-text-secondary font-medium">Loading bids...</p>
                   </div>
                 </div>
               )}
@@ -1604,9 +1653,9 @@ export default function MarketPage() {
                       <Clock className="h-6 w-6 text-state-warning" />
                     </div>
                     <div>
-                      <p className="text-small text-text-secondary font-medium">Pujas activas</p>
+                      <p className="text-small text-text-secondary font-medium">Active bids</p>
                       <p className="text-h3 font-bold text-state-warning">
-                        {getTotalActiveBidsCount()} puja{getTotalActiveBidsCount() !== 1 ? 's' : ''}
+                        {getTotalActiveBidsCount()} bid{getTotalActiveBidsCount() !== 1 ? 's' : ''}
                       </p>
                     </div>
                   </div>
@@ -1618,7 +1667,7 @@ export default function MarketPage() {
                       <TrendingUp className="h-6 w-6 text-state-error" />
                     </div>
                     <div>
-                      <p className="text-small text-text-secondary font-medium">Total en pujas</p>
+                      <p className="text-small text-text-secondary font-medium">Total in bids</p>
                       <p className="text-h3 font-bold text-state-error">
                         {formatCurrency(calculateTotalBids())}
                       </p>
@@ -1632,7 +1681,7 @@ export default function MarketPage() {
                       <TrendingUp className="h-6 w-6 text-state-success" />
                     </div>
                     <div>
-                      <p className="text-small text-text-secondary font-medium">Saldo disponible</p>
+                      <p className="text-small text-text-secondary font-medium">Available balance</p>
                       <p className="text-h3 font-bold text-state-success">
                         {formatCurrency(playerMoney - calculateTotalBids())}
                       </p>
@@ -1648,12 +1697,12 @@ export default function MarketPage() {
                     <TrendingUp className="h-6 w-6 text-text-secondary" />
                   </div>
                   <div>
-                    <p className="text-small text-text-secondary font-medium">Sin pujas activas</p>
+                    <p className="text-small text-text-secondary font-medium">No active bids</p>
                     <p className="text-h3 font-bold text-state-success">
                       {formatCurrency(playerMoney)}
                     </p>
                     <p className="text-xs text-text-secondary mt-1">
-                      Saldo disponible para pujas
+                    Available balance for bids
                     </p>
                   </div>
                 </div>
@@ -1674,7 +1723,7 @@ export default function MarketPage() {
                   className="flex items-center gap-2"
                 >
                   <Clock className="h-4 w-4" />
-                  Finalizar Subastas
+                  Finish Auctions
                 </Button>
                 <Button
                   variant="outline"
@@ -1682,7 +1731,7 @@ export default function MarketPage() {
                   className="flex items-center gap-2"
                 >
                   <TrendingUp className="h-4 w-4" />
-                  Actualizar Valores
+                  Update Values
                 </Button>
                 <Button
                   variant="outline"
@@ -1690,7 +1739,7 @@ export default function MarketPage() {
                   className="flex items-center gap-2"
                 >
                   <Search className="h-4 w-4" />
-                  Generar Ofertas FIA
+                  Generate FIA Offers
                 </Button>
                 <Button
                   variant="outline"
@@ -1698,7 +1747,7 @@ export default function MarketPage() {
                   className="flex items-center gap-2"
                 >
                   <Search className="h-4 w-4" />
-                  Generar Ofertas FIA (Propietarios)
+                  Generate FIA Offers (Owners)
                 </Button>
               </div>
             </Card>
@@ -1710,7 +1759,7 @@ export default function MarketPage() {
               <div className="flex-1 relative">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-text-secondary" />
                 <Input
-                  placeholder="Buscar pilotos, ingenieros, equipos..."
+                  placeholder="Search drivers, engineers, teams..."
                   className="pl-10"
                   // TODO: Implement search functionality
                 />
@@ -1719,7 +1768,7 @@ export default function MarketPage() {
                 {isAdmin && (
                   <Button variant="outline" className="flex items-center gap-2">
                     <Filter className="h-4 w-4" />
-                    Filtros
+                    Filters
                   </Button>
                 )}
                 <Button 
@@ -1766,7 +1815,7 @@ export default function MarketPage() {
               disabled={loadingDrivers}
             >
               <Users className="h-4 w-4" />
-              {loadingDrivers ? 'Cargando...' : 'Todos los Pilotos'}
+              {loadingDrivers ? 'Loading...' : 'All Drivers'}
             </Button>
             <Button
               variant="outline"
@@ -1774,7 +1823,7 @@ export default function MarketPage() {
               onClick={handleOpenTrackEngineers}
             >
               <Settings className="h-4 w-4" />
-              Ingenieros de Pista
+              Track Engineers
             </Button>
             <Button
               variant="outline"
@@ -1782,7 +1831,7 @@ export default function MarketPage() {
               onClick={handleOpenChiefEngineers}
             >
               <Settings className="h-4 w-4" />
-              Ingenieros Jefe
+              Chief Engineers
             </Button>
             <Button
               variant="outline"
@@ -1790,7 +1839,7 @@ export default function MarketPage() {
               onClick={handleOpenTeamConstructors}
             >
               <Users className="h-4 w-4" />
-              Equipos
+              Teams
             </Button>
           </div>
 
@@ -1847,10 +1896,8 @@ export default function MarketPage() {
             <Card className="p-6">
               <div className="text-center">
                 <Users className="mx-auto h-12 w-12 text-text-secondary mb-4" />
-                <CardTitle className="mb-2">No hay elementos en el mercado</CardTitle>
-                <p className="text-text-secondary">
-                  El mercado está vacío en este momento
-                </p>
+                <CardTitle className="mb-2">No items in the market</CardTitle>
+                <p className="text-text-secondary">The market is empty at the moment</p>
               </div>
             </Card>
           ) : (
@@ -1872,7 +1919,7 @@ export default function MarketPage() {
                   return (
                     <div key={`pilot-${item.id}`}>
                       <DriverRaceCard
-                        driver={{ ...item, my_bid: myBidAmount, num_bids: totalBids }}
+                        driver={{ ...item, my_bid: myBidAmount, num_bids: totalBids, total_points: item.total_points_sum }}
                         showStats={true}
                         isOwned={false}
                         leagueId={selectedLeague.id}
@@ -1939,19 +1986,19 @@ export default function MarketPage() {
           <Card>
             <CardHeader>
               <div className="flex items-center justify-between">
-              <CardTitle>Mis Operaciones</CardTitle>
+              <CardTitle></CardTitle>
                 <div className="flex items-center gap-4">
                   <div className="flex gap-4 text-small">
                     <div className="flex items-center gap-2">
                       <div className="w-3 h-3 rounded-full bg-accent-main"></div>
                       <span className="text-text-secondary">
-                        {myBids.length} puja{myBids.length !== 1 ? 's' : ''} activa{myBids.length !== 1 ? 's' : ''}
+                                                 {myBids.length} active bid{myBids.length !== 1 ? 's' : ''}
                       </span>
                     </div>
                     <div className="flex items-center gap-2">
                       <div className="w-3 h-3 rounded-full bg-state-success"></div>
                       <span className="text-text-secondary">
-                        {mySales.length} elemento{mySales.length !== 1 ? 's' : ''} en venta
+                                                 {mySales.length} item{mySales.length !== 1 ? 's' : ''} for sale
                       </span>
                     </div>
                   </div>
@@ -1997,22 +2044,22 @@ export default function MarketPage() {
             <CardContent>
               <Tabs value={opsTab.toString()} onValueChange={(val) => setOpsTab(parseInt(val))}>
                 <TabsList>
-                  <TabsTrigger value="0">Compras</TabsTrigger>
-                  <TabsTrigger value="1">Ventas</TabsTrigger>
+                  <TabsTrigger value="0">Purchases</TabsTrigger>
+                  <TabsTrigger value="1">Sales</TabsTrigger>
                 </TabsList>
                 <TabsContent value="0">
                   <div className="space-y-4">
                     {loadingOps ? (
                       <div className="text-center py-8">
                         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-accent-main mx-auto mb-4"></div>
-                        <p className="text-text-secondary">Cargando pujas y ofertas activas...</p>
+                                                 <p className="text-text-secondary">Loading active bids and offers...</p>
                       </div>
                     ) : myBids.length === 0 && existingOffers.length === 0 ? (
                       <div className="text-center py-8">
                         <Users className="mx-auto h-12 w-12 text-text-secondary mb-4" />
-                        <p className="text-text-secondary">No tienes pujas ni ofertas activas</p>
+                                                 <p className="text-text-secondary">You have no active bids or offers</p>
                         <p className="text-small text-text-secondary mt-2">
-                          Ve al mercado para hacer pujas en fichajes o ofertas a otros jugadores
+                                                     Go to the market to place bids or make offers to other players
                         </p>
                       </div>
                     ) : (
@@ -2023,17 +2070,17 @@ export default function MarketPage() {
                                                     <div className="flex items-center justify-between mb-4">
                           <h3 className="text-lg font-semibold text-text-primary flex items-center gap-2">
                             <div className="w-3 h-3 rounded-full bg-accent-main"></div>
-                            Pujas en Subastas ({myBids.length})
+                            Auction Bids ({myBids.length})
                           </h3>
                           
                           {/* Información de pujas en subastas */}
                           {myBids.length > 0 && (
                             <div className="flex items-center gap-4 text-xs">
-                              <div className="flex items-center gap-2">
-                                <div className="w-2 h-2 rounded-full bg-state-error"></div>
-                                <span className="text-text-secondary">Total en pujas:</span>
-                                <span className="font-bold text-state-error">{formatCurrency(calculateTotalAuctionBids())}</span>
-                              </div>
+                                                          <div className="flex items-center gap-2">
+                              <div className="w-2 h-2 rounded-full bg-state-error"></div>
+                              <span className="text-text-secondary">Total in bids:</span>
+                              <span className="font-bold text-state-error">{formatCurrency(calculateTotalAuctionBids())}</span>
+                            </div>
                             </div>
                           )}
                         </div>
@@ -2120,7 +2167,7 @@ export default function MarketPage() {
                                         </Avatar>
                                         {/* Mi puja debajo de la foto */}
                                         <p className="text-accent-main font-bold text-sm text-center">
-                                          Mi puja: {formatNumberWithDots(bid.my_bid)}€
+                                          My bid: {formatNumberWithDots(bid.my_bid)}€
                                         </p>
                                       </div>
                                       
@@ -2131,9 +2178,9 @@ export default function MarketPage() {
                                           <p className="text-text-secondary text-sm truncate">{displayTeam}</p>
                                           <p className="text-accent-main text-xs mt-1">{displayRole}</p>
                                           {bid.highest_bid && bid.highest_bid !== bid.my_bid && (
-                                            <p className="text-state-warning text-xs mt-1">
-                                              Más alta: {formatNumberWithDots(bid.highest_bid)}€
-                                            </p>
+                                                                                         <p className="text-state-warning text-xs mt-1">
+                                              Highest: {formatNumberWithDots(bid.highest_bid)}€
+                                             </p>
                                           )}
                                         </div>
                                         
@@ -2180,7 +2227,7 @@ export default function MarketPage() {
                         <div className="flex items-center justify-between mb-4">
                           <h3 className="text-lg font-semibold text-text-primary flex items-center gap-2">
                             <div className="w-3 h-3 rounded-full bg-state-success"></div>
-                            Ofertas a Otros Jugadores ({existingOffers.length})
+                            Offers to Other Players ({existingOffers.length})
                           </h3>
                           
                           {/* Información de ofertas a otros jugadores */}
@@ -2188,7 +2235,7 @@ export default function MarketPage() {
                             <div className="flex items-center gap-4 text-xs">
                               <div className="flex items-center gap-2">
                                 <div className="w-2 h-2 rounded-full bg-state-error"></div>
-                                <span className="text-text-secondary">Total en ofertas:</span>
+                                <span className="text-text-secondary">Total in offers:</span>
                                 <span className="font-bold text-state-error">{formatCurrency(calculateTotalPlayerOffers())}</span>
                               </div>
                             </div>
@@ -2268,7 +2315,7 @@ export default function MarketPage() {
                                     </Avatar>
                                     {/* Mi oferta debajo de la foto */}
                                     <p className="text-state-success font-bold text-sm text-center">
-                                      Mi oferta: {formatNumberWithDots(offer.my_bid || offer.offer_value)}€
+                                      My offer: {formatNumberWithDots(offer.my_bid || offer.offer_value)}€
                                     </p>
                                   </div>
                                   
@@ -2324,17 +2371,17 @@ export default function MarketPage() {
                     {loadingOps ? (
                       <div className="text-center py-8">
                         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-accent-main mx-auto mb-4"></div>
-                        <p className="text-text-secondary">Cargando elementos en venta...</p>
+                                                 <p className="text-text-secondary">Loading items for sale...</p>
                       </div>
                     ) : mySales.length === 0 ? (
                       <div className="text-center py-8">
                         <TrendingUp className="mx-auto h-12 w-12 text-text-secondary mb-4" />
-                        <p className="text-text-secondary">No tienes elementos en venta</p>
+                                                 <p className="text-text-secondary">You have no items for sale</p>
                         <p className="text-small text-text-secondary mt-2">
-                          Ve a tu equipo para poner elementos en el mercado
+                                                     Go to your Team to place items on the market
                         </p>
                         <p className="text-small text-text-secondary mt-1">
-                          Las ofertas recibidas aparecerán aquí cuando tengas elementos en venta
+                                                     Received offers will appear here when you have items for sale
                         </p>
                       </div>
                     ) : (
@@ -2544,7 +2591,7 @@ export default function MarketPage() {
       <Dialog open={openDrivers} onOpenChange={setOpenDrivers}>
         <DialogContent className="max-w-4xl max-h-[80vh] overflow-hidden">
           <DialogHeader>
-            <DialogTitle>Todos los Pilotos - {selectedLeague?.name}</DialogTitle>
+                                 <DialogTitle>All Drivers - {selectedLeague?.name}</DialogTitle>
           </DialogHeader>
 
           <div className="overflow-y-auto max-h-[60vh]">
@@ -2572,7 +2619,7 @@ export default function MarketPage() {
             ) : drivers.length === 0 ? (
               <div className="text-center py-8">
                 <Users className="mx-auto h-12 w-12 text-text-secondary mb-4" />
-                <p className="text-text-secondary">No hay pilotos disponibles</p>
+                                 <p className="text-text-secondary">No drivers available</p>
               </div>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -2605,7 +2652,7 @@ export default function MarketPage() {
       <Dialog open={openTrackEngineers} onOpenChange={setOpenTrackEngineers}>
         <DialogContent className="max-w-4xl max-h-[80vh] overflow-hidden">
           <DialogHeader>
-            <DialogTitle>Ingenieros de Pista - {selectedLeague?.name}</DialogTitle>
+                         <DialogTitle>Track Engineers - {selectedLeague?.name}</DialogTitle>
           </DialogHeader>
 
           <div className="overflow-y-auto max-h-[60vh]">
@@ -2633,7 +2680,7 @@ export default function MarketPage() {
             ) : trackEngineersByLeague.length === 0 ? (
               <div className="text-center py-8">
                 <Settings className="mx-auto h-12 w-12 text-text-secondary mb-4" />
-                <p className="text-text-secondary">No hay ingenieros de pista disponibles</p>
+                                 <p className="text-text-secondary">No track engineers available</p>
               </div>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -2667,7 +2714,7 @@ export default function MarketPage() {
       <Dialog open={openChiefEngineers} onOpenChange={setOpenChiefEngineers}>
         <DialogContent className="max-w-4xl max-h-[80vh] overflow-hidden">
           <DialogHeader>
-            <DialogTitle>Ingenieros Jefe - {selectedLeague?.name}</DialogTitle>
+                         <DialogTitle>Chief Engineers - {selectedLeague?.name}</DialogTitle>
           </DialogHeader>
 
           <div className="overflow-y-auto max-h-[60vh]">
@@ -2695,7 +2742,7 @@ export default function MarketPage() {
             ) : chiefEngineersByLeague.length === 0 ? (
               <div className="text-center py-8">
                 <Settings className="mx-auto h-12 w-12 text-text-secondary mb-4" />
-                <p className="text-text-secondary">No hay ingenieros jefe disponibles</p>
+                                 <p className="text-text-secondary">No chief engineers available</p>
               </div>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -2729,7 +2776,7 @@ export default function MarketPage() {
       <Dialog open={openTeamConstructors} onOpenChange={setOpenTeamConstructors}>
         <DialogContent className="max-w-4xl max-h-[80vh] overflow-hidden">
           <DialogHeader>
-            <DialogTitle>Equipos - {selectedLeague?.name}</DialogTitle>
+                         <DialogTitle>Teams - {selectedLeague?.name}</DialogTitle>
           </DialogHeader>
 
           <div className="overflow-y-auto max-h-[60vh]">
@@ -2757,7 +2804,7 @@ export default function MarketPage() {
             ) : teamConstructorsByLeague.length === 0 ? (
               <div className="text-center py-8">
                 <Users className="mx-auto h-12 w-12 text-text-secondary mb-4" />
-                <p className="text-text-secondary">No hay equipos disponibles</p>
+                                 <p className="text-text-secondary">No teams available</p>
               </div>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">

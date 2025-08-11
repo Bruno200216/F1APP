@@ -189,7 +189,7 @@ export default function TeamCard({
               <>
                 <TrendingUp className="w-4 h-4 text-text-secondary" />
                 <span className="text-small text-text-secondary">
-                  Rendimiento
+                  Performance
                 </span>
               </>
             )}
